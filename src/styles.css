@@ -1,0 +1,9 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+.btn{ @apply inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-brand-600 text-white hover:bg-brand-700 active:scale-[.99] transition; }
+.btn-secondary{ @apply bg-gray-100 text-gray-900 hover:bg-gray-200; }
+.input{ @apply w-full rounded-xl border border-gray-200 px-4 py-2 outline-none focus:border-brand-400; }
+.label{ @apply text-sm text-gray-600; }
+.card{ @apply rounded-2xl bg-white shadow-soft; }
