@@ -1,13 +1,17 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import dayjs from 'dayjs'
+import EventForm from '../components/EventForm'
+
+function RowActions({ children }){ return <div className="mt-3 grid grid-cols-1 sm:grid-cols-3 gap-2">{children}</div> }
 
 export default function Admin(){
   const [pass, setPass] = useState('')
   const [ok, setOk] = useState(false)
   const [pending, setPending] = useState([])
   const [approved, setApproved] = useState([])
-  const [commentMap, setCommentMap] = useState({})
+  const [editId, setEditId] = useState(null)      // id, що редагується
+  const [editTable, setEditTable] = useState(null) // 'events_pending' | 'events_approved'
 
   useEffect(()=>{ if(!ok) return; refresh() },[ok])
 
@@ -20,25 +24,52 @@ export default function Admin(){
     if(!a.error) setApproved(a.data||[])
   }
 
-  const approve = async (ev)=>{
-    if(!ok) return
-    const payload = { ...ev }
-    delete payload.id
-    delete payload.status
-    delete payload.admin_comment
-    // запис у approved
-    const { error } = await supabase.from('events_approved').insert({ ...payload })
-    if(error) return alert('Помилка: '+error.message)
-    // видалення з pending
-    await supabase.from('events_pending').delete().eq('id', ev.id)
+  // ✅ вставляємо в approved тільки дозволені колонки
+  const approve = async (ev) => {
+  // лише дозволені поля в approved
+  const allowed = [
+    'title','description','start_at','end_at','timezone','type','tge_exchanges','link'
+  ];
+  const payload = Object.fromEntries(
+    Object.entries(ev).filter(([k]) => allowed.includes(k))
+  );
+
+  const toMinutes = (s) => {
+  const m = /^(\d{1,2}):(\d{2})(?::(\d{2}))?$/.exec(s || "");
+  if (!m) return Number.POSITIVE_INFINITY;
+  return (+m[1]) * 60 + (+m[2]);
+};
+
+  // ⬇️ НОВЕ: відсортувати біржі за часом перед вставкою
+  const ex = Array.isArray(ev.tge_exchanges) ? [...ev.tge_exchanges] : [];
+  ex.sort((a, b) => toMinutes(a?.time) - toMinutes(b?.time));
+  payload.tge_exchanges = ex;
+
+  const { error } = await supabase.from('events_approved').insert(payload);
+  if (error) return alert('Помилка: ' + error.message);
+
+  await supabase.from('events_pending').delete().eq('id', ev.id);
+  await refresh();
+};
+
+  // ❌ Відхилити = просто видалити заявку
+  const reject = async (ev)=>{
+    if(!confirm('Відхилити і видалити цю заявку?')) return
+    const { error } = await supabase.from('events_pending').delete().eq('id', ev.id)
+    if(error) return alert('Помилка: ' + error.message)
     await refresh()
   }
 
-  const reject = async (ev)=>{
-    const admin_comment = commentMap[ev.id] || ''
-    const { error } = await supabase.from('events_pending')
-      .update({ status: 'rejected', admin_comment })
-      .eq('id', ev.id)
+  const updateRow = async (table, id, payload)=>{
+    const { error } = await supabase.from(table).update(payload).eq('id', id)
+    if(error) return alert('Помилка: '+error.message)
+    setEditId(null); setEditTable(null)
+    await refresh()
+  }
+
+  const removeRow = async (table, id)=>{
+    if(!confirm('Видалити запис?')) return
+    const { error } = await supabase.from(table).delete().eq('id', id)
     if(error) return alert('Помилка: '+error.message)
     await refresh()
   }
@@ -56,6 +87,20 @@ export default function Admin(){
     )
   }
 
+  const EditingCard = ({table, ev})=> (
+    <div className="card p-4">
+      <div className="text-sm text-gray-500 mb-2">Редагування ({table})</div>
+      <EventForm
+        initial={{ ...ev, start_at: ev.start_at?.slice(0,16), end_at: ev.end_at?.slice(0,16) }}
+        onSubmit={(payload)=> updateRow(table, ev.id, payload)}
+        loading={false}
+      />
+      <div className="flex gap-2 mt-3">
+        <button className="btn-secondary px-4 py-2 rounded-xl" onClick={()=>{setEditId(null); setEditTable(null)}}>Скасувати</button>
+      </div>
+    </div>
+  )
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
@@ -70,29 +115,29 @@ export default function Admin(){
         <div className="space-y-3">
           {pending.map(ev=> (
             <article key={ev.id} className="card p-4">
-              <div className="flex items-start justify-between gap-3">
-                <div>
+              {editId===ev.id && editTable==='events_pending' ? (
+                <EditingCard table="events_pending" ev={ev} />
+              ) : (
+                <>
                   <div className="text-xs text-gray-500">{dayjs(ev.created_at).format('DD MMM HH:mm')}</div>
                   <h3 className="font-semibold">{ev.title}</h3>
                   {ev.description && <p className="text-sm text-gray-600 mt-1">{ev.description}</p>}
                   <div className="text-sm mt-2 flex flex-wrap gap-2">
                     <span className="px-2 py-1 rounded-md bg-gray-100">{ev.type}</span>
                     <span>🕒 {dayjs(ev.start_at).format('DD MMM YYYY, HH:mm')} {ev.timezone}</span>
-                    {ev.location && <span>📍 {ev.location}</span>}
                     {ev.link && <a className="underline" href={ev.link} target="_blank">Лінк</a>}
-                    {ev.submitter_email && <span>✉️ {ev.submitter_email}</span>}
                   </div>
-                  {ev.status==='rejected' && <div className="mt-2 text-sm text-red-600">Відхилено: {ev.admin_comment||'без коментаря'}</div>}
-                </div>
-              </div>
 
-              <div className="mt-3 grid grid-cols-1 sm:grid-cols-3 gap-2">
-                <button className="btn" onClick={()=>approve(ev)}>Схвалити</button>
-                <input className="input" placeholder="Коментар для відмови (опц.)"
-                       value={commentMap[ev.id]||''}
-                       onChange={e=> setCommentMap(m=>({ ...m, [ev.id]: e.target.value }))} />
-                <button className="btn-secondary" onClick={()=>reject(ev)}>Відхилити</button>
-              </div>
+                  <RowActions>
+                    <button className="btn" onClick={()=>approve(ev)}>Схвалити</button>
+                    <button className="btn-secondary" onClick={()=>reject(ev)}>Відхилити</button>
+                    <div className="flex gap-2">
+                      <button className="btn-secondary" onClick={()=>{setEditId(ev.id); setEditTable('events_pending')}}>Редагувати</button>
+                      <button className="btn-secondary" onClick={()=>removeRow('events_pending', ev.id)}>Видалити</button>
+                    </div>
+                  </RowActions>
+                </>
+              )}
             </article>
           ))}
         </div>
@@ -105,8 +150,18 @@ export default function Admin(){
         <div className="space-y-3">
           {approved.map(ev=> (
             <article key={ev.id} className="card p-4">
-              <div className="font-semibold">{ev.title}</div>
-              <div className="text-sm text-gray-600">{dayjs(ev.start_at).format('DD MMM YYYY, HH:mm')} {ev.timezone} • {ev.type}</div>
+              {editId===ev.id && editTable==='events_approved' ? (
+                <EditingCard table="events_approved" ev={ev} />
+              ) : (
+                <>
+                  <div className="font-semibold">{ev.title}</div>
+                  <div className="text-sm text-gray-600">{dayjs(ev.start_at).format('DD MMM YYYY, HH:mm')} {ev.timezone} • {ev.type}</div>
+                  <RowActions>
+                    <button className="btn-secondary" onClick={()=>{setEditId(ev.id); setEditTable('events_approved')}}>Редагувати</button>
+                    <button className="btn-secondary" onClick={()=>removeRow('events_approved', ev.id)}>Видалити</button>
+                  </RowActions>
+                </>
+              )}
             </article>
           ))}
         </div>
