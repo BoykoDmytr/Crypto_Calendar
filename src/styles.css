@@ -8,3 +8,8 @@
 .input { @apply w-full rounded-xl border border-gray-200 px-4 py-2 outline-none focus:border-brand-400; }
 .label { @apply text-sm text-gray-600; }
 .card { @apply rounded-2xl bg-white shadow-soft; }
+/* мобільний фікс від горизонтального скролу */
+html, body, #root { max-width: 100%; overflow-x: hidden; }
+
+/* дрібні твіки, щоб кліки на мобілі були «пружні» */
+button { touch-action: manipulation; }

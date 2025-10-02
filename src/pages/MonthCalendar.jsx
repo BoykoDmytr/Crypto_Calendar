@@ -11,7 +11,6 @@ dayjs.extend(timezone);
 const KYIV = 'Europe/Kyiv';
 
 function startOfGrid(monthStart) {
-  // починаємо з понеділка тижня, що перетинає 1-е число
   let d = monthStart.startOf('month');
   const weekday = (d.day() + 6) % 7; // 0 = Mon
   return d.subtract(weekday, 'day');
@@ -23,12 +22,11 @@ function endOfGrid(monthStart) {
 }
 
 export default function MonthCalendar() {
-  const [monthCursor, setMonthCursor] = useState(dayjs()); // поточний місяць
+  const [monthCursor, setMonthCursor] = useState(dayjs());
   const [events, setEvents] = useState([]);
   const [selectedISO, setSelectedISO] = useState(dayjs().format('YYYY-MM-DD'));
   const [loading, setLoading] = useState(true);
 
-  // 1) тягнемо всі схвалені події
   useEffect(() => {
     (async () => {
       setLoading(true);
@@ -41,23 +39,18 @@ export default function MonthCalendar() {
     })();
   }, []);
 
-  // 2) групуємо по даті з урахуванням зони кожної події:
-  //    якщо подія зі зоною 'Kyiv' — беремо дату у київському часі,
-  //    інакше — у UTC.
   const byDate = useMemo(() => {
     const map = new Map();
     for (const ev of events) {
       const base = dayjs.utc(ev.start_at);
-      const local = ev.timezone === 'Kyiv' ? base.tz(KYIV) : base; // UTC by default
+      const local = ev.timezone === 'Kyiv' ? base.tz(KYIV) : base; // UTC за замовч.
       const key = local.format('YYYY-MM-DD');
       if (!map.has(key)) map.set(key, []);
       map.get(key).push(ev);
     }
-    // На випадок TGE — відсортуємо біржі вже на рендері EventCard
     return map;
   }, [events]);
 
-  // 3) побудова сітки місяця
   const gridStart = startOfGrid(monthCursor);
   const gridEnd = endOfGrid(monthCursor);
   const days = [];
@@ -66,67 +59,69 @@ export default function MonthCalendar() {
   }
 
   const selectedEvents = byDate.get(selectedISO) || [];
+  const todayISO = dayjs().format('YYYY-MM-DD');
 
   return (
-    <div className="space-y-4">
+    <div className="overflow-x-hidden space-y-3 sm:space-y-4">
       {/* Заголовок місяця + навігація */}
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between mt-2 sm:mt-0">
         <button
-          className="btn-secondary px-3 py-2 rounded-xl"
+          className="px-3 py-2 rounded-xl border border-gray-200 bg-white active:scale-[.98]"
           onClick={() => setMonthCursor(m => m.subtract(1, 'month'))}
-        >
-          ←
-        </button>
-        <h1 className="text-xl font-semibold">
+        >←</button>
+        <h1 className="text-lg sm:text-xl font-semibold">
           {monthCursor.format('MMMM YYYY')}
         </h1>
         <button
-          className="btn-secondary px-3 py-2 rounded-xl"
+          className="px-3 py-2 rounded-xl border border-gray-200 bg-white active:scale-[.98]"
           onClick={() => setMonthCursor(m => m.add(1, 'month'))}
-        >
-          →
-        </button>
+        >→</button>
       </div>
 
-      {/* Сітка днів (мобільно-дружня, але й на десктопі гарно) */}
-      <div className="grid grid-cols-7 gap-2 text-xs text-gray-500">
-        {['Mo','Tu','We','Th','Fr','Sa','Su'].map((w) => (
+      {/* Заголовки днів тижня */}
+      <div className="grid grid-cols-7 gap-1 sm:gap-2 text-[11px] sm:text-xs text-gray-500 px-0.5">
+        {['Mo','Tu','We','Th','Fr','Sa','Su'].map(w => (
           <div key={w} className="text-center py-1">{w}</div>
         ))}
       </div>
 
-      <div className="grid grid-cols-7 gap-2">
+      {/* Сітка місяця */}
+      <div className="grid grid-cols-7 gap-1 sm:gap-2">
         {days.map(d => {
           const iso = d.format('YYYY-MM-DD');
           const inMonth = d.month() === monthCursor.month();
           const has = (byDate.get(iso) || []).length > 0;
           const isSelected = iso === selectedISO;
+          const isToday = iso === todayISO;
 
           return (
             <button
               key={iso}
               onClick={() => setSelectedISO(iso)}
               className={[
-                'rounded-xl border p-3 h-24 text-left relative focus:outline-none',
+                'relative rounded-xl border select-none',
+                'h-12 sm:h-24 p-1 sm:p-3 text-left',
                 inMonth ? 'bg-white' : 'bg-gray-50 text-gray-400',
                 isSelected ? 'ring-2 ring-brand-500 border-transparent' : 'border-gray-200',
+                isToday && !isSelected ? 'outline outline-1 outline-brand-200' : '',
               ].join(' ')}
             >
-              <div className="text-sm font-medium">{d.date()}</div>
-              {has && <div className="absolute right-2 bottom-2 w-2 h-2 rounded-full bg-brand-500" />}
+              <div className="text-[12px] sm:text-sm font-medium">{d.date()}</div>
+              {has && <div className="absolute right-1.5 bottom-1.5 w-1.5 h-1.5 sm:w-2 sm:h-2 rounded-full bg-brand-500" />}
             </button>
           );
         })}
       </div>
 
       {/* Події на обрану дату */}
-      <div className="mt-4">
+      <div className="mt-2 sm:mt-3">
         <div className="flex items-center justify-between">
-          <h2 className="font-semibold">
+          <h2 className="font-semibold text-sm sm:text-base">
             Події на {dayjs(selectedISO).format('DD MMM YYYY')}
           </h2>
-          {loading && <span className="text-sm text-gray-500">Завантаження…</span>}
+          {loading && <span className="text-xs text-gray-500">Завантаження…</span>}
         </div>
+
         {selectedEvents.length === 0 ? (
           <p className="text-sm text-gray-600 mt-2">Немає подій на цю дату.</p>
         ) : (
