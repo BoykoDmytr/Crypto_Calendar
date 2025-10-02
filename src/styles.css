@@ -13,3 +13,42 @@ html, body, #root { max-width: 100%; overflow-x: hidden; }
 
 /* дрібні твіки, щоб кліки на мобілі були «пружні» */
 button { touch-action: manipulation; }
+/* приховати горизонтальний скролл у ряді фільтрів */
+.no-scrollbar::-webkit-scrollbar { display: none; }
+.no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+
+:root{
+  --bg: #F7FAFF;
+  --bg-alt: #EEF2F9;
+  --border: #E6EDF6;
+  --card: #FFFFFF;
+  --text: #0F172A;
+  --brand: #2563EB;
+  --brand-hover: #1D4ED8;
+}
+
+html, body, #root{
+  background: var(--bg);
+  color: var(--text);
+}
+
+/* картки — щоб усі мали однаковий вигляд */
+.card{
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  box-shadow: 0 1px 0 rgba(15, 23, 42, 0.02);
+}
+
+/* липкі панелі/фільтри */
+.sticky-filters{
+  background: var(--bg);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  border-bottom: 1px solid var(--border);
+}
+
+/* дрібні утиліти */
+.divider{ height:1px; background: var(--border); }
+.no-scrollbar::-webkit-scrollbar{ display:none; }
+.no-scrollbar{ -ms-overflow-style:none; scrollbar-width:none; }

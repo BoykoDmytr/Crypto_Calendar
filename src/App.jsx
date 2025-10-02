@@ -1,9 +1,9 @@
-import { Outlet, Link, useLocation } from 'react-router-dom'
+import { Outlet, Link, } from 'react-router-dom'
 import Navbar from './components/Navbar'
 import { TG_OWNER_URL, TG_DEV_URL, TG_chanel_URL } from './config'
 
 export default function App(){
-  const { pathname } = useLocation()
+
   return (
     <div className="max-w-screen-md mx-auto px-3 sm:px-4">
       <Navbar />
@@ -14,11 +14,6 @@ export default function App(){
       <footer className="py-10 text-center text-xs text-gray-500 space-y-2">
         <div>© {new Date().getFullYear()} Crypto Events Calendar</div>
 
-        {/* навігація, як і було */}
-        <div>
-          <Link to="/" className={`mr-3 ${pathname==='/'?'font-semibold':''}`}>Календар</Link>
-          <Link to="/add" className={`${pathname==='/add'?'font-semibold':''}`}>Додати подію</Link>
-        </div>
 
         {/* новий блок техпідтримки */}
         <div className="flex items-center justify-center gap-3 text-sm">
