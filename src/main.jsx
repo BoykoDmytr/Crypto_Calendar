@@ -7,6 +7,7 @@ import Calendar from './pages/Calendar';
 import AddEvent from './pages/AddEvent';
 import Admin from './pages/Admin';
 import './styles.css';
+import SuggestEdit from './pages/SuggestEdit';
 
 const router = createBrowserRouter([
   {
@@ -17,6 +18,7 @@ const router = createBrowserRouter([
       { path: 'events', element: <Calendar /> },   // Лістинг як “Івенти”
       { path: 'add', element: <AddEvent /> },
       { path: 'admin', element: <Admin /> },
+      { path: 'suggest/:id', element: <SuggestEdit /> },
     ],
   },
 ]);
