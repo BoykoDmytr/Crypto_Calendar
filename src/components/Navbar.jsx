@@ -17,18 +17,8 @@ export default function Navbar() {
           <Link className={`px-3 py-1 rounded-lg ${is('/events') ? 'bg-gray-100' : ''}`} to="/events">Івенти</Link>
           <Link className={`px-3 py-1 rounded-lg ${is('/admin') ? 'bg-gray-100' : ''}`} to="/admin">Адмін</Link>
 
-          {/* ⬇️ маленька кнопка ТІЛЬКИ на ≥768px: ховаємо весь контейнер на мобі */}
-          <div className="hidden md:block">
-            <Link to="/add" className="btn">+ Додати івент</Link>
-          </div>
-        </nav>
-      </div>
 
-      {/* ⬇️ широка мобільна кнопка під шапкою */}
-      <div className="md:hidden border-t border-gray-100 bg-white">
-        <div className="max-w-screen-md mx-auto px-3 py-2">
-          <Link to="/add" className="btn w-full">+ Додати івент</Link>
-        </div>
+        </nav>
       </div>
     </header>
   );

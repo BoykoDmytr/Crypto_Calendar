@@ -16,6 +16,7 @@ button { touch-action: manipulation; }
 /* приховати горизонтальний скролл у ряді фільтрів */
 .no-scrollbar::-webkit-scrollbar { display: none; }
 .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+.no-tap { -webkit-tap-highlight-color: transparent; }
 
 :root{
   --bg: #F7FAFF;

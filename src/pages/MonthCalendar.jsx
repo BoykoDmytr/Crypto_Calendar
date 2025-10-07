@@ -4,6 +4,7 @@ import EventCard from '../components/EventCard';
 import dayjs from 'dayjs';
 import utc from 'dayjs/plugin/utc';
 import timezone from 'dayjs/plugin/timezone';
+import { Link } from 'react-router-dom';
 
 dayjs.extend(utc);
 dayjs.extend(timezone);
@@ -112,7 +113,7 @@ export default function MonthCalendar() {
           );
         })}
       </div>
-
+      <div className="pt-1"> <Link to="/add" className="btn w-full sm:w-auto">+ Додати івент</Link> </div>
       {/* Події на обрану дату */}
       <div className="mt-2 sm:mt-3">
         <div className="flex items-center justify-between">

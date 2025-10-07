@@ -1,10 +1,11 @@
 // src/pages/Calendar.jsx
 import { useEffect, useMemo, useState } from 'react';
-import dayjs from 'dayjs';
+import { Link } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import EventCard from '../components/EventCard';
+import dayjs from 'dayjs';
 
-// Точні значення типів з БД
+// наші типи з БД (точні значення!)
 const TYPES = [
   'Listing (TGE)',
   'Binance Alpha',
@@ -14,26 +15,10 @@ const TYPES = [
   'Unlocks',
 ];
 
-// Побудова груп "дата → події" БЕЗ конвертацій / тайзонів
-function buildDateGroups(list) {
-  const map = new Map();
-  for (const ev of list) {
-    const d = dayjs(ev.start_at);                 // що ввів користувач – те й беремо
-    const key = d.format('YYYY-MM-DD');
-    const item =
-      map.get(key) ||
-      { key, label: d.format('DD MMM'), year: d.format('YYYY'), items: [] };
-    item.items.push(ev);
-    map.set(key, item);
-  }
-  // 'YYYY-MM-DD' сортується природно
-  return Array.from(map.values()).sort((a, b) => a.key.localeCompare(b.key));
-}
-
 export default function Calendar() {
   const [allEvents, setAllEvents] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [type, setType] = useState('All'); // фільтр за типом
+  const [type, setType] = useState('All'); // фільтр
 
   useEffect(() => {
     (async () => {
@@ -47,14 +32,31 @@ export default function Calendar() {
     })();
   }, []);
 
-  // 1) застосовуємо фільтр
+  // застосовуємо фільтр за типом
   const filtered = useMemo(
-    () => (type === 'All' ? allEvents : allEvents.filter(ev => ev.type === type)),
+    () => (type === 'All' ? allEvents : allEvents.filter((ev) => ev.type === type)),
     [allEvents, type]
   );
 
-  // 2) групи по даті
-  const groups = useMemo(() => buildDateGroups(filtered), [filtered]);
+  // групуємо за датою + додаємо день тижня в лейбл
+  const groups = useMemo(() => {
+    const map = new Map();
+    for (const ev of filtered) {
+      const d = dayjs(ev.start_at); // без примусової зміни TZ
+      const key = d.format('YYYY-MM-DD');
+      const item =
+        map.get(key) ??
+        {
+          key,
+          // показуємо день тижня
+          label: d.format('DD MMM (ddd)'),
+          items: [],
+        };
+      item.items.push(ev);
+      map.set(key, item);
+    }
+    return Array.from(map.values()).sort((a, b) => a.key.localeCompare(b.key));
+  }, [filtered]);
 
   return (
     <div className="space-y-4 sm:space-y-6">
@@ -78,13 +80,13 @@ export default function Calendar() {
         </div>
       </section>
 
-      {/* --- РЯД ФІЛЬТРІВ (sticky) --- */}
-      <div className="sticky top-14 z-[5] sticky-filters -mx-3 sm:-mx-4 px-3 sm:px-4 py-2">
+      {/* --- РЯД ФІЛЬТРІВ + КНОПКА (sticky) --- */}
+      <div className="sticky top-14 z-[5] -mx-3 sm:-mx-4 px-3 sm:px-4 pt-0 pb-0 bg-transparent">
         <div className="flex gap-2 overflow-x-auto no-scrollbar">
           <button
-            onClick={() => setType('All')}
+            onClick={()=>setType('All')}
             className={`px-3 py-1.5 rounded-full border text-sm whitespace-nowrap ${
-              type === 'All'
+              type==='All'
                 ? 'bg-brand-600 text-white border-brand-600'
                 : 'bg-white border-gray-200 hover:bg-gray-50'
             }`}
@@ -95,9 +97,9 @@ export default function Calendar() {
           {TYPES.map(t => (
             <button
               key={t}
-              onClick={() => setType(t)}
+              onClick={()=>setType(t)}
               className={`px-3 py-1.5 rounded-full border text-sm whitespace-nowrap ${
-                type === t
+                type===t
                   ? 'bg-brand-600 text-white border-brand-600'
                   : 'bg-white border-gray-200 hover:bg-gray-50'
               }`}
@@ -106,33 +108,39 @@ export default function Calendar() {
             </button>
           ))}
         </div>
+
+        {/* Кнопка одразу під фільтрами без зайвих відступів */}
+        <div className="mt-3">
+          <Link to="/add" className="btn h-9 px-3 text-sm w-full sm:w-auto">
+            + Додати івент
+          </Link>
+        </div>
       </div>
 
-      {/* --- КОНТЕНТ --- */}
-      {loading && <p className="text-sm text-gray-500">Завантаження…</p>}
+
+      {/* --- СПИСОК ПОДІЙ --- */}
+      {loading && <p className="text-sm text-gray-500 px-3 sm:px-4">Завантаження…</p>}
       {!loading && groups.length === 0 && (
-        <p className="text-sm text-gray-600">Немає подій за цим фільтром.</p>
+        <p className="text-sm text-gray-600 px-3 sm:px-4">Немає подій за цим фільтром.</p>
       )}
 
-      {!loading && (
-        <div className="space-y-6">
-          {groups.map(g => (
-            <section key={g.key}>
-              {/* шапка дня */}
-              <div className="flex items-center gap-3 text-xs text-gray-500 mb-2">
-                <div className="font-semibold text-gray-700">{g.label}</div>
-                <div className="h-px bg-gray-200 flex-1" />
-              </div>
-              {/* події дня */}
-              <div className="space-y-2">
-                {g.items.map(ev => (
-                  <EventCard key={ev.id} ev={ev} />
-                ))}
-              </div>
-            </section>
-          ))}
-        </div>
-      )}
+      <div className="space-y-6 px-3 sm:px-4">
+        {groups.map((g) => (
+          <section key={g.key}>
+            {/* шапка дня з днем тижня */}
+            <div className="flex items-center gap-3 text-xs text-gray-500 mb-2">
+              <div className="font-semibold text-gray-700">{g.label}</div>
+              <div className="h-px bg-gray-200 flex-1" />
+            </div>
+
+            <div className="space-y-2">
+              {g.items.map((ev) => (
+                <EventCard key={ev.id} ev={ev} />
+              ))}
+            </div>
+          </section>
+        ))}
+      </div>
     </div>
   );
 }

@@ -8,23 +8,50 @@ const toMinutes = (s) => {
   return (+m[1]) * 60 + (+m[2]);
 };
 
+// Типи, де час НЕобов’язковий (якщо не заданий — не показуємо HH:mm)
+const TIME_OPTIONAL = new Set(['Binance Alpha']);
+
 export default function EventCard({ ev }) {
-  const isTGE = ev?.type === 'Listing (TGE)';
+  const isTGE   = ev?.type === 'Listing (TGE)';
   const tzLabel = ev?.timezone || 'UTC';
 
-  // без конвертацій
+  // Без конвертацій — усе з БД беремо як є
   const start = ev?.start_at ? dayjs(ev.start_at) : null;
   const end   = ev?.end_at   ? dayjs(ev.end_at)   : null;
+
+  // Чи є «реальний» час у start (а не 00:00)?
+  const hasExplicitTime =
+    !!start && (start.hour() !== 0 || start.minute() !== 0 || !!end);
 
   // TGE: біржі і часи, відсортовані
   const tge = Array.isArray(ev?.tge_exchanges) ? [...ev.tge_exchanges] : [];
   tge.sort((a, b) => toMinutes(a?.time) - toMinutes(b?.time));
 
-  const whenLabel = start
-    ? (isTGE
-        ? `${start.format('DD MMM YYYY')} ${tzLabel}`  // TGE: без часу
-        : `${start.format('DD MMM YYYY, HH:mm')} ${tzLabel}`)
-    : '';
+  // Формуємо підпис дати/часу
+  let whenLabel = '';
+  if (start) {
+    if (isTGE) {
+      // Для TGE показуємо тільки дату
+      whenLabel = `${start.format('DD MMM YYYY')} ${tzLabel}`;
+    } else {
+      const timeOptional = TIME_OPTIONAL.has(ev?.type);
+
+      // Якщо тип із не обов'язковим часом і його не задано — показуємо лише дату
+      const showTime = !timeOptional || hasExplicitTime;
+
+      // Багатоденне в одному рядку (з →)
+      if (end && !start.isSame(end, 'day')) {
+        whenLabel = showTime
+          ? `${start.format('DD MMM YYYY, HH:mm')} ${tzLabel} → ${end.format('DD MMM YYYY, HH:mm')}`
+          : `${start.format('DD MMM YYYY')} ${tzLabel} → ${end.format('DD MMM YYYY')}`;
+      } else {
+        // Один день
+        whenLabel = showTime
+          ? `${start.format('DD MMM YYYY, HH:mm')} ${tzLabel}`
+          : `${start.format('DD MMM YYYY')} ${tzLabel}`;
+      }
+    }
+  }
 
   return (
     <article className="card p-4 relative">
@@ -35,7 +62,6 @@ export default function EventCard({ ev }) {
         title="Запропонувати правку"
         className="absolute top-2 right-2 inline-flex items-center justify-center w-9 h-9 rounded-full border border-gray-200 bg-white shadow-sm hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-brand-500"
       >
-        {/* іконка олівця (inline SVG, без сторонніх бібліотек) */}
         <svg viewBox="0 0 24 24" className="w-4 h-4 text-gray-600" fill="none"
              stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
           <path d="M12 20h9" />
@@ -43,7 +69,7 @@ export default function EventCard({ ev }) {
         </svg>
       </Link>
 
-      {/* трошки правого відступу, щоб заголовок не ліз під кнопку */}
+      {/* щоб текст не ліз під кнопку */}
       <h3 className="font-semibold text-lg leading-tight pr-12">{ev.title}</h3>
 
       {ev.description && (
@@ -58,7 +84,8 @@ export default function EventCard({ ev }) {
             <span>🕒</span>
             <span>
               {whenLabel}
-              {!isTGE && end ? ` – ${end.format('HH:mm')}` : ''}
+              {/* для одноденних подій з часом можемо додати кінець у форматі  – HH:mm */}
+              {!isTGE && end && start?.isSame(end, 'day') && (start.hour() !== 0 || start.minute() !== 0) ? ` – ${end.format('HH:mm')}` : ''}
             </span>
           </span>
         )}
@@ -69,8 +96,6 @@ export default function EventCard({ ev }) {
           </a>
         )}
       </div>
-
-      {/* (прибрали текстове посилання "Запропонувати правку" тут) */}
 
       {tge.length > 0 && (
         <div className="mt-2 flex flex-wrap gap-2">
