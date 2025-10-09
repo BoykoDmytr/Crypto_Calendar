@@ -105,47 +105,67 @@ export default function EventForm({ onSubmit, loading, initial = {} }) {
 
   // ---------- SUBMIT ----------
   const submit = (e) => {
-    e.preventDefault();
-    const payload = { ...form };
+  e.preventDefault();
+  const payload = { ...form };
 
-    if (isTGE) {
-      // TGE: лише дата, кінець не зберігаємо
-      payload.start_at = toISODateOnly(form.start_at, form.timezone);
-      delete payload.end_at;
-    } else if (isBA) {
-      // Binance Alpha: обов'язкова дата + опційний час
-      const date = (form.start_date || '').trim()
-        || (form.start_at ? String(form.start_at).slice(0, 10) : '');
-      const time = (form.start_time || '').trim() || '00:00'; // якщо порожньо — 00:00
+  // ---- TGE: тільки ДАТА (без часу і без end_at)
+  if (form.type === 'Listing (TGE)') {
+    payload.start_at = toISODateOnly(form.start_at /* або form.start_date */, form.timezone);
+    delete payload.end_at;
+    delete payload.start_time;
+    delete payload.start_date; // на всяк випадок, якщо поле так і назване у формі
+  }
 
-      payload.start_at = date ? toISOorNull(`${date}T${time}`, form.timezone) : null;
-      payload.end_at   = toISOorNull(form.end_at, form.timezone);
-      if (!payload.end_at) delete payload.end_at;
+  // ---- Binance Alpha: дата + опційний час
+  else if (form.type === 'Binance Alpha') {
+    // ВАЖЛИВО: тут врахуйте, як назвали поле дати у формі:
+    // якщо інпут дати прив’язаний до form.start_date — беріть start_date,
+    // якщо до form.start_at — беріть start_at.slice(0,10).
+    const date =
+      (form.start_date && String(form.start_date).trim()) ||
+      (form.start_at && String(form.start_at).slice(0, 10)) ||
+      '';
 
-      // ці поля службові — не відправляємо у БД
-      delete payload.start_date;
-      delete payload.start_time;
-    } else {
-      // інші типи: стандартний datetime-local
-      payload.start_at = toISOorNull(form.start_at, form.timezone);
-      payload.end_at   = toISOorNull(form.end_at,   form.timezone);
-      if (!payload.end_at) delete payload.end_at;
-    }
+    const time = (form.start_time || '').trim(); // може бути порожнім
 
-    // дрібна очистка
-    if (!payload.link) delete payload.link;
-    if (!payload.description) delete payload.description;
+    const local = time ? `${date}T${time}` : `${date}T00:00`;
+    payload.start_at = toISOorNull(local, form.timezone);
 
-    // TGE — зберігаємо лише непорожні рядки бірж; для інших — прибираємо поле
-    if (isTGE) {
-      payload.tge_exchanges = (payload.tge_exchanges || [])
-        .filter(x => (x?.name || '').trim() || (x?.time || '').trim());
-    } else {
-      delete payload.tge_exchanges;
-    }
+    // end_at опційний
+    payload.end_at = toISOorNull(form.end_at, form.timezone);
+    if (!payload.end_at) delete payload.end_at;
 
-    onSubmit?.(payload);
-  };
+    // ---- КРИТИЧНО: прибрати службові поля, яких немає в БД
+    delete payload.start_date;
+    delete payload.start_time;
+  }
+
+  // ---- інші типи: стандартний datetime-local
+  else {
+    payload.start_at = toISOorNull(form.start_at, form.timezone);
+    payload.end_at   = toISOorNull(form.end_at,   form.timezone);
+    if (!payload.end_at) delete payload.end_at;
+
+    delete payload.start_date;
+    delete payload.start_time;
+  }
+
+  // дрібна очистка
+  if (!payload.link)        delete payload.link;
+  if (!payload.description) delete payload.description;
+
+  // TGE: залишаємо лише непорожні рядки бірж; для інших — прибираємо поле
+  if (form.type === 'Listing (TGE)') {
+    payload.tge_exchanges = (payload.tge_exchanges || [])
+      .filter(x => (x?.name || '').trim() || (x?.time || '').trim());
+  } else {
+    delete payload.tge_exchanges;
+  }
+
+  onSubmit?.(payload);
+};
+
+
 
   return (
     <form onSubmit={submit} className="space-y-3">

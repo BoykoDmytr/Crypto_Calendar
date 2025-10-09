@@ -113,7 +113,9 @@ export default function MonthCalendar() {
           );
         })}
       </div>
+
       <div className="pt-1"> <Link to="/add" className="btn w-full sm:w-auto">+ Додати івент</Link> </div>
+      
       {/* Події на обрану дату */}
       <div className="mt-2 sm:mt-3">
         <div className="flex items-center justify-between">
