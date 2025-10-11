@@ -1,13 +1,26 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 import { createBrowserRouter, RouterProvider } from 'react-router-dom';
-import App from './App';
+import App from './App.jsx';
 import MonthCalendar from './pages/MonthCalendar';
 import Calendar from './pages/Calendar';
 import AddEvent from './pages/AddEvent';
 import Admin from './pages/Admin';
 import './styles.css';
 import SuggestEdit from './pages/SuggestEdit';
+
+// ✅ Vercel Analytics + Speed Insights для будь-якого SPA
+import { inject } from '@vercel/analytics'
+import { injectSpeedInsights } from '@vercel/speed-insights'
+
+// у продакшені, щоб не смітити у локальній розробці
+if (import.meta.env.PROD) {
+  inject();
+  injectSpeedInsights();
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App />)
+
 
 const router = createBrowserRouter([
   {
