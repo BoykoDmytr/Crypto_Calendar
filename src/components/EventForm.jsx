@@ -1,34 +1,27 @@
 // src/components/EventForm.jsx
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useMemo } from 'react';
 import dayjs from 'dayjs';
 import utc from 'dayjs/plugin/utc';
 import timezone from 'dayjs/plugin/timezone';
 import { supabase } from '../lib/supabase';
+import { fetchEventTypes } from '../lib/api';
 
 dayjs.extend(utc);
 dayjs.extend(timezone);
 
 const kyivTZ = 'Europe/Kyiv';
 
-const TYPES = [
-  'Listing (TGE)',
-  'Binance Alpha',
-  'OKX Alpha',
-  'Token Sales',
-  'Claim / Airdrop',
-  'Unlocks',
-];
-
 export default function EventForm({ onSubmit, loading, initial = {} }) {
-  // ---------- СТАН ФОРМИ ----------
+  const [types, setTypes] = useState([]); // довідник типів
   const [form, setForm] = useState(() => ({
     title: '',
     description: '',
-    type: 'Listing (TGE)',
-    timezone: 'Kyiv',          // 'UTC' | 'Kyiv'
+    // важливо: тепер зберігаємо slug типу
+    event_type_slug: initial.event_type_slug || 'listing-tge',
+    type: initial.type || 'Listing (TGE)', // лишаємо для відображення у картках/легасі
+    timezone: 'Kyiv',
     start_at: '',
     end_at: '',
-    // службові поля для Binance Alpha
     start_date: '',
     start_time: '',
     link: '',
@@ -36,9 +29,32 @@ export default function EventForm({ onSubmit, loading, initial = {} }) {
     ...initial,
   }));
 
-  // довідник бірж (Spot/Futures) для TGE
-  const [dictExchanges, setDictExchanges] = useState({ spot: [], futures: [] });
+  // завантажити довідник типів
+  useEffect(() => {
+    (async () => {
+      try {
+        const data = await fetchEventTypes();
+        setTypes(data);
+        // якщо в initial немає slug — виставимо перший активний
+        if (!initial.event_type_slug && data.length) {
+          setForm(s => ({ ...s,
+            event_type_slug: data[0].slug,
+            type: data[0].name
+          }));
+        }
+      } catch(e) {
+        console.error('Failed to load event_types', e);
+      }
+    })();
+  }, []);
 
+  const currentType = useMemo(
+    () => types.find(t => t.slug === form.event_type_slug) || { is_tge: true, time_optional: true, name: 'Listing (TGE)' },
+    [types, form.event_type_slug]
+  );
+
+  // довідник бірж
+  const [dictExchanges, setDictExchanges] = useState({ spot: [], futures: [] });
   useEffect(() => {
     let alive = true;
     (async () => {
@@ -48,7 +64,6 @@ export default function EventForm({ onSubmit, loading, initial = {} }) {
         .eq('active', true)
         .order('segment', { ascending: true })
         .order('name', { ascending: true });
-
       if (!error && alive) {
         const spot = [], futures = [];
         (data || []).forEach(x => (x.segment === 'Futures' ? futures : spot).push(x.name));
@@ -58,244 +73,168 @@ export default function EventForm({ onSubmit, loading, initial = {} }) {
     return () => { alive = false; };
   }, []);
 
-  const isTGE = form.type === 'Listing (TGE)';
-  const isBA  = form.type === 'Binance Alpha';
-
   const change = (k, v) => setForm(s => ({ ...s, [k]: v }));
 
-  // ---------- Рядки бірж для TGE ----------
+  // ряди бірж (TGE)
   const addExchange = () =>
     change('tge_exchanges', [ ...(form.tge_exchanges || []), { name: '', time: '' } ]);
-
   const setExchange = (i, key, val) => {
     const arr = [ ...(form.tge_exchanges || []) ];
     arr[i] = { ...arr[i], [key]: val };
     change('tge_exchanges', arr);
   };
-
   const removeExchange = (i) => {
     const arr = [ ...(form.tge_exchanges || []) ];
     arr.splice(i, 1);
     change('tge_exchanges', arr);
   };
 
-  // ---------- КОНВЕРТАЦІЇ ДАТ/ЧАСУ ----------
+  // конвертації
   const toISODateOnly = (yyyy_mm_dd, mode) => {
     if (!yyyy_mm_dd) return null;
     if (mode === 'UTC') return new Date(`${yyyy_mm_dd}T00:00:00Z`).toISOString();
     return dayjs.tz(`${yyyy_mm_dd} 00:00`, kyivTZ).toDate().toISOString();
   };
-
   const toISOorNull = (localStr, mode) => {
     if (!localStr) return null;
     if (mode === 'UTC') return new Date(localStr + 'Z').toISOString();
     return dayjs.tz(localStr.replace('T', ' '), kyivTZ).toDate().toISOString();
   };
 
-  // ---------- ПРЕФІЛИ ДЛЯ Binance Alpha (редагування) ----------
-  const baDatePrefill = () =>
-    form.start_date || (form.start_at ? String(form.start_at).slice(0, 10) : '');
-
-  const baTimePrefill = () => {
+  // prefills для «дата + (опц.)час»
+  const datePrefill = () =>
+    form.start_date || (form.start_at ? String(form.start_at).slice(0,10) : '');
+  const timePrefill = () => {
     if (form.start_time) return form.start_time;
     if (!form.start_at) return '';
     const t = dayjs(form.start_at).format('HH:mm');
-    return t === '00:00' ? '' : t; // 00:00 інтерпретуємо як «час не задано»
+    return t === '00:00' ? '' : t;
   };
 
-  // ---------- SUBMIT ----------
   const submit = (e) => {
-  e.preventDefault();
-  const payload = { ...form };
+    e.preventDefault();
+    const payload = { ...form };
 
-  // ---- TGE: тільки ДАТА (без часу і без end_at)
-  if (form.type === 'Listing (TGE)') {
-    payload.start_at = toISODateOnly(form.start_at /* або form.start_date */, form.timezone);
-    delete payload.end_at;
-    delete payload.start_time;
-    delete payload.start_date; // на всяк випадок, якщо поле так і назване у формі
-  }
+    // записуємо «людську» назву типу (для картки/легасі)
+    payload.type = currentType.name;
 
-  // ---- Binance Alpha: дата + опційний час
-  else if (form.type === 'Binance Alpha') {
-    // ВАЖЛИВО: тут врахуйте, як назвали поле дати у формі:
-    // якщо інпут дати прив’язаний до form.start_date — беріть start_date,
-    // якщо до form.start_at — беріть start_at.slice(0,10).
-    const date =
-      (form.start_date && String(form.start_date).trim()) ||
-      (form.start_at && String(form.start_at).slice(0, 10)) ||
-      '';
+    if (currentType.is_tge) {
+      // тільки дата + біржі
+      payload.start_at = toISODateOnly(form.start_at, form.timezone);
+      delete payload.end_at;
+      payload.tge_exchanges = (payload.tge_exchanges || [])
+        .filter(x => (x?.name || '').trim() || (x?.time || '').trim());
+      delete payload.start_date;
+      delete payload.start_time;
+    } else if (currentType.time_optional) {
+      // дата + опційний час
+      const date = (form.start_date && String(form.start_date).trim())
+                || (form.start_at && String(form.start_at).slice(0,10))
+                || '';
+      const time = (form.start_time || '').trim(); // може бути порожнім
+      const local = time ? `${date}T${time}` : `${date}T00:00`;
+      payload.start_at = toISOorNull(local, form.timezone);
+      payload.end_at   = toISOorNull(form.end_at, form.timezone);
+      if (!payload.end_at) delete payload.end_at;
+      delete payload.start_date;
+      delete payload.start_time;
+      delete payload.tge_exchanges;
+    } else {
+      // повний datetime-local
+      payload.start_at = toISOorNull(form.start_at, form.timezone);
+      payload.end_at   = toISOorNull(form.end_at,   form.timezone);
+      if (!payload.end_at) delete payload.end_at;
+      delete payload.start_date;
+      delete payload.start_time;
+      delete payload.tge_exchanges;
+    }
 
-    const time = (form.start_time || '').trim(); // може бути порожнім
+    if (!payload.link)        delete payload.link;
+    if (!payload.description) delete payload.description;
 
-    const local = time ? `${date}T${time}` : `${date}T00:00`;
-    payload.start_at = toISOorNull(local, form.timezone);
-
-    // end_at опційний
-    payload.end_at = toISOorNull(form.end_at, form.timezone);
-    if (!payload.end_at) delete payload.end_at;
-
-    // ---- КРИТИЧНО: прибрати службові поля, яких немає в БД
-    delete payload.start_date;
-    delete payload.start_time;
-  }
-
-  // ---- інші типи: стандартний datetime-local
-  else {
-    payload.start_at = toISOorNull(form.start_at, form.timezone);
-    payload.end_at   = toISOorNull(form.end_at,   form.timezone);
-    if (!payload.end_at) delete payload.end_at;
-
-    delete payload.start_date;
-    delete payload.start_time;
-  }
-
-  // дрібна очистка
-  if (!payload.link)        delete payload.link;
-  if (!payload.description) delete payload.description;
-
-  // TGE: залишаємо лише непорожні рядки бірж; для інших — прибираємо поле
-  if (form.type === 'Listing (TGE)') {
-    payload.tge_exchanges = (payload.tge_exchanges || [])
-      .filter(x => (x?.name || '').trim() || (x?.time || '').trim());
-  } else {
-    delete payload.tge_exchanges;
-  }
-
-  onSubmit?.(payload);
-};
-
-
+    onSubmit?.(payload);
+  };
 
   return (
     <form onSubmit={submit} className="space-y-3">
       {/* Заголовок */}
       <div>
         <label className="label">Заголовок *</label>
-        <input
-          className="input"
-          required
+        <input className="input" required
           value={form.title}
           onChange={e => change('title', e.target.value)}
-          placeholder="Напр., ASTER TGE"
-        />
+          placeholder="Напр., ASTER TGE" />
       </div>
 
       {/* Опис */}
       <div>
         <label className="label">Опис</label>
-        <textarea
-          className="input min-h-[90px]"
+        <textarea className="input min-h-[90px]"
           value={form.description}
           onChange={e => change('description', e.target.value)}
-          placeholder="Короткий опис події"
-        />
+          placeholder="Короткий опис події" />
       </div>
 
-      {/* Часова зона */}
+      {/* Часова зона вводу */}
       <div>
         <label className="label">Часова зона вводу</label>
         <div className="grid grid-cols-2 gap-2">
-          <button
-            type="button"
-            onClick={() => change('timezone', 'UTC')}
-            className={`px-3 py-2 rounded-xl border ${form.timezone === 'UTC'
-              ? 'bg-brand-600 text-white border-brand-600'
-              : 'border-gray-200'}`}
-          >
-            UTC
-          </button>
-          <button
-            type="button"
-            onClick={() => change('timezone', 'Kyiv')}
-            className={`px-3 py-2 rounded-xl border ${form.timezone === 'Kyiv'
-              ? 'bg-brand-600 text-white border-brand-600'
-              : 'border-gray-200'}`}
-          >
-            Київський час
-          </button>
+          <button type="button"
+            onClick={()=>change('timezone','UTC')}
+            className={`px-3 py-2 rounded-xl border ${form.timezone==='UTC'?'bg-brand-600 text-white border-brand-600':'border-gray-200'}`}>UTC</button>
+          <button type="button"
+            onClick={()=>change('timezone','Kyiv')}
+            className={`px-3 py-2 rounded-xl border ${form.timezone==='Kyiv'?'bg-brand-600 text-white border-brand-600':'border-gray-200'}`}>Київський час</button>
         </div>
-        <p className="text-xs text-gray-500 mt-1">
-          Вводь час у вибраній зоні — ми збережемо в UTC.
-        </p>
+        <p className="text-xs text-gray-500 mt-1">Вводь час у вибраній зоні — ми збережемо в UTC.</p>
       </div>
 
-      {/* Дата/час */}
-      {/* TGE: тільки дата */}
-      {isTGE && (
+      {/* Поля дат/часу згідно з типом */}
+      {currentType.is_tge ? (
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <div>
             <label className="label">Початок *</label>
-            <input
-              type="date"
-              required
-              className="input"
+            <input type="date" required className="input"
               value={form.start_at || ''}
-              onChange={e => change('start_at', e.target.value)}
-            />
+              onChange={e=>change('start_at', e.target.value)} />
           </div>
         </div>
-      )}
-
-      {/* Binance Alpha: дата (required) + час (optional) + кінець (optional) */}
-      {isBA && (
+      ) : currentType.time_optional ? (
         <>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
               <label className="label">Дата *</label>
-              <input
-                type="date"
-                required
-                className="input"
-                value={baDatePrefill()}
-                onChange={e => change('start_date', e.target.value)}
-              />
+              <input type="date" required className="input"
+                value={datePrefill()}
+                onChange={e=>change('start_date', e.target.value)} />
             </div>
             <div>
               <label className="label">Час (опц.)</label>
-              <input
-                type="time"
-                step="60"
-                className="input"
-                value={baTimePrefill()}
-                onChange={e => change('start_time', e.target.value)}
-              />
+              <input type="time" step="60" className="input"
+                value={timePrefill()}
+                onChange={e=>change('start_time', e.target.value)} />
             </div>
           </div>
-
           <div>
             <label className="label">Кінець (необов’язково)</label>
-            <input
-              type="datetime-local"
-              className="input"
+            <input type="datetime-local" className="input"
               value={form.end_at || ''}
-              onChange={e => change('end_at', e.target.value)}
-            />
+              onChange={e=>change('end_at', e.target.value)} />
           </div>
         </>
-      )}
-
-      {/* Інші типи: стандартний datetime-local */}
-      {!isTGE && !isBA && (
+      ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <div>
             <label className="label">Початок *</label>
-            <input
-              type="datetime-local"
-              required
-              className="input"
+            <input type="datetime-local" required className="input"
               value={form.start_at || ''}
-              onChange={e => change('start_at', e.target.value)}
-            />
+              onChange={e=>change('start_at', e.target.value)} />
           </div>
           <div>
             <label className="label">Кінець (необов’язково)</label>
-            <input
-              type="datetime-local"
-              className="input"
+            <input type="datetime-local" className="input"
               value={form.end_at || ''}
-              onChange={e => change('end_at', e.target.value)}
-            />
+              onChange={e=>change('end_at', e.target.value)} />
           </div>
         </div>
       )}
@@ -304,80 +243,54 @@ export default function EventForm({ onSubmit, loading, initial = {} }) {
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         <div>
           <label className="label">Тип</label>
-          <select
-            className="input"
-            value={form.type}
-            onChange={e => change('type', e.target.value)}
-          >
-            {TYPES.map(t => (
-              <option key={t} value={t}>{t}</option>
+          <select className="input"
+            value={form.event_type_slug}
+            onChange={e=>{
+              const slug = e.target.value;
+              const t = types.find(x=>x.slug===slug);
+              change('event_type_slug', slug);
+              change('type', t?.name || '');
+            }}>
+            {types.map(t => (
+              <option key={t.id} value={t.slug}>{t.name}</option>
             ))}
           </select>
         </div>
         <div>
           <label className="label">Посилання</label>
-          <input
-            className="input"
-            value={form.link || ''}
-            onChange={e => change('link', e.target.value)}
-            placeholder="https://…"
-          />
+          <input className="input" value={form.link || ''}
+            onChange={e=>change('link', e.target.value)}
+            placeholder="https://…" />
         </div>
       </div>
 
       {/* Біржі + час (лише для TGE) */}
-      {isTGE && (
+      {currentType.is_tge && (
         <div className="space-y-2">
           <div className="label">Біржі та час (опц.)</div>
-
-          {(form.tge_exchanges || []).map((x, i) => (
-          <div key={i} className="grid grid-cols-1 sm:grid-cols-5 gap-2">
-            {/* біржа: на мобілці повна ширина, на десктопі 3 колонки */}
-            <select
-              className="input sm:col-span-3"
-              value={x.name || ''}
-              onChange={(e)=>setExchange(i,'name', e.target.value)}
-            >
-              <option value="" disabled>Оберіть біржу…</option>
-              <optgroup label="Spot">
-                {dictExchanges.spot.map(n => <option key={n} value={n}>{n}</option>)}
-              </optgroup>
-              <optgroup label="Futures">
-                {dictExchanges.futures.map(n => <option key={n} value={n}>{n}</option>)}
-              </optgroup>
-            </select>
-
-            {/* час: на мобілці також повна ширина (нижче селекта), на десктопі 1 колонка */}
-            <input
-              type="time"
-              step="60"
-              className="input sm:col-span-1"
-              value={x.time || ''}
-              onChange={(e)=>setExchange(i,'time', e.target.value)}
-            />
-
-            {/* кнопка видалення */}
-            <button
-              type="button"
-              className="btn-secondary sm:col-span-1"
-              onClick={()=>removeExchange(i)}
-            >
-              –
-            </button>
-          </div>
-        ))}
-
-          <button type="button" className="btn" onClick={addExchange}>
-            + Додати біржу
-          </button>
-
-          <p className="text-xs text-gray-500">
-            Дата задається вище, час — для кожної біржі окремо.
-          </p>
+          {(form.tge_exchanges || []).map((x, i)=>(
+            <div key={i} className="grid grid-cols-1 sm:grid-cols-5 gap-2">
+              <select className="input sm:col-span-3"
+                value={x.name || ''} onChange={e=>setExchange(i,'name', e.target.value)}>
+                <option value="" disabled>Оберіть біржу…</option>
+                <optgroup label="Spot">
+                  {dictExchanges.spot.map(n => <option key={n} value={n}>{n}</option>)}
+                </optgroup>
+                <optgroup label="Futures">
+                  {dictExchanges.futures.map(n => <option key={n} value={n}>{n}</option>)}
+                </optgroup>
+              </select>
+              <input type="time" step="60" className="input sm:col-span-1"
+                value={x.time || ''} onChange={e=>setExchange(i,'time', e.target.value)} />
+              <button type="button" className="btn-secondary sm:col-span-1"
+                onClick={()=>removeExchange(i)}>–</button>
+            </div>
+          ))}
+          <button type="button" className="btn" onClick={addExchange}>+ Додати біржу</button>
+          <p className="text-xs text-gray-500">Дата задається вище, час — для кожної біржі окремо.</p>
         </div>
       )}
 
-      {/* Сабміт */}
       <div className="pt-2">
         <button disabled={loading} className="btn">
           {loading ? 'Зберігаю…' : 'Надіслати на модерацію'}

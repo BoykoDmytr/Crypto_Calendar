@@ -8,6 +8,7 @@ export default function SuggestEdit(){
   const nav = useNavigate();
   const [ev, setEv] = useState(null);
   const [loading, setLoading] = useState(true);
+  
 
   useEffect(()=>{ (async()=>{
     const { data, error } = await supabase

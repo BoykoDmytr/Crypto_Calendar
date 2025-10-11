@@ -9,8 +9,8 @@ const toMinutes = (s) => {
   return m ? (+m[1]) * 60 + (+m[2]) : Number.POSITIVE_INFINITY;
 };
 
-// Типи, де час НЕобов’язковий
-const TIME_OPTIONAL = new Set(['Binance Alpha']);
+// чи є реальний час (не 00:00)
+const hasTime = (d) => !!d && (d.hour() !== 0 || d.minute() !== 0 || d.second() !== 0);
 
 export default function EventCard({ ev }) {
   const isTGE = ev?.type === 'Listing (TGE)';
@@ -18,10 +18,6 @@ export default function EventCard({ ev }) {
   // Без конвертацій: показуємо як є
   const start = ev?.start_at ? dayjs(ev.start_at) : null;
   const end   = ev?.end_at   ? dayjs(ev.end_at)   : null;
-
-  // чи заданий «реальний» час у start (не 00:00) або є end
-  const hasExplicitTime =
-    !!start && (start.hour() !== 0 || start.minute() !== 0 || !!end);
 
   // Біржі для TGE
   const tge = Array.isArray(ev?.tge_exchanges) ? [...ev.tge_exchanges] : [];
@@ -36,19 +32,17 @@ export default function EventCard({ ev }) {
       // TGE — тільки дата
       whenLabel = start.format('DD MMM');
     } else {
-      const timeOptional = TIME_OPTIONAL.has(ev?.type);
-      showTime = !timeOptional || hasExplicitTime;
+      // час опційний ДЛЯ ВСІХ типів: показуємо лише якщо він заданий
+      showTime = hasTime(start) || hasTime(end);
 
       if (end && !start.isSame(end, 'day')) {
         // багатоденна
-        whenLabel = showTime
-          ? `${start.format('DD MMM HH:mm')} → ${end.format('DD MMM HH:mm')}`
-          : `${start.format('DD MMM')} → ${end.format('DD MMM')}`;
+        const left  = hasTime(start) ? start.format('DD MMM HH:mm') : start.format('DD MMM');
+        const right = hasTime(end)   ? end.format('DD MMM HH:mm')   : end.format('DD MMM');
+        whenLabel = `${left} → ${right}`;
       } else {
         // один день
-        whenLabel = showTime
-          ? start.format('DD MMM HH:mm')
-          : start.format('DD MMM');
+        whenLabel = showTime ? start.format('DD MMM HH:mm') : start.format('DD MMM');
       }
     }
   }
@@ -90,8 +84,8 @@ export default function EventCard({ ev }) {
             <span>🕒</span>
             <span>
               {whenLabel}
-              {/* якщо один день і показуємо час — додаємо кінець «– HH:mm» */}
-              {!isTGE && showTime && end && start?.isSame(end, 'day')
+              {/* якщо один день і час показуємо — додаємо кінець «– HH:mm» */}
+              {!isTGE && showTime && end && start?.isSame(end, 'day') && hasTime(end)
                 ? ` – ${end.format('HH:mm')}`
                 : ''}
             </span>
