@@ -4,6 +4,7 @@ import { Link } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import EventCard from '../components/EventCard';
 import dayjs from 'dayjs';
+import TelegramCTA from '../components/TelegramCTA';
 
 // наші типи з БД (точні значення!)
 const TYPES = [
@@ -48,7 +49,6 @@ export default function Calendar() {
         map.get(key) ??
         {
           key,
-          // показуємо день тижня
           label: d.format('DD MMM (ddd)'),
           items: [],
         };
@@ -84,9 +84,9 @@ export default function Calendar() {
       <div className="sticky top-14 z-[5] -mx-3 sm:-mx-4 px-3 sm:px-4 pt-0 pb-0 bg-transparent">
         <div className="flex gap-2 overflow-x-auto no-scrollbar">
           <button
-            onClick={()=>setType('All')}
+            onClick={() => setType('All')}
             className={`px-3 py-1.5 rounded-full border text-sm whitespace-nowrap ${
-              type==='All'
+              type === 'All'
                 ? 'bg-brand-600 text-white border-brand-600'
                 : 'bg-white border-gray-200 hover:bg-gray-50'
             }`}
@@ -94,12 +94,12 @@ export default function Calendar() {
             All
           </button>
 
-          {TYPES.map(t => (
+          {TYPES.map((t) => (
             <button
               key={t}
-              onClick={()=>setType(t)}
+              onClick={() => setType(t)}
               className={`px-3 py-1.5 rounded-full border text-sm whitespace-nowrap ${
-                type===t
+                type === t
                   ? 'bg-brand-600 text-white border-brand-600'
                   : 'bg-white border-gray-200 hover:bg-gray-50'
               }`}
@@ -116,7 +116,6 @@ export default function Calendar() {
           </Link>
         </div>
       </div>
-
 
       {/* --- СПИСОК ПОДІЙ --- */}
       {loading && <p className="text-sm text-gray-500 px-3 sm:px-4">Завантаження…</p>}
@@ -140,6 +139,12 @@ export default function Calendar() {
             </div>
           </section>
         ))}
+      </div>
+    {/* ✅ Telegram CTA – під фільтрами, перед списком подій */}
+      <div className="px-3 sm:px-4">
+        <TelegramCTA
+          href={import.meta.env.VITE_TG_CHANNEL_URL || 'https://t.me/your_channel'}
+        />
       </div>
     </div>
   );
