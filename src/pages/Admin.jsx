@@ -1,10 +1,12 @@
 // src/pages/Admin.jsx
 import { useEffect, useState } from 'react';
+import { toLocalInput } from "../utils/timeLocal";
 import dayjs from 'dayjs';
 import utc from 'dayjs/plugin/utc';
 import timezone from 'dayjs/plugin/timezone';
 import { supabase } from '../lib/supabase';
 import EventForm from '../components/EventForm';
+
 
 dayjs.extend(utc);
 dayjs.extend(timezone);
@@ -429,34 +431,38 @@ export default function Admin() {
 
   // ===== РЕДАГУВАЛКА КАРТКИ =====
   const EditingCard = ({ table, ev }) => {
-    const initial = {
-      ...ev,
-      start_at:
-        ev?.type === 'Listing (TGE)' ? ev.start_at?.slice(0, 10) : ev.start_at?.slice(0, 16),
-      end_at: ev.end_at ? ev.end_at.slice(0, 16) : '',
-    };
-    return (
-      <div className="card p-4">
-        <div className="text-sm text-gray-500 mb-2">Редагування ({table})</div>
-        <EventForm
-          initial={initial}
-          onSubmit={(payload) => updateRow(table, ev.id, payload)}
-          loading={false}
-        />
-        <div className="flex gap-2 mt-3">
-          <button
-            className="btn-secondary px-4 py-2 rounded-xl"
-            onClick={() => {
-              setEditId(null);
-              setEditTable(null);
-            }}
-          >
-            Скасувати
-          </button>
-        </div>
-      </div>
-    );
+  const isTGE = ev?.type === 'Listing (TGE)';
+  const initial = {
+    ...ev,
+    // важливо: передаємо в інпут ЛОКАЛЬНИЙ рядок без 'Z'
+    start_at: isTGE
+      ? toLocalInput(ev.start_at, ev.timezone, 'date')
+      : toLocalInput(ev.start_at, ev.timezone, 'datetime'),
+    end_at: ev.end_at
+      ? toLocalInput(ev.end_at, ev.timezone, 'datetime')
+      : '',
   };
+
+  return (
+    <div className="card p-4">
+      <div className="text-sm text-gray-500 mb-2">Редагування ({table})</div>
+      <EventForm
+        initial={initial}
+        onSubmit={(payload)=> updateRow(table, ev.id, payload)}
+        loading={false}
+      />
+      <div className="flex gap-2 mt-3">
+        <button
+          className="btn-secondary px-4 py-2 rounded-xl"
+          onClick={()=>{ setEditId(null); setEditTable(null); }}
+        >
+          Скасувати
+        </button>
+      </div>
+    </div>
+  );
+};
+
 
   // ===== ЛОГІН =====
   if (!ok) {
