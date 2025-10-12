@@ -7,7 +7,6 @@ import timezone from 'dayjs/plugin/timezone';
 import { supabase } from '../lib/supabase';
 import EventForm from '../components/EventForm';
 
-
 dayjs.extend(utc);
 dayjs.extend(timezone);
 
@@ -52,8 +51,7 @@ const normEx = (arr = []) =>
     );
 
 const sameExchanges = (a, b) => {
-  const A = normEx(a),
-    B = normEx(b);
+  const A = normEx(a), B = normEx(b);
   if (A.length !== B.length) return false;
   for (let i = 0; i < A.length; i++)
     if (A[i].name !== B[i].name || A[i].time !== B[i].time) return false;
@@ -132,16 +130,16 @@ function ExchangeRow({ ex, onSave, onDelete }) {
 }
 
 /* ===== Компонент рядка довідника типів ===== */
-function TypeRow({ t, onSave, onDelete }) {
+function TypeRow({ t, onSave, onDelete, moveType, isFirst, isLast }) {
   const [row, setRow] = useState(t);
-  useEffect(() => setRow(t), [t.id, t.label, t.slug, t.order_index, t.active, t.is_tge]);
+  useEffect(() => setRow(t), [t.id, t.label, t.slug, t.active, t.is_tge]);
 
   // автогенерація slug, якщо користувач міняє label і slug порожній або збігається із старим
   const slugify = (s) =>
     s.toLowerCase().trim().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
 
   return (
-    <div className="grid grid-cols-1 sm:grid-cols-[1fr,220px,110px,110px,auto] gap-2 items-center p-2 rounded-xl border border-gray-200">
+    <div className="grid grid-cols-1 sm:grid-cols-[1fr,220px,110px,auto] gap-2 items-center p-2 rounded-xl border border-gray-200">
       <input
         className="input"
         value={row.label}
@@ -161,14 +159,6 @@ function TypeRow({ t, onSave, onDelete }) {
         value={row.slug || ''}
         onChange={(e) => setRow((r) => ({ ...r, slug: e.target.value }))}
         placeholder="slug (binance-alpha)"
-      />
-
-      <input
-        type="number"
-        className="input"
-        value={Number(row.order_index ?? 0)}
-        onChange={(e) => setRow((r) => ({ ...r, order_index: Number(e.target.value || 0) }))}
-        placeholder="Порядок"
       />
 
       <div className="flex items-center gap-4">
@@ -191,12 +181,23 @@ function TypeRow({ t, onSave, onDelete }) {
       </div>
 
       <div className="flex gap-2 justify-end">
-        <button className="btn" onClick={() => onSave(row)}>
-          Зберегти
-        </button>
-        <button className="btn-secondary" onClick={() => onDelete(row.id)}>
-          Видалити
-        </button>
+        {/* Рух вгору/вниз лише стрілками */}
+        <button
+          className="btn-secondary w-9 h-9 rounded-full"
+          title="Вгору"
+          onClick={() => moveType(t.id, 'up')}
+          disabled={isFirst}
+        >↑</button>
+
+        <button
+          className="btn-secondary w-9 h-9 rounded-full"
+          title="Вниз"
+          onClick={() => moveType(t.id, 'down')}
+          disabled={isLast}
+        >↓</button>
+
+        <button className="btn" onClick={() => onSave(row)}>Зберегти</button>
+        <button className="btn-secondary" onClick={() => onDelete(t.id)}>Видалити</button>
       </div>
     </div>
   );
@@ -221,7 +222,6 @@ export default function Admin() {
     slug: '',
     is_tge: false,
     active: true,
-    order_index: 0,
   });
 
   const [editId, setEditId] = useState(null);
@@ -260,17 +260,34 @@ export default function Admin() {
     if (!t.error) setTypes(t.data || []);
   };
 
+  // ====== Переміщення типів (order_index) ======
+  // поміняти місцями order_index двох типів
+  const swapTypeOrder = async (a, b) => {
+    await Promise.all([
+      supabase.from('event_types').update({ order_index: b.order_index }).eq('id', a.id),
+      supabase.from('event_types').update({ order_index: a.order_index }).eq('id', b.id),
+    ]);
+  };
+
+  // рух типу на 1 позицію вгору/вниз у відсортованому списку
+  const moveType = async (id, dir) => {
+    const list = [...types].sort(
+      (x, y) => (x.order_index ?? 0) - (y.order_index ?? 0) || (x.label || '').localeCompare(y.label || '')
+    );
+    const i = list.findIndex(t => t.id === id);
+    if (i < 0) return;
+
+    const j = dir === 'up' ? i - 1 : i + 1;
+    if (j < 0 || j >= list.length) return; // межі
+
+    await swapTypeOrder(list[i], list[j]);
+    await refresh(); // перечитати список після апдейту
+  };
+
   // ===== МОДЕРАЦІЯ ЗАЯВОК =====
   const approve = async (ev) => {
     const allowed = [
-      'title',
-      'description',
-      'start_at',
-      'end_at',
-      'timezone',
-      'type',
-      'tge_exchanges',
-      'link',
+      'title','description','start_at','end_at','timezone','type','tge_exchanges','link',
     ];
     const payload = Object.fromEntries(Object.entries(ev).filter(([k]) => allowed.includes(k)));
 
@@ -318,14 +335,7 @@ export default function Admin() {
   // ===== ПРАВКИ =====
   const approveEdit = async (edit) => {
     const allowed = [
-      'title',
-      'description',
-      'start_at',
-      'end_at',
-      'timezone',
-      'type',
-      'tge_exchanges',
-      'link',
+      'title','description','start_at','end_at','timezone','type','tge_exchanges','link',
     ];
     const patch = Object.fromEntries(
       Object.entries(edit.payload || {}).filter(([k]) => allowed.includes(k))
@@ -388,29 +398,36 @@ export default function Admin() {
       .replace(/\s+/g, '-')
       .replace(/[^a-z0-9-]/g, '');
 
+  // Додаємо тип — автоматично у кінець списку
   const addType = async () => {
-    const label = newType.label.trim();
+    const label = (newType.label || '').trim();
     if (!label) return alert('Вкажіть назву типу');
+
+    // Максимальний order_index + 1
+    const nextOrder =
+      Math.max(0, ...types.map((t) => Number.isFinite(t.order_index) ? t.order_index : 0)) + 1;
+
     const payload = {
       label,
-      slug: (newType.slug || slugify(label)).trim(),
+      slug: ((newType.slug || '').trim() || slugify(label)).trim(),
       is_tge: !!newType.is_tge,
       active: !!newType.active,
-      order_index: Number(newType.order_index || 0),
+      order_index: nextOrder,
     };
     const { error } = await supabase.from('event_types').insert(payload);
     if (error) return alert('Помилка: ' + error.message);
-    setNewType({ label: '', slug: '', is_tge: false, active: true, order_index: 0 });
+    setNewType({ label: '', slug: '', is_tge: false, active: true });
     await refresh();
   };
 
+  // Зберігаємо тип — НЕ торкаємось order_index
   const saveType = async (row) => {
     const payload = {
-      label: row.label.trim(),
-      slug: (row.slug || slugify(row.label)).trim(),
+      label: (row.label || '').trim(),
+      slug: ((row.slug || '').trim() || slugify(row.label)).trim(),
       is_tge: !!row.is_tge,
       active: !!row.active,
-      order_index: Number(row.order_index || 0),
+      // order_index не оновлюємо — його міняють тільки стрілки
     };
     const { error } = await supabase.from('event_types').update(payload).eq('id', row.id);
     if (error) return alert('Помилка: ' + error.message);
@@ -431,38 +448,37 @@ export default function Admin() {
 
   // ===== РЕДАГУВАЛКА КАРТКИ =====
   const EditingCard = ({ table, ev }) => {
-  const isTGE = ev?.type === 'Listing (TGE)';
-  const initial = {
-    ...ev,
-    // важливо: передаємо в інпут ЛОКАЛЬНИЙ рядок без 'Z'
-    start_at: isTGE
-      ? toLocalInput(ev.start_at, ev.timezone, 'date')
-      : toLocalInput(ev.start_at, ev.timezone, 'datetime'),
-    end_at: ev.end_at
-      ? toLocalInput(ev.end_at, ev.timezone, 'datetime')
-      : '',
-  };
+    const isTGE = ev?.type === 'Listing (TGE)';
+    const initial = {
+      ...ev,
+      // важливо: передаємо в інпут ЛОКАЛЬНИЙ рядок без 'Z'
+      start_at: isTGE
+        ? toLocalInput(ev.start_at, ev.timezone, 'date')
+        : toLocalInput(ev.start_at, ev.timezone, 'datetime'),
+      end_at: ev.end_at
+        ? toLocalInput(ev.end_at, ev.timezone, 'datetime')
+        : '',
+    };
 
-  return (
-    <div className="card p-4">
-      <div className="text-sm text-gray-500 mb-2">Редагування ({table})</div>
-      <EventForm
-        initial={initial}
-        onSubmit={(payload)=> updateRow(table, ev.id, payload)}
-        loading={false}
-      />
-      <div className="flex gap-2 mt-3">
-        <button
-          className="btn-secondary px-4 py-2 rounded-xl"
-          onClick={()=>{ setEditId(null); setEditTable(null); }}
-        >
-          Скасувати
-        </button>
+    return (
+      <div className="card p-4">
+        <div className="text-sm text-gray-500 mb-2">Редагування ({table})</div>
+        <EventForm
+          initial={initial}
+          onSubmit={(payload)=> updateRow(table, ev.id, payload)}
+          loading={false}
+        />
+        <div className="flex gap-2 mt-3">
+          <button
+            className="btn-secondary px-4 py-2 rounded-xl"
+            onClick={()=>{ setEditId(null); setEditTable(null); }}
+          >
+            Скасувати
+          </button>
+        </div>
       </div>
-    </div>
-  );
-};
-
+    );
+  };
 
   // ===== ЛОГІН =====
   if (!ok) {
@@ -486,6 +502,11 @@ export default function Admin() {
       </div>
     );
   }
+
+  // Відсортований список для коректної роботи стрілок
+  const sortedTypes = [...types].sort(
+    (a, b) => (a.order_index ?? 0) - (b.order_index ?? 0) || (a.label || '').localeCompare(b.label || '')
+  );
 
   return (
     <div className="space-y-6">
@@ -746,9 +767,9 @@ export default function Admin() {
       <section>
         <h2 className="font-semibold mb-2">Довідник типів</h2>
 
-        {/* Додавання типу */}
+        {/* Додавання типу (без інпуту порядку) */}
         <div className="card p-4 mb-3">
-          <div className="grid grid-cols-1 sm:grid-cols-[1fr,220px,110px,110px,auto] gap-2">
+          <div className="grid grid-cols-1 sm:grid-cols-[1fr,220px,auto] gap-2">
             <input
               className="input"
               placeholder="Напр., Binance Alpha"
@@ -761,32 +782,25 @@ export default function Admin() {
               value={newType.slug}
               onChange={(e) => setNewType((s) => ({ ...s, slug: e.target.value }))}
             />
-            <input
-              type="number"
-              className="input"
-              placeholder="Порядок"
-              value={Number(newType.order_index || 0)}
-              onChange={(e) => setNewType((s) => ({ ...s, order_index: Number(e.target.value || 0) }))}
-            />
-            <div className="flex items-center gap-4">
-              <label className="inline-flex items-center gap-2">
-                <input
-                  type="checkbox"
-                  checked={newType.active}
-                  onChange={(e) => setNewType((s) => ({ ...s, active: e.target.checked }))}
-                />
-                <span className="text-sm">Активний</span>
-              </label>
-              <label className="inline-flex items-center gap-2">
-                <input
-                  type="checkbox"
-                  checked={newType.is_tge}
-                  onChange={(e) => setNewType((s) => ({ ...s, is_tge: e.target.checked }))}
-                />
-                <span className="text-sm">TGE</span>
-              </label>
-            </div>
-            <div className="flex justify-end">
+            <div className="flex items-center justify-between gap-4">
+              <div className="flex items-center gap-4">
+                <label className="inline-flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    checked={newType.active}
+                    onChange={(e) => setNewType((s) => ({ ...s, active: e.target.checked }))}
+                  />
+                  <span className="text-sm">Активний</span>
+                </label>
+                <label className="inline-flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    checked={newType.is_tge}
+                    onChange={(e) => setNewType((s) => ({ ...s, is_tge: e.target.checked }))}
+                  />
+                  <span className="text-sm">TGE</span>
+                </label>
+              </div>
               <button className="btn" onClick={addType}>
                 + Додати тип
               </button>
@@ -794,13 +808,21 @@ export default function Admin() {
           </div>
         </div>
 
-        {/* Список типів */}
-        {types.length === 0 ? (
+        {/* Список типів (відсортований) */}
+        {sortedTypes.length === 0 ? (
           <p className="text-sm text-gray-600">Поки що немає записів.</p>
         ) : (
           <div className="space-y-2">
-            {types.map((t) => (
-              <TypeRow key={t.id} t={t} onSave={saveType} onDelete={deleteType} />
+            {sortedTypes.map((t, idx) => (
+              <TypeRow
+                key={t.id}
+                t={t}
+                onSave={saveType}
+                onDelete={deleteType}
+                moveType={moveType}
+                isFirst={idx === 0}
+                isLast={idx === sortedTypes.length - 1}
+              />
             ))}
           </div>
         )}

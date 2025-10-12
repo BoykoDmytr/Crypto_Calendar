@@ -6,10 +6,6 @@ import EventCard from '../components/EventCard';
 import dayjs from 'dayjs';
 import TelegramCTA from '../components/TelegramCTA';
 
-// посилання беруться з .env (за потреби підстав фолбеки)
-const TG_COMMUNITY = import.meta.env.VITE_TG_COMMUNITY_URL || 'https://t.me/yourcommunity';
-const TG_CHAT      = import.meta.env.VITE_TG_CHAT_URL || 'https://t.me/yourchat';
-
 // ───────────────────────────────── Filter scroller (стрілки) ─────────────────────────────────
 function FilterScroller({ children }) {
   const ref = useRef(null);
@@ -54,24 +50,46 @@ export default function Calendar() {
   const [loading, setLoading] = useState(true);
 
   // типи з БД (довідник подій)
-  const [eventTypes, setEventTypes] = useState([]); // [{label, slug, ...}]
+  const [eventTypes, setEventTypes] = useState([]); // [{label, slug, is_tge, order_index?, sort_order?}]
   const [type, setType] = useState('All');
 
   useEffect(() => {
     (async () => {
       setLoading(true);
       const [ev, et] = await Promise.all([
-        supabase.from('events_approved')
+        supabase
+          .from('events_approved')
           .select('*')
           .order('start_at', { ascending: true }),
-        supabase.from('event_types')
-          .select('label, slug, is_tge, active')
-          .eq('active', true)
-          .order('sort_order', { ascending: true })
+        // тягнемо обидва поля сортування
+        supabase
+          .from('event_types')
+          .select('label, slug, is_tge, active, order_index, sort_order')
+          .eq('active', true),
       ]);
 
       if (!ev.error) setAllEvents(ev.data || []);
-      if (!et.error) setEventTypes((et.data || []).map(x => ({ label: x.label, slug: x.slug, is_tge: !!x.is_tge })));
+
+      if (!et.error) {
+        const rows = (et.data || []).slice();
+
+        // сортуємо за sort_order ?? order_index, далі — за назвою
+        rows.sort((a, b) => {
+          const ao = (a.sort_order ?? a.order_index ?? 0);
+          const bo = (b.sort_order ?? b.order_index ?? 0);
+          if (ao !== bo) return ao - bo;
+          return String(a.label || '').localeCompare(String(b.label || ''));
+        });
+
+        setEventTypes(
+          rows.map(x => ({
+            label: x.label,
+            slug: x.slug,
+            is_tge: !!x.is_tge,
+          }))
+        );
+      }
+
       setLoading(false);
     })();
   }, []);
@@ -89,7 +107,8 @@ export default function Calendar() {
       const d = dayjs(ev.start_at);
       const key = d.format('YYYY-MM-DD');
       const item =
-        map.get(key) ?? {
+        map.get(key) ??
+        {
           key,
           label: d.format('DD MMM (ddd)'),
           items: [],
@@ -162,13 +181,9 @@ export default function Calendar() {
       </div>
 
       {/* --- СПИСОК ПОДІЙ --- */}
-      {loading && (
-        <p className="text-sm text-gray-500 px-3 sm:px-4">Завантаження…</p>
-      )}
+      {loading && <p className="text-sm text-gray-500 px-3 sm:px-4">Завантаження…</p>}
       {!loading && groups.length === 0 && (
-        <p className="text-sm text-gray-600 px-3 sm:px-4">
-          Немає подій за цим фільтром.
-        </p>
+        <p className="text-sm text-gray-600 px-3 sm:px-4">Немає подій за цим фільтром.</p>
       )}
 
       <div className="space-y-6 px-3 sm:px-4">
@@ -188,7 +203,7 @@ export default function Calendar() {
         ))}
       </div>
 
-      {/* ── КНОПКИ TELEGRAM ВНИЗУ ─────────────────────────────────────────────── */}
+      {/* ── КНОПКА TELEGRAM ВНИЗУ ─────────────────────────────────────────────── */}
       <div className="px-3 sm:px-4 pb-2 flex justify-center">
         <TelegramCTA href={import.meta.env.VITE_TG_CHANNEL_URL || 'https://t.me/your_channel'} />
       </div>
