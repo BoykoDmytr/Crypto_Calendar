@@ -1,30 +1,105 @@
 // src/pages/Suggest.jsx
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import EventForm from '../components/EventForm';
-import { toLocalInput } from '../utils/timeLocal'; // ← додаємо хелпер локалізації
+import { toLocalInput } from '../utils/timeLocal';
+
+/**
+ * Підтягнути довідник типів (active=true) у тому ж форматі,
+ * який очікує EventForm: { label, slug, is_tge, active }
+ */
+async function fetchEventTypes() {
+  const { data, error } = await supabase
+    .from('event_types')
+    .select('label, slug, is_tge, active')
+    .eq('active', true)
+    .order('order_index', { ascending: true });
+  if (error) throw error;
+  return (data || []).map((t) => ({
+    label: t.label,
+    slug: t.slug,
+    is_tge: !!t.is_tge,
+    active: !!t.active,
+  }));
+}
+
+/** Пошук типу за людською назвою події */
+function matchTypeByLabel(types, label) {
+  if (!label) return null;
+  const L = String(label).trim().toLowerCase();
+  return (
+    types.find((t) => String(t.label).trim().toLowerCase() === L) ||
+    null
+  );
+}
 
 export default function SuggestEdit() {
   const { id } = useParams();
   const nav = useNavigate();
+
   const [ev, setEv] = useState(null);
+  const [types, setTypes] = useState([]);
   const [loading, setLoading] = useState(true);
 
+  // завантаження події та довідника типів
   useEffect(() => {
+    let alive = true;
     (async () => {
-      const { data, error } = await supabase
-        .from('events_approved')
-        .select('*')
-        .eq('id', id)
-        .single();
-      if (!error) setEv(data);
-      setLoading(false);
+      try {
+        setLoading(true);
+
+        const [evRes, typesRes] = await Promise.all([
+          supabase.from('events_approved').select('*').eq('id', id).single(),
+          fetchEventTypes(),
+        ]);
+
+        if (!evRes.error && alive) setEv(evRes.data || null);
+        if (alive) setTypes(typesRes);
+      } catch (e) {
+        console.error('Failed to load event or types', e);
+      } finally {
+        if (alive) setLoading(false);
+      }
     })();
+    return () => {
+      alive = false;
+    };
   }, [id]);
 
+  const initial = useMemo(() => {
+    if (!ev) return null;
+
+    // знаходимо тип у довіднику за людською назвою з події (ev.type)
+    const matchedType = matchTypeByLabel(types, ev.type) || null;
+    const isTGE = matchedType?.is_tge || ev.type === 'Listing (TGE)';
+
+    // час у форму — ТІЛЬКИ локальний (без 'Z'), щоб нічого не “з’їжджало”
+    const startLocal = isTGE
+      ? toLocalInput(ev.start_at, ev.timezone, 'date')
+      : toLocalInput(ev.start_at, ev.timezone, 'datetime');
+    const endLocal = ev.end_at
+      ? toLocalInput(ev.end_at, ev.timezone, 'datetime')
+      : '';
+
+    return {
+      ...ev,
+      // важливо: передати і людську назву, і event_type_slug — щоб EventForm не скидав тип
+      type: ev.type || matchedType?.label || '',
+      event_type_slug: matchedType?.slug || '',
+
+      timezone: ev.timezone || 'UTC',
+
+      start_at: startLocal, // 'YYYY-MM-DD' або 'YYYY-MM-DDTHH:mm'
+      end_at: endLocal,
+
+      // не втрачати закріплені біржі
+      tge_exchanges: Array.isArray(ev.tge_exchanges) ? ev.tge_exchanges : [],
+    };
+  }, [ev, types]);
+
   const submit = async (payload) => {
-    // що можна редагувати
+    // що можна редагувати:
     const allowed = [
       'title',
       'description',
@@ -32,6 +107,7 @@ export default function SuggestEdit() {
       'end_at',
       'timezone',
       'type',
+      'event_type_slug',
       'tge_exchanges',
       'link',
     ];
@@ -42,28 +118,19 @@ export default function SuggestEdit() {
     const { error } = await supabase.from('event_edits_pending').insert({
       event_id: id,
       payload: clean,
-      // submitter_email: ... (за потреби)
+      // submitter_email: ... (якщо потрібно)
     });
-    if (error) return alert('Помилка: ' + error.message);
+    if (error) {
+      alert('Помилка: ' + error.message);
+      return;
+    }
     alert('Дякуємо! Правку надіслано на модерацію.');
     nav('/events');
   };
 
   if (loading) return <p>Завантаження…</p>;
   if (!ev) return <p>Івент не знайдено.</p>;
-
-  const isTGE = ev?.type === 'Listing (TGE)';
-  const tz = ev?.timezone || 'UTC';
-
-  // ВАЖЛИВО: показуємо користувачу ЛОКАЛЬНИЙ час у його інпуті,
-  // щоб значення не стрибало на −3 години
-  const initial = {
-    ...ev,
-    start_at: isTGE
-      ? toLocalInput(ev.start_at, tz, 'date')      // YYYY-MM-DD
-      : toLocalInput(ev.start_at, tz, 'datetime'), // YYYY-MM-DDTHH:mm
-    end_at: ev.end_at ? toLocalInput(ev.end_at, tz, 'datetime') : '',
-  };
+  if (!initial) return null;
 
   return (
     <div className="space-y-2">
@@ -71,6 +138,7 @@ export default function SuggestEdit() {
       <div className="text-sm text-gray-500">
         Після модерації адміністратором зміни з’являться в івенті.
       </div>
+
       <div className="card p-4">
         <EventForm initial={initial} onSubmit={submit} loading={false} />
       </div>

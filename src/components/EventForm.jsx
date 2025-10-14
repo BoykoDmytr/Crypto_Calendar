@@ -1,10 +1,11 @@
 // src/components/EventForm.jsx
-import { useEffect, useState, useMemo } from 'react';
+import { useEffect, useState, useRef, useMemo } from 'react';
 import dayjs from 'dayjs';
 import utc from 'dayjs/plugin/utc';
 import timezone from 'dayjs/plugin/timezone';
 import { supabase } from '../lib/supabase';
 import { fetchEventTypes } from '../lib/api';
+import { toLocalInput } from '../utils/timeLocal';
 
 dayjs.extend(utc);
 dayjs.extend(timezone);
@@ -29,24 +30,98 @@ export default function EventForm({ onSubmit, loading, initial = {} }) {
     ...initial,
   }));
 
-  // завантажити довідник типів
+  const hydratedRef = useRef(false);
+
+  /** 1) Тягаємо типи і НЕ перетираємо тип, якщо прийшли редагувати */
   useEffect(() => {
     (async () => {
       try {
-        const data = await fetchEventTypes();
-        setTypes(data);
-        // якщо в initial немає slug — виставимо перший активний
-        if (!initial.event_type_slug && data.length) {
-          setForm(s => ({ ...s,
-            event_type_slug: data[0].slug,
-            type: data[0].name
-          }));
-        }
-      } catch(e) {
+        const list = await fetchEventTypes(); // твоя функція -> [{label/name, slug, active, is_tge, ...}]
+        setTypes(list || []);
+
+        // Якщо вже є тип у initial — нічого не авто-ставимо
+        const hasInitialType = !!(initial?.event_type_slug || initial?.type);
+        if (hasInitialType) return;
+
+        // Якщо у формі ще не обраний тип — поставимо перший активний
+        setForm((s) => {
+          if (s.event_type_slug || !list?.length) return s;
+          const first = list.find((t) => t.active) || list[0];
+          return first
+            ? { ...s, event_type_slug: first.slug, type: first.name ?? first.label }
+            : s;
+        });
+      } catch (e) {
         console.error('Failed to load event_types', e);
       }
     })();
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initial?.event_type_slug, initial?.type]);
+
+  /** 2) Одноразова гідрація форми з initial (щоб не “злітав” час, тип і біржі) */
+  useEffect(() => {
+    if (hydratedRef.current) return;
+    if (!initial || Object.keys(initial).length === 0) return;
+
+    setForm((prev) => {
+      let next = { ...prev, ...initial };
+
+      // Підтягнемо slug за назвою, якщо прийшла тільки назва типу
+      if (!next.event_type_slug && (initial.type || initial.event_type_slug) && types?.length) {
+        const match =
+          types.find(
+            (t) =>
+              t.slug === initial.event_type_slug ||
+              t.name === initial.type ||
+              t.label === initial.type
+          ) || null;
+        if (match) {
+          next.event_type_slug = match.slug;
+          next.type = match.name ?? match.label ?? initial.type ?? prev.type;
+        }
+      }
+
+      // Зберігаємо біржі як є (якщо це TGE і масив присутній)
+      if (Array.isArray(initial.tge_exchanges)) {
+        next.tge_exchanges = [...initial.tge_exchanges];
+      }
+
+      // Конвертації дат/часів під інпути (це лише для ПРЕФІЛУ UI; у submit ти вже конвертуєш назад у UTC)
+      const tz = initial.timezone || 'UTC';
+      const typeName = next.type;
+
+      if (typeName === 'Listing (TGE)') {
+        if (initial.start_at) {
+          next.start_at = toLocalInput(initial.start_at, tz, 'date'); // YYYY-MM-DD
+        }
+        // end_at для TGE ігноруємо
+      } else if (typeName === 'Binance Alpha') {
+        if (initial.start_at) {
+          next.start_date = toLocalInput(initial.start_at, tz, 'date');   // YYYY-MM-DD
+          // якщо у твоїй утиліті немає 'time' — заміни наступний рядок:
+          // next.start_time = dayjs(initial.start_at).tz(tz).format('HH:mm');
+          next.start_time = toLocalInput(initial.start_at, tz, 'time');   // HH:mm (або '')
+          if (next.start_time === '00:00') next.start_time = '';
+        }
+        if (initial.end_at) {
+          next.end_at = toLocalInput(initial.end_at, tz, 'datetime');     // YYYY-MM-DDTHH:mm
+        }
+      } else {
+        // інші типи — звичайний datetime-local
+        if (initial.start_at) {
+          next.start_at = toLocalInput(initial.start_at, tz, 'datetime');
+        }
+        if (initial.end_at) {
+          next.end_at = toLocalInput(initial.end_at, tz, 'datetime');
+        }
+      }
+
+      return next;
+    });
+
+    hydratedRef.current = true;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initial, types]);
 
   const currentType = useMemo(
     () => types.find(t => t.slug === form.event_type_slug) || { is_tge: true, time_optional: true, name: 'Listing (TGE)' },

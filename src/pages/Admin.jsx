@@ -398,41 +398,68 @@ export default function Admin() {
       .replace(/\s+/g, '-')
       .replace(/[^a-z0-9-]/g, '');
 
+
+    const makeUniqueSlug = (raw, existingSlugs) => {
+    let base = slugify((raw || '').trim() || 'type');
+    if (!existingSlugs.has(base)) return base;
+    let i = 2;
+    while (existingSlugs.has(`${base}-${i}`)) i++;
+    return `${base}-${i}`;
+  };
   // Додаємо тип — автоматично у кінець списку
-  const addType = async () => {
-    const label = (newType.label || '').trim();
-    if (!label) return alert('Вкажіть назву типу');
+  // додати тип
+const addType = async () => {
+  const label = newType.label.trim();
+  if (!label) return alert('Вкажіть назву типу');
 
-    // Максимальний order_index + 1
-    const nextOrder =
-      Math.max(0, ...types.map((t) => Number.isFinite(t.order_index) ? t.order_index : 0)) + 1;
+  const { data: all, error: e0 } = await supabase.from('event_types').select('slug');
+  if (e0) return alert('Помилка: ' + e0.message);
 
-    const payload = {
-      label,
-      slug: ((newType.slug || '').trim() || slugify(label)).trim(),
-      is_tge: !!newType.is_tge,
-      active: !!newType.active,
-      order_index: nextOrder,
-    };
-    const { error } = await supabase.from('event_types').insert(payload);
-    if (error) return alert('Помилка: ' + error.message);
-    setNewType({ label: '', slug: '', is_tge: false, active: true });
-    await refresh();
+  const existing = new Set((all || []).map(x => (x.slug || '').trim()));
+  const slug = makeUniqueSlug(newType.slug || label, existing);
+
+  const payload = {
+    label,
+    slug,
+    is_tge: !!newType.is_tge,
+    active: !!newType.active,
+    order_index: Number(newType.order_index || 0),
   };
 
-  // Зберігаємо тип — НЕ торкаємось order_index
-  const saveType = async (row) => {
-    const payload = {
-      label: (row.label || '').trim(),
-      slug: ((row.slug || '').trim() || slugify(row.label)).trim(),
-      is_tge: !!row.is_tge,
-      active: !!row.active,
-      // order_index не оновлюємо — його міняють тільки стрілки
-    };
-    const { error } = await supabase.from('event_types').update(payload).eq('id', row.id);
-    if (error) return alert('Помилка: ' + error.message);
-    await refresh();
+  const { error } = await supabase.from('event_types').insert(payload);
+  if (error) return alert('Помилка: ' + error.message);
+
+  setNewType({ label: '', slug: '', is_tge: false, active: true, order_index: 0 });
+  await refresh();
+};
+
+// зберегти тип
+const saveType = async (row) => {
+  const label = row.label.trim();
+
+  const { data: all, error: e0 } = await supabase.from('event_types').select('id, slug');
+  if (e0) return alert('Помилка: ' + e0.message);
+
+  const existing = new Set(
+    (all || []).filter(x => x.id !== row.id).map(x => (x.slug || '').trim())
+  );
+
+  const desired = (row.slug || label).trim();
+  const slug = makeUniqueSlug(desired, existing);
+
+  const payload = {
+    label,
+    slug,
+    is_tge: !!row.is_tge,
+    active: !!row.active,
+    order_index: Number(row.order_index || 0),
   };
+
+  const { error } = await supabase.from('event_types').update(payload).eq('id', row.id);
+  if (error) return alert('Помилка: ' + error.message);
+  await refresh();
+};
+
 
   const deleteType = async (id) => {
     if (
