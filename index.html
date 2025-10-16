@@ -8,6 +8,16 @@
     />
 
     <title>Crypto Events</title>
+    <script>
+      (function () {
+        try {
+          const stored = localStorage.getItem('theme'); // 'dark' | 'light' | null
+          const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+          const wantDark = stored ? stored === 'dark' : prefersDark;
+          if (wantDark) document.documentElement.classList.add('dark');
+        } catch (_) {}
+      })();
+    </script>
     <meta name="description" content="Календар майбутніх криптоподій, який оновлюється спільнотою: лістинги, airdropи, альфа та інші важливі події." />
     <!-- ✅ ОДИН файл на все: просто поклади /public/oss.png -->
     <!-- Favicon (PNG теж працює) -->

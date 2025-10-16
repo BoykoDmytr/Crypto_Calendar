@@ -2,63 +2,228 @@
 @tailwind components;
 @tailwind utilities;
 
-/* базові утиліти */
-.btn { @apply inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-brand-600 text-white hover:bg-brand-700 active:scale-[.99] transition; }
-.btn-secondary { @apply bg-gray-100 text-gray-900 hover:bg-gray-200; }
-.input { @apply w-full rounded-xl border border-gray-200 px-4 py-2 outline-none focus:border-brand-400; }
-.label { @apply text-sm text-gray-600; }
-.card { @apply rounded-2xl bg-white shadow-soft; }
-/* мобільний фікс від горизонтального скролу */
-html, body, #root { max-width: 100%; overflow-x: hidden; }
+/* ========== ТЕМА ЧЕРЕЗ CSS-змінні ========== */
+@layer base {
+  :root { color-scheme: light; }
+  html.dark { color-scheme: dark; }
 
-/* дрібні твіки, щоб кліки на мобілі були «пружні» */
-button { touch-action: manipulation; }
-/* приховати горизонтальний скролл у ряді фільтрів */
-.no-scrollbar::-webkit-scrollbar { display: none; }
-.no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
-.no-tap { -webkit-tap-highlight-color: transparent; }
+  /* Light */
+  :root {
+    --bg:        #F7FAFF;
+    --bg-alt:    #EEF2F9;
+    --card:      #FFFFFF;
+    --border:    #E6EDF6;
+    --text:      #0F172A;
 
-:root{
-  --bg: #F7FAFF;
-  --bg-alt: #EEF2F9;
-  --border: #E6EDF6;
-  --card: #FFFFFF;
-  --text: #0F172A;
-  --brand: #2563EB;
-  --brand-hover: #1D4ED8;
+    --brand:     #2563EB;
+    --brand-hov: #1D4ED8;
+
+    /* бейдж типу (світла) */
+    --badge-bg:     #F3F6FC;
+    --badge-border: #E3EAF6;
+    --badge-text:   #0F172A;
+  }
+
+  /* Dark (як просив: фон #0d1117, картка #181c2b) */
+  html.dark {
+    --bg:        #0D1117;
+    --bg-alt:    #0F1522;
+    --card:      #181C2B;
+    --border:    #222C41;
+    --text:      #E6ECF7;
+
+    --brand:     #3B82F6;
+    --brand-hov: #2563EB;
+
+    /* бейдж типу (жовта капсула) */
+    --badge-bg:     #2B2406;   /* темний теплий фон */
+    --badge-border: #6A5511;
+    --badge-text:   #FFD55E;   /* жовтий текст */
+  }
+
+  html, body, #root {
+    background: var(--bg);
+    color: var(--text);
+    max-width: 100%;
+    overflow-x: hidden;
+  }
+
+  /* дрібні утиліти */
+  button { touch-action: manipulation; }
+  .no-scrollbar::-webkit-scrollbar { display: none; }
+  .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+  .no-tap { -webkit-tap-highlight-color: transparent; }
 }
 
-html, body, #root{
-  background: var(--bg);
+/* ========== КОМПОНЕНТИ ========== */
+@layer components {
+  .btn {
+    @apply inline-flex items-center gap-2 px-4 py-2 rounded-xl text-white
+           active:scale-[.99] transition border border-transparent shadow-sm;
+    background: var(--brand);
+  }
+  .btn:hover { background: var(--brand-hov); }
+
+  .btn-secondary {
+    @apply inline-flex items-center gap-2 px-4 py-2 rounded-xl border;
+    background: var(--bg-alt);
+    color: var(--text);
+    border-color: var(--border);
+  }
+  .btn-secondary:hover { filter: brightness(1.03); }
+
+  .input {
+    @apply w-full rounded-xl px-4 py-2 outline-none transition;
+    background: var(--card);
+    color: var(--text);
+    border: 1px solid var(--border);
+  }
+  .input:focus { box-shadow: 0 0 0 2px var(--brand); border-color: var(--brand); }
+
+  .label { @apply text-sm; color: color-mix(in oklab, var(--text) 70%, transparent); }
+
+  .card {
+    @apply rounded-2xl;
+    background: var(--card);
+    border: 1px solid var(--border);
+    box-shadow: 0 1px 0 rgba(15, 23, 42, 0.02);
+  }
+
+  .sticky-filters {
+    background: var(--bg);
+    backdrop-filter: blur(6px);
+    -webkit-backdrop-filter: blur(6px);
+    border-bottom: 1px solid var(--border);
+  }
+
+  .divider { height: 1px; background: var(--border); }
+
+  /* Telegram CTA */
+  .btn-telegram {
+    @apply inline-flex items-center gap-2 rounded-xl px-4 py-2 sm:px-5 sm:py-2.5
+           font-medium text-white shadow-sm transition;
+    background: linear-gradient(90deg, #229ED9 0%, #2AA8E0 100%);
+  }
+  .btn-telegram:hover { filter: brightness(1.05); }
+  .btn-telegram:active { transform: translateY(0.5px); }
+}
+
+/* ========== УТИЛІТИ ========== */
+@layer utilities {
+  /* текст часу під івентом у dark — м’якший */
+  .dark .event-time,
+  .dark article.card .text-sm.text-gray-700 { color: #AAB6CF !important; }
+
+  /* Трохи темніші «чіпи» бірж (якщо десь лишились старі класи) */
+  .dark .bg-blue-50 { background: #13243C !important; }
+  .dark .border-blue-100 { border-color: #1C3254 !important; }
+}
+
+/* ========== БЕЙДЖ ТИПУ ІВЕНТА ========== */
+/* Використовуй клас .badge-type для бейджа типу у картці */
+.badge-type {
+  padding: 4px 10px;
+  border-radius: 9999px;
+  font-size: 0.875rem;      /* 14px */
+  font-weight: 600;
+  line-height: 1;
+  background: var(--badge-bg);
+  border: 1px solid var(--badge-border);
+  color: var(--badge-text);
+}
+
+/* Світла тема — трохи тепліший варіант жовтого не потрібен: лишаємо нейтральний,
+   але якщо хочеш — розкоментуй:
+:root:not(.dark) .badge-type {
+  background: #FFF7D1;
+  border-color: #F3D067;
+  color: #8A6A00;
+}
+*/
+
+/* ========== КАЛЕНДАР: позамiсячнi днi ========== */
+/* універсальні стилі для DayPicker v7/v8/v9 */
+.rdp .rdp-day_outside,
+.DayPicker-Day--outside,
+.is-outside { opacity: .45 !important; }
+
+.dark .rdp .rdp-day_outside,
+.dark .DayPicker-Day--outside,
+.dark .is-outside {
+  opacity: .25 !important;
+  background-color: rgba(255,255,255,0.02) !important;
+}
+
+/* якщо використовуєш власні клітинки — можна доточити:
+.dark .day-cell--outside { opacity: .35; background: #0F1522; color: #9AA7BD; }
+*/
+/* ===== Dark fix: header, sticky filters, pills, any bg-white that leaks ===== */
+
+/* 1) Палітра під твої кольори */
+html.dark{
+  --bg:        #0d1117;   /* фон сторінки */
+  --bg-alt:    #0f172a;   /* плашки/хедер/стіккі */
+  --card:      #181c2b;   /* картки */
+  --border:    #253046;   /* бордери */
+  --text:      #e6edf3;   /* текст */
+}
+
+/* 2) Хедер/стики-панелі */
+html.dark header,
+html.dark .sticky,
+html.dark .sticky-filters,
+html.dark .page-header{
+  background-color: var(--bg) !important;
+  border-color: var(--border) !important;
+}
+
+/* 3) Пігулки фільтрів у стікі-ряді (вони звичайно мають bg-white + border) */
+html.dark .sticky [class*="rounded-full"].border,
+html.dark .sticky .bg-white.border{
+  background-color: var(--bg-alt) !important;
+  border-color: var(--border) !important;
+  color: var(--text) !important;
+}
+
+/* 4) Неактивні «білі» утиліти, що просочуються всередині теми */
+html.dark .bg-white{ background-color: var(--card) !important; }
+html.dark .border-gray-200{ border-color: var(--border) !important; }
+html.dark .text-gray-900{ color: var(--text) !important; }
+
+/* 5) Картки й другорядні кнопки (щоб збігалося з темою) */
+html.dark .card{
+  background-color: var(--card) !important;
+  border-color: var(--border) !important;
+  box-shadow: none !important;
+}
+html.dark .btn-secondary{
+  background-color: var(--bg-alt) !important;
+  border-color: var(--border) !important;
+  color: var(--text) !important;
+}
+/* активна пігулка фільтра (у тебе це brand) лишається як є */
+/* ── Header nav: active tab у темній темі ─────────────────────────── */
+html.dark header a[aria-current="page"],
+html.dark header button[aria-current="page"]{
+  background-color: var(--brand) !important;  /* синя активна пігулка */
+  color: #fff !important;
+  border-color: transparent !important;
+}
+
+/* решта табів у темі — темні, не білі */
+html.dark header a,
+html.dark header button{
+  background-color: transparent;             /* або var(--bg) якщо хочеш плашку */
   color: var(--text);
+  border-color: var(--border);
 }
 
-/* картки — щоб усі мали однаковий вигляд */
-.card{
-  background: var(--card);
-  border: 1px solid var(--border);
-  border-radius: 16px;
-  box-shadow: 0 1px 0 rgba(15, 23, 42, 0.02);
+/* (не обов’язково) hover для неактивних табів */
+html.dark header a:not([aria-current="page"]):hover,
+html.dark header button:not([aria-current="page"]):hover{
+  background-color: var(--bg-alt);
 }
-
-/* липкі панелі/фільтри */
-.sticky-filters{
-  background: var(--bg);
-  backdrop-filter: blur(6px);
-  -webkit-backdrop-filter: blur(6px);
-  border-bottom: 1px solid var(--border);
+/* ── Dark: світліший опис івенту в картках ───────────────────────── */
+html.dark article.card p.text-sm.text-gray-600 {
+  color: #cfd6eaaf !important; /* було темніше ~#aab6cf */
 }
-
-/* дрібні утиліти */
-.divider{ height:1px; background: var(--border); }
-.no-scrollbar::-webkit-scrollbar{ display:none; }
-.no-scrollbar{ -ms-overflow-style:none; scrollbar-width:none; }
-
-/* Telegram CTA */
-.btn-telegram{
-  @apply inline-flex items-center gap-2 rounded-xl px-4 py-2 sm:px-5 sm:py-2.5
-         font-medium text-white shadow-sm transition;
-  background: linear-gradient(90deg, #229ED9 0%, #2AA8E0 100%);
-}
-.btn-telegram:hover{ filter: brightness(1.05); }
-.btn-telegram:active{ transform: translateY(0.5px); }

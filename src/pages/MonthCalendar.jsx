@@ -103,14 +103,35 @@ export default function MonthCalendar() {
               className={[
                 'relative rounded-xl border select-none',
                 'h-12 sm:h-24 p-1 sm:p-3 text-left',
-                inMonth ? 'bg-white' : 'bg-gray-50 text-gray-400',
-                isSelected ? 'ring-2 ring-brand-500 border-transparent' : 'border-gray-200',
-                isToday && !isSelected ? 'outline outline-1 outline-brand-200' : '',
+
+                // усередині поточного місяця
+                inMonth
+                  ? 'bg-white border-gray-200 dark:bg-slate-900/40 dark:border-white/10'
+                  // ПОЗА місяцем — зробимо тьмянішими (і в світлій, і в темній темі)
+                  : [
+                      'bg-gray-50 text-gray-400 border-gray-200/80 opacity-60',
+                      'dark:bg-white/5 dark:text-gray-400/70 dark:border-white/10 dark:opacity-40',
+                    ].join(' '),
+
+                // вибраний день — акцентне кільце
+                isSelected
+                  ? 'ring-2 ring-brand-500 border-transparent dark:ring-brand-400'
+                  : '',
+
+                // сьогодні (якщо не вибраний) — тонкий контур
+                isToday && !isSelected
+                  ? 'outline outline-1 outline-brand-200 dark:outline-brand-500/30'
+                  : '',
               ].join(' ')}
             >
               <div className="text-[12px] sm:text-sm font-medium">{d.date()}</div>
-              {has && <div className="absolute right-1.5 bottom-1.5 w-1.5 h-1.5 sm:w-2 sm:h-2 rounded-full bg-brand-500" />}
+
+              {/* крапка-індикатор подій */}
+              {has && (
+                <div className="absolute right-1.5 bottom-1.5 w-1.5 h-1.5 sm:w-2 sm:h-2 rounded-full bg-brand-500 dark:bg-brand-400" />
+              )}
             </button>
+
           );
         })}
       </div>

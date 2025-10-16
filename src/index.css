@@ -1,68 +1,73 @@
-:root {
-  font-family: system-ui, Avenir, Helvetica, Arial, sans-serif;
-  line-height: 1.5;
-  font-weight: 400;
+/* src/index.css */
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
 
-  color-scheme: light dark;
-  color: rgba(255, 255, 255, 0.87);
-  background-color: #242424;
-
-  font-synthesis: none;
-  text-rendering: optimizeLegibility;
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
+/* Базові кольори сторінки — під контролем Tailwind класів */
+html, body, #root {
+  height: 100%;
 }
-
-a {
-  font-weight: 500;
-  color: #646cff;
-  text-decoration: inherit;
-}
-a:hover {
-  color: #535bf2;
-}
-
 body {
+  @apply bg-gray-50 text-gray-900 dark:bg-gray-950 dark:text-gray-100;
   margin: 0;
-  display: flex;
-  place-items: center;
-  min-width: 320px;
-  min-height: 100vh;
 }
 
-h1 {
-  font-size: 3.2em;
-  line-height: 1.1;
+/* Посилання */
+a {
+  @apply text-brand-600 hover:opacity-90;
 }
 
-button {
-  border-radius: 8px;
-  border: 1px solid transparent;
-  padding: 0.6em 1.2em;
-  font-size: 1em;
-  font-weight: 500;
-  font-family: inherit;
-  background-color: #1a1a1a;
-  cursor: pointer;
-  transition: border-color 0.25s;
-}
-button:hover {
-  border-color: #646cff;
-}
-button:focus,
-button:focus-visible {
-  outline: 4px auto -webkit-focus-ring-color;
+/* ───── Твої утиліті-класи (зі світло/темними варіантами) ───── */
+@layer components {
+  .card {
+    @apply rounded-2xl border border-gray-200 bg-white
+           dark:border-gray-800 dark:bg-gray-900;
+  }
+
+  .btn {
+    @apply inline-flex items-center justify-center gap-2
+           px-4 py-2 rounded-xl font-medium
+           bg-brand-600 text-white hover:opacity-95
+           disabled:opacity-60 disabled:cursor-not-allowed;
+  }
+
+  .btn-secondary {
+    @apply inline-flex items-center justify-center gap-2
+           px-4 py-2 rounded-xl font-medium
+           border border-gray-200 bg-white text-gray-800 hover:bg-gray-50
+           dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100 dark:hover:bg-gray-800;
+  }
+
+  .input {
+    @apply w-full rounded-xl border border-gray-200 bg-white px-3 py-2
+           text-gray-900 placeholder:text-gray-400
+           focus:outline-none focus:ring-2 focus:ring-brand-500
+           dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100 dark:placeholder:text-gray-500;
+  }
+
+  .label {
+    @apply block text-sm font-medium text-gray-700 mb-1
+           dark:text-gray-300;
+  }
+
+  .btn-telegram {
+    @apply inline-flex items-center gap-2 px-4 py-2 rounded-xl
+           bg-[#229ED9] text-white font-medium shadow-sm hover:opacity-95
+           dark:shadow-none;
+  }
+
+  /* Кнопки фільтра */
+  .chip {
+    @apply px-3 py-1.5 rounded-full border text-sm whitespace-nowrap
+           bg-white border-gray-200 text-gray-800 hover:bg-gray-50
+           dark:bg-gray-900 dark:border-gray-700 dark:text-gray-100 dark:hover:bg-gray-800;
+  }
+  .chip--active {
+    @apply bg-brand-600 text-white border-brand-600;
+  }
 }
 
-@media (prefers-color-scheme: light) {
-  :root {
-    color: #213547;
-    background-color: #ffffff;
-  }
-  a:hover {
-    color: #747bff;
-  }
-  button {
-    background-color: #f9f9f9;
-  }
-}
+/* Прибрати старі глобальні стилі Vite, що конфліктували:
+   — НЕ виставляємо color-scheme, фон і колір прямо на :root
+   — НЕ фарбуємо кнопки/лінки поза Tailwind
+*/

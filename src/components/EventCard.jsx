@@ -77,7 +77,7 @@ export default function EventCard({ ev }) {
       )}
 
       <div className="mt-2 flex flex-wrap items-center gap-2 text-sm text-gray-700">
-        <span className="text-xs px-2 py-1 rounded-md bg-gray-100">{ev.type}</span>
+        <span className="badge-type">{ev.type}</span>
 
         {whenLabel && (
           <span className="flex items-center gap-1">
