@@ -18,13 +18,13 @@
     --brand:     #2563EB;
     --brand-hov: #1D4ED8;
 
-    /* бейдж типу (світла) */
+    /* базовий бейдж (для нейтральних чіпів) */
     --badge-bg:     #F3F6FC;
     --badge-border: #E3EAF6;
     --badge-text:   #0F172A;
   }
 
-  /* Dark (як просив: фон #0d1117, картка #181c2b) */
+  /* Dark (фон #0d1117, картка #181c2b — як просив) */
   html.dark {
     --bg:        #0D1117;
     --bg-alt:    #0F1522;
@@ -35,10 +35,10 @@
     --brand:     #3B82F6;
     --brand-hov: #2563EB;
 
-    /* бейдж типу (жовта капсула) */
-    --badge-bg:     #2B2406;   /* темний теплий фон */
-    --badge-border: #6A5511;
-    --badge-text:   #FFD55E;   /* жовтий текст */
+    /* дефолтні чіпи в дарку трохи приглушені */
+    --badge-bg:     #13243C;
+    --badge-border: #1C3254;
+    --badge-text:   #DBE6FF;
   }
 
   html, body, #root {
@@ -108,23 +108,22 @@
   .btn-telegram:active { transform: translateY(0.5px); }
 }
 
-/* ========== УТИЛІТИ ========== */
+/* ========== УТИЛІТИ / ОВЕРРАЙДИ ========== */
 @layer utilities {
-  /* текст часу під івентом у dark — м’якший */
+  /* Текст часу під івентом у dark — м’якший синюватий */
   .dark .event-time,
   .dark article.card .text-sm.text-gray-700 { color: #AAB6CF !important; }
 
-  /* Трохи темніші «чіпи» бірж (якщо десь лишились старі класи) */
-  .dark .bg-blue-50 { background: #13243C !important; }
-  .dark .border-blue-100 { border-color: #1C3254 !important; }
+  /* «Нейтральні» чіпи бірж (якщо десь лишилися старі класи) */
+  .dark .bg-blue-50    { background: #13243C !important; }
+  .dark .border-blue-100{ border-color: #1C3254 !important; }
 }
 
-/* ========== БЕЙДЖ ТИПУ ІВЕНТА ========== */
-/* Використовуй клас .badge-type для бейджа типу у картці */
+/* ========== БЕЙДЖ ТИПУ ІВЕНТА (дефолтний) ========== */
 .badge-type {
   padding: 4px 10px;
   border-radius: 9999px;
-  font-size: 0.875rem;      /* 14px */
+  font-size: 0.875rem;
   font-weight: 600;
   line-height: 1;
   background: var(--badge-bg);
@@ -132,17 +131,23 @@
   color: var(--badge-text);
 }
 
-/* Світла тема — трохи тепліший варіант жовтого не потрібен: лишаємо нейтральний,
-   але якщо хочеш — розкоментуй:
-:root:not(.dark) .badge-type {
+/* ЖОВТА «капсула» (як на скріні) — використовуй окремо, коли треба акцент */
+.badge-type--yellow {
+  padding: 4px 10px;
+  border-radius: 9999px;
+  font-size: 0.875rem;
+  font-weight: 700;
+  line-height: 1;
   background: #FFF7D1;
-  border-color: #F3D067;
+  border: 1px solid #F3D067;
   color: #8A6A00;
 }
-*/
+html.dark .badge-type--yellow{
+  background:#2B2406; border-color:#6A5511; color:#FFD55E;
+  box-shadow: 0 0 0 1px rgba(255,213,94,.06) inset;
+}
 
-/* ========== КАЛЕНДАР: позамiсячнi днi ========== */
-/* універсальні стилі для DayPicker v7/v8/v9 */
+/* ========== КАЛЕНДАР: позамiсячнi днi (DayPicker v7/v8/v9) ========== */
 .rdp .rdp-day_outside,
 .DayPicker-Day--outside,
 .is-outside { opacity: .45 !important; }
@@ -154,21 +159,18 @@
   background-color: rgba(255,255,255,0.02) !important;
 }
 
-/* якщо використовуєш власні клітинки — можна доточити:
-.dark .day-cell--outside { opacity: .35; background: #0F1522; color: #9AA7BD; }
-*/
-/* ===== Dark fix: header, sticky filters, pills, any bg-white that leaks ===== */
+/* ========== Dark fix: header, sticky, pills, утиліти bg-white/border-gray ========== */
 
-/* 1) Палітра під твої кольори */
+/* палітра (повтор — щоб точно перекрити витоки утиліт) */
 html.dark{
-  --bg:        #0d1117;   /* фон сторінки */
-  --bg-alt:    #0f172a;   /* плашки/хедер/стіккі */
-  --card:      #181c2b;   /* картки */
-  --border:    #253046;   /* бордери */
-  --text:      #e6edf3;   /* текст */
+  --bg:        #0d1117;
+  --bg-alt:    #0f172a;
+  --card:      #181c2b;
+  --border:    #253046;
+  --text:      #e6edf3;
 }
 
-/* 2) Хедер/стики-панелі */
+/* Хедер / стікі */
 html.dark header,
 html.dark .sticky,
 html.dark .sticky-filters,
@@ -177,53 +179,123 @@ html.dark .page-header{
   border-color: var(--border) !important;
 }
 
-/* 3) Пігулки фільтрів у стікі-ряді (вони звичайно мають bg-white + border) */
-html.dark .sticky [class*="rounded-full"].border,
-html.dark .sticky .bg-white.border{
-  background-color: var(--bg-alt) !important;
-  border-color: var(--border) !important;
-  color: var(--text) !important;
-}
-
-/* 4) Неактивні «білі» утиліти, що просочуються всередині теми */
-html.dark .bg-white{ background-color: var(--card) !important; }
+/* Витоки світлих утиліт */
+html.dark .bg-white      { background-color: var(--card) !important; }
 html.dark .border-gray-200{ border-color: var(--border) !important; }
-html.dark .text-gray-900{ color: var(--text) !important; }
+html.dark .text-gray-900 { color: var(--text) !important; }
 
-/* 5) Картки й другорядні кнопки (щоб збігалося з темою) */
-html.dark .card{
-  background-color: var(--card) !important;
-  border-color: var(--border) !important;
-  box-shadow: none !important;
-}
-html.dark .btn-secondary{
-  background-color: var(--bg-alt) !important;
-  border-color: var(--border) !important;
-  color: var(--text) !important;
-}
-/* активна пігулка фільтра (у тебе це brand) лишається як є */
-/* ── Header nav: active tab у темній темі ─────────────────────────── */
+/* Активна вкладка в хедері (дарк) */
 html.dark header a[aria-current="page"],
 html.dark header button[aria-current="page"]{
-  background-color: var(--brand) !important;  /* синя активна пігулка */
+  background-color: var(--brand) !important;
   color: #fff !important;
   border-color: transparent !important;
 }
 
-/* решта табів у темі — темні, не білі */
+/* Неактивні — темні, без білої «таблетки» */
 html.dark header a,
 html.dark header button{
-  background-color: transparent;             /* або var(--bg) якщо хочеш плашку */
+  background-color: transparent;
   color: var(--text);
   border-color: var(--border);
 }
-
-/* (не обов’язково) hover для неактивних табів */
 html.dark header a:not([aria-current="page"]):hover,
 html.dark header button:not([aria-current="page"]):hover{
   background-color: var(--bg-alt);
 }
-/* ── Dark: світліший опис івенту в картках ───────────────────────── */
-html.dark article.card p.text-sm.text-gray-600 {
-  color: #cfd6eaaf !important; /* було темніше ~#aab6cf */
+
+/* Світліший опис і заголовок дня у списку івентів (дарк) */
+html.dark article.card p.text-sm.text-gray-600 { color: #cfd6eaaf !important; }
+html.dark .events-page .day-header { color: #d7def0 !important; }
+html.dark .events-page .day-divider { background-color: #2a3854 !important; }
+
+/* ========== EventCard (композиція) ========== */
+.event-card { padding: 18px 14px; }
+@media (min-width: 640px){ .event-card { padding: 20px 18px; } }
+
+.event-title { font-weight: 700; font-size: 1.125rem; line-height: 1.4; color: var(--text); }
+.event-desc  { color: color-mix(in oklab, var(--text) 75%, transparent); }
+.event-when  { color: #667191; }      /* рядок із часом */
+.dark .event-when { color: #b0b8d1; }
+
+.exchange-chip{
+  font-size:.8rem; line-height:1;
+  padding: 6px 10px;
+  border-radius: 9999px;
+  background: var(--bg-alt);
+  border: 1px solid var(--border);
+}
+
+/* ліва колонка з датою */
+.event-date-col{ width: 70px; min-width:70px; position: relative; }
+@media (min-width: 640px){ .event-date-col{ width: 84px; min-width:84px; } }
+
+.event-date-num{
+  font-weight: 800;
+  letter-spacing: .5px;
+  font-size: 28px;
+  line-height: 1;
+  margin-top: 2px;
+  color: var(--text);
+}
+@media (min-width: 640px){
+  .event-date-num{ font-size: 34px; }
+}
+
+/* жовтий чип дня тижня */
+.weekday-chip{
+  display: inline-block;
+  margin-top: 8px;
+  padding: 6px 10px;
+  border-radius: 9999px;
+  font-size: .9rem;
+  font-weight: 700;
+  line-height: 1;
+  background: #FFF7D1;
+  border: 1px solid #F3D067;
+  color: #8A6A00;
+}
+html.dark .weekday-chip{
+  background:#635100; border-color:#6A5511; color:#FFD55E;
+  box-shadow: 0 0 0 1px rgba(255,213,94,.06) inset;
+}
+
+/* вертикальна синя смуга-акцент — ПРАВА сторона (за твоїм проханням) */
+.event-accent{
+  position: absolute; right: -1px; top: 2px; bottom: 2px;
+  width: 4px; border-radius: 9999px;
+  background: #2563eb;
+  opacity: .85;
+}
+
+/* ========== Пігулки фільтрів (chip) ========== */
+/* БАЗОВИЙ чип (світла тема) */
+.chip{
+  @apply rounded-full border text-sm whitespace-nowrap px-3 py-1.5 transition;
+  background: #fff;
+  border-color: #e5e7eb; /* border-gray-200 */
+  color: #0f172a;
+}
+.chip:hover{ background: #f9fafb; }
+
+/* Активний чип (світла тема) */
+.chip--active{
+  background: var(--brand) !important;
+  border-color: var(--brand) !important;
+  color: #fff !important;
+}
+
+/* ───────── DARK ───────── */
+html.dark .chip{
+  background: #0f172a !important;
+  border-color: #22314a !important;
+  color: #e6ecf3 !important;
+}
+html.dark .chip:hover{
+  background: #141e33 !important;
+}
+html.dark .chip--active{
+  background: var(--brand) !important;
+  border-color: var(--brand) !important;
+  color: #fff !important;
 }

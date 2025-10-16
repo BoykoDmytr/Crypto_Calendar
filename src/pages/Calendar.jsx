@@ -189,10 +189,10 @@ export default function Calendar() {
       <div className="space-y-6 px-3 sm:px-4">
         {groups.map((g) => (
           <section key={g.key}>
-            <div className="flex items-center gap-3 text-xs text-gray-500 mb-2">
-              <div className="font-semibold text-gray-700">{g.label}</div>
+            <div className="flex items-center gap-3 text-xs mb-6">
               <div className="h-px bg-gray-200 flex-1" />
             </div>
+
 
             <div className="space-y-2">
               {g.items.map((ev) => (

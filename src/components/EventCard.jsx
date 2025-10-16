@@ -9,13 +9,13 @@ const toMinutes = (s) => {
   return m ? (+m[1]) * 60 + (+m[2]) : Number.POSITIVE_INFINITY;
 };
 
-// чи є реальний час (не 00:00)
-const hasTime = (d) => !!d && (d.hour() !== 0 || d.minute() !== 0 || d.second() !== 0);
+// Типи, де час НЕобов'язковий (щоб не показувати 00:00)
+const TIME_OPTIONAL = new Set(['Binance Alpha', 'OKX Alpha', 'Token Sales', 'Claim / Airdrop', 'Unlocks']);
 
 export default function EventCard({ ev }) {
   const isTGE = ev?.type === 'Listing (TGE)';
 
-  // Без конвертацій: показуємо як є
+  // Без конвертацій: показуємо як є (ми вже зберігаємо все в UTC ISO)
   const start = ev?.start_at ? dayjs(ev.start_at) : null;
   const end   = ev?.end_at   ? dayjs(ev.end_at)   : null;
 
@@ -24,31 +24,42 @@ export default function EventCard({ ev }) {
   tge.sort((a, b) => toMinutes(a?.time) - toMinutes(b?.time));
 
   // ---------- Формуємо підпис дати/часу (БЕЗ року і БЕЗ таймзони) ----------
+    // ---------- Формуємо підпис дати/часу (БЕЗ року і БЕЗ таймзони) ----------
   let whenLabel = '';
-  let showTime = false;
 
   if (start) {
     if (isTGE) {
       // TGE — тільки дата
       whenLabel = start.format('DD MMM');
     } else {
-      // час опційний ДЛЯ ВСІХ типів: показуємо лише якщо він заданий
-      showTime = hasTime(start) || hasTime(end);
+      // Чи є реальний час у start/end (не 00:00)
+      const hasStartTime = !!start && (start.hour() !== 0 || start.minute() !== 0);
+      const hasEndTime   = !!end   && (end.hour()   !== 0 || end.minute()   !== 0);
 
       if (end && !start.isSame(end, 'day')) {
-        // багатоденна
-        const left  = hasTime(start) ? start.format('DD MMM HH:mm') : start.format('DD MMM');
-        const right = hasTime(end)   ? end.format('DD MMM HH:mm')   : end.format('DD MMM');
+        // Багатоденна: показуємо час біля дати лише якщо він є
+        const left  = start.format(hasStartTime ? 'DD MMM HH:mm' : 'DD MMM');
+        const right = end.format(hasEndTime ? 'DD MMM HH:mm' : 'DD MMM');
         whenLabel = `${left} → ${right}`;
       } else {
-        // один день
-        whenLabel = showTime ? start.format('DD MMM HH:mm') : start.format('DD MMM');
+        // Один день: якщо часу немає — лише дата
+        whenLabel = start.format(hasStartTime ? 'DD MMM HH:mm' : 'DD MMM');
+
+        // Якщо є кінець у той самий день і в нього є час — додаємо діапазон
+        if (end && start.isSame(end, 'day') && hasEndTime) {
+          whenLabel += ` – ${end.format('HH:mm')}`;
+        }
       }
     }
   }
 
+
+  // Ліва дата для колонки
+  const dayNum   = start ? start.format('DD') : '';
+  const weekday3 = start ? start.format('ddd') : '';
+
   return (
-    <article className="card p-4 relative">
+    <article className="card event-card relative overflow-hidden">
       {/* Кнопка-олівець у правому верхньому куті */}
       <Link
         to={`/suggest/${ev.id}`}
@@ -70,48 +81,72 @@ export default function EventCard({ ev }) {
         </svg>
       </Link>
 
-      <h3 className="font-semibold text-lg leading-tight pr-12">{ev.title}</h3>
+      <div className="flex gap-3 sm:gap-4">
+        {/* Ліва дата + вертикальний акцент */}
+        <div className="event-date-col relative">
+          <div className="event-date-num">{dayNum}</div>
+          <div className="weekday-chip">{weekday3}</div>
 
-      {ev.description && (
-        <p className="text-sm text-gray-600 mt-1">{ev.description}</p>
-      )}
-
-      <div className="mt-2 flex flex-wrap items-center gap-2 text-sm text-gray-700">
-        <span className="badge-type">{ev.type}</span>
-
-        {whenLabel && (
-          <span className="flex items-center gap-1">
-            <span>🕒</span>
-            <span>
-              {whenLabel}
-              {/* якщо один день і час показуємо — додаємо кінець «– HH:mm» */}
-              {!isTGE && showTime && end && start?.isSame(end, 'day') && hasTime(end)
-                ? ` – ${end.format('HH:mm')}`
-                : ''}
-            </span>
-          </span>
-        )}
-
-        {ev.link && (
-          <a className="underline" href={ev.link} target="_blank" rel="noreferrer">
-            Лінк
-          </a>
-        )}
-      </div>
-
-      {/* бейджі бірж для TGE */}
-      {tge.length > 0 && (
-        <div className="mt-2 flex flex-wrap gap-2">
-          {tge.map((x, i) => (
-            <span
-              key={`${x?.name || 'ex'}-${i}`}
-              className="text-xs px-2 py-1 rounded-full bg-blue-50 border border-blue-100"
-            >
-              {x?.name}{x?.time ? ` • ${x.time}` : ''}
-            </span>
-          ))}
+          {/* вертикальна смуга-акцент */}
+          <div className="event-accent" />
         </div>
-      )}
+
+        {/* Контент карточки */}
+        <div className="flex-1 pr-12">
+          <h3 className="event-title">{ev.title}</h3>
+
+          {ev.description && (
+            <p className="event-desc mt-1">{ev.description}</p>
+          )}
+
+          <div className="mt-2 flex flex-wrap items-center gap-2 text-sm">
+            {/* тип */}
+            <span className={`badge-type ${/* у темній темі жовтий бейдж для будь-якого типу */ ''} ${'badge-type--yellow'}`}>
+              {ev.type}
+            </span>
+
+            {/* дата/час */}
+            {whenLabel && (
+              <span className="flex items-center gap-1 event-when">
+                <span>🕒</span>
+                <span>
+                  {whenLabel}
+                  {/* якщо один день і показуємо час — додаємо кінець «– HH:mm» */}
+                  {!isTGE && end && start?.isSame(end, 'day')
+                    ? ` – ${end.format('HH:mm')}`
+                    : ''}
+                </span>
+              </span>
+            )}
+
+            {/* посилання (якщо є) */}
+            {ev.link && (
+              <a
+                className="underline"
+                href={ev.link}
+                target="_blank"
+                rel="noreferrer"
+              >
+                Лінк
+              </a>
+            )}
+          </div>
+
+          {/* бейджі бірж для TGE */}
+          {tge.length > 0 && (
+            <div className="mt-3 flex flex-wrap gap-2">
+              {tge.map((x, i) => (
+                <span
+                  key={`${x?.name || 'ex'}-${i}`}
+                  className="exchange-chip"
+                >
+                  {x?.name}{x?.time ? ` • ${x.time}` : ''}
+                </span>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
     </article>
   );
 }
