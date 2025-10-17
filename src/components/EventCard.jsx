@@ -1,13 +1,7 @@
 // src/components/EventCard.jsx
 import dayjs from 'dayjs';
 import { Link } from 'react-router-dom';
-
-// "HH:mm" -> хвилини (для сортування біржових часів)
-const toMinutes = (s) => {
-  if (!s) return Number.POSITIVE_INFINITY;
-  const m = /^(\d{1,2}):(\d{2})(?::\d{2})?$/.exec(s);
-  return m ? (+m[1]) * 60 + (+m[2]) : Number.POSITIVE_INFINITY;
-};
+import { timeStringToMinutes } from '../utils/time';
 
 // Типи, де час НЕобов'язковий (щоб не показувати 00:00)
 const TIME_OPTIONAL = new Set(['Binance Alpha', 'OKX Alpha', 'Token Sales', 'Claim / Airdrop', 'Unlocks']);
@@ -21,7 +15,7 @@ export default function EventCard({ ev }) {
 
   // Біржі для TGE
   const tge = Array.isArray(ev?.tge_exchanges) ? [...ev.tge_exchanges] : [];
-  tge.sort((a, b) => toMinutes(a?.time) - toMinutes(b?.time));
+  tge.sort((a, b) => timeStringToMinutes(a?.time) - timeStringToMinutes(b?.time));
 
   // ---------- Формуємо підпис дати/часу (БЕЗ року і БЕЗ таймзони) ----------
     // ---------- Формуємо підпис дати/часу (БЕЗ року і БЕЗ таймзони) ----------

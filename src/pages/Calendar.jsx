@@ -5,6 +5,7 @@ import { supabase } from '../lib/supabase';
 import EventCard from '../components/EventCard';
 import dayjs from 'dayjs';
 import TelegramCTA from '../components/TelegramCTA';
+import { compareMinutes, timeStringToMinutes } from '../utils/time';
 
 // ───────────────────────────────── Filter scroller (стрілки) ─────────────────────────────────
 function FilterScroller({ children }) {
@@ -116,7 +117,43 @@ export default function Calendar() {
       item.items.push(ev);
       map.set(key, item);
     }
-    return Array.from(map.values()).sort((a, b) => a.key.localeCompare(b.key));
+    const getStartMinutes = (event) => {
+      const start = event?.start_at ? dayjs(event.start_at) : null;
+      if (!start) return Number.POSITIVE_INFINITY;
+      const hours = start.hour();
+      const minutes = start.minute();
+      if (hours === 0 && minutes === 0) return Number.POSITIVE_INFINITY;
+      return hours * 60 + minutes;
+    };
+
+    const getBadgeMinutes = (event) => {
+      if (!Array.isArray(event?.tge_exchanges)) return Number.POSITIVE_INFINITY;
+      let best = Number.POSITIVE_INFINITY;
+      for (const ex of event.tge_exchanges) {
+        const candidate = timeStringToMinutes(ex?.time);
+        if (candidate < best) best = candidate;
+      }
+      return best;
+    };
+
+    const byTime = (a, b) => {
+      const startDiff = compareMinutes(getStartMinutes(a), getStartMinutes(b));
+      if (startDiff !== 0) return startDiff;
+
+      const badgeDiff = compareMinutes(getBadgeMinutes(a), getBadgeMinutes(b));
+      if (badgeDiff !== 0) return badgeDiff;
+
+      const titleA = a?.title || '';
+      const titleB = b?.title || '';
+      return titleA.localeCompare(titleB);
+    };
+
+    return Array.from(map.values())
+      .sort((a, b) => a.key.localeCompare(b.key))
+      .map((group) => ({
+        ...group,
+        items: group.items.slice().sort(byTime),
+      }));
   }, [filtered]);
 
   return (
