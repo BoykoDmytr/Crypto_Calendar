@@ -59,18 +59,22 @@ const sameExchanges = (a, b) => {
 };
 
 const Chips = ({ list = [] }) => (
-  <div className="flex flex-wrap gap-1.5">
+  <div className="chips flex flex-wrap gap-1.5">
     {normEx(list).map((x, i) => (
-      <span
-        key={`${x.name}-${x.time}-${i}`}
-        className="text-xs px-2 py-1 rounded-full bg-blue-50 border border-blue-100"
-      >
-        {x.name}
-        {x.time ? ` • ${x.time}` : ''}
+      <span key={`${x.name}-${x.time}-${i}`} className="exchange-chip">
+        {x.name}{x.time ? ` • ${x.time}` : ''}
       </span>
     ))}
   </div>
 );
+
+const TypeBadge = ({ type }) => (
+  <span className="badge-type badge-type--yellow">
+    {type}
+  </span>
+);
+
+
 
 const DiffRow = ({ label, oldVal, newVal, chips = false }) => (
   <div className="rounded-xl border border-amber-300 bg-amber-50 px-3 py-2">
@@ -562,15 +566,14 @@ const saveType = async (row) => {
                   {ev.description && (
                     <p className="text-sm text-gray-600 mt-1">{ev.description}</p>
                   )}
-                  <div className="text-sm mt-2 flex flex-wrap gap-2">
-                    <span className="px-2 py-1 rounded-md bg-gray-100">{ev.type}</span>
-                    <span>🕒 {formatEventDate(ev)}</span>
+                  <div className="text-sm mt-2 flex flex-wrap items-center gap-2">
+                    <TypeBadge type={ev.type} />
+                    <span className="event-when">🕒 {formatEventDate(ev)}</span>
                     {ev.link && (
-                      <a className="underline" href={ev.link} target="_blank" rel="noreferrer">
-                        Лінк
-                      </a>
+                      <a className="underline" href={ev.link} target="_blank" rel="noreferrer">Лінк</a>
                     )}
                   </div>
+
 
                   <RowActions>
                     <button className="btn" onClick={() => approve(ev)}>
@@ -714,9 +717,11 @@ const saveType = async (row) => {
               ) : (
                 <>
                   <div className="font-semibold">{ev.title}</div>
-                  <div className="text-sm text-gray-600">
-                    {formatEventDate(ev)} • {ev.type}
+                  <div className="text-sm mt-1 flex flex-wrap items-center gap-2">
+                    <span className="event-when">{formatEventDate(ev)}</span>
+                    <TypeBadge type={ev.type} />
                   </div>
+
                   <RowActions>
                     <button
                       className="btn-secondary"

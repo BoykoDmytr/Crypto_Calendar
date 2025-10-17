@@ -111,10 +111,6 @@ export default function EventCard({ ev }) {
                 <span>🕒</span>
                 <span>
                   {whenLabel}
-                  {/* якщо один день і показуємо час — додаємо кінець «– HH:mm» */}
-                  {!isTGE && end && start?.isSame(end, 'day')
-                    ? ` – ${end.format('HH:mm')}`
-                    : ''}
                 </span>
               </span>
             )}

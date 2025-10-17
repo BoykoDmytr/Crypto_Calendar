@@ -14,13 +14,18 @@ const kyivTZ = 'Europe/Kyiv';
 
 export default function EventForm({ onSubmit, loading, initial = {} }) {
   const [types, setTypes] = useState([]); // довідник типів
-  const [form, setForm] = useState(() => ({
+  const [form, setForm] = useState(() => {
+    const isEditing = initial && Object.keys(initial).length > 0;
+    const defaultTimezone = isEditing ? (initial.timezone || 'UTC') : 'Kyiv';
+
+    return {
     title: '',
     description: '',
     // важливо: тепер зберігаємо slug типу
     event_type_slug: initial.event_type_slug || 'listing-tge',
     type: initial.type || 'Listing (TGE)', // лишаємо для відображення у картках/легасі
-    timezone: 'Kyiv',
+    // 👇 ключова правка: узгоджуємо з тим, чим гідратимемо поля
+    timezone: defaultTimezone,
     start_at: '',
     end_at: '',
     start_date: '',
@@ -28,7 +33,8 @@ export default function EventForm({ onSubmit, loading, initial = {} }) {
     link: '',
     tge_exchanges: [],
     ...initial,
-  }));
+  };
+  });
 
   const hydratedRef = useRef(false);
 
@@ -98,8 +104,6 @@ export default function EventForm({ onSubmit, loading, initial = {} }) {
       } else if (typeName === 'Binance Alpha') {
         if (initial.start_at) {
           next.start_date = toLocalInput(initial.start_at, tz, 'date');   // YYYY-MM-DD
-          // якщо у твоїй утиліті немає 'time' — заміни наступний рядок:
-          // next.start_time = dayjs(initial.start_at).tz(tz).format('HH:mm');
           next.start_time = toLocalInput(initial.start_at, tz, 'time');   // HH:mm (або '')
           if (next.start_time === '00:00') next.start_time = '';
         }
@@ -115,6 +119,9 @@ export default function EventForm({ onSubmit, loading, initial = {} }) {
           next.end_at = toLocalInput(initial.end_at, tz, 'datetime');
         }
       }
+
+      // 👇 ключова правка: зафіксувати у формі ту саму TZ, якою гідратнули поля
+      next.timezone = tz;
 
       return next;
     });

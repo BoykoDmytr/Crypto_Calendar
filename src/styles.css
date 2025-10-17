@@ -216,7 +216,7 @@ html.dark .events-page .day-divider { background-color: #2a3854 !important; }
 .event-title { font-weight: 700; font-size: 1.125rem; line-height: 1.4; color: var(--text); }
 .event-desc  { color: color-mix(in oklab, var(--text) 75%, transparent); }
 .event-when  { color: #667191; }      /* рядок із часом */
-.dark .event-when { color: #b0b8d1; }
+.dark .event-when { color: #c3cce7d2; font-weight: 600;}
 
 .exchange-chip{
   font-size:.8rem; line-height:1;
@@ -298,4 +298,23 @@ html.dark .chip--active{
   background: var(--brand) !important;
   border-color: var(--brand) !important;
   color: #fff !important;
+}
+
+/* робимо ПЕРШИЙ чіп усередині картки адмінки жовтим, як badge-type--yellow */
+.admin-page .card .chips > *:first-child {
+  padding: 4px 10px !important;
+  border-radius: 9999px !important;
+  font-size: 0.875rem !important;
+  font-weight: 700 !important;
+  line-height: 1 !important;
+  background: #FFF7D1 !important;
+  border: 1px solid #F3D067 !important;
+  color: #8A6A00 !important;
+}
+
+html.dark .admin-page .card .chips > *:first-child {
+  background: #2B2406 !important;
+  border-color: #6A5511 !important;
+  color: #FFD55E !important;
+  box-shadow: 0 0 0 1px rgba(255,213,94,.06) inset;
 }
