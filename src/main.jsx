@@ -8,6 +8,7 @@ import AddEvent from './pages/AddEvent';
 import Admin from './pages/Admin';
 import './styles.css';
 import SuggestEdit from './pages/SuggestEdit';
+import AirdropTracker from './pages/AirdropTracker';
 
 // ✅ Vercel Analytics + Speed Insights для будь-якого SPA
 import { inject } from '@vercel/analytics'
@@ -32,6 +33,7 @@ const router = createBrowserRouter([
       { path: 'add', element: <AddEvent /> },
       { path: 'admin', element: <Admin /> },
       { path: 'suggest/:id', element: <SuggestEdit /> },
+      { path: 'airdrop', element: <AirdropTracker /> },
     ],
   },
 ]);
