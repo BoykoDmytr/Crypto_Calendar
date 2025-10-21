@@ -1,447 +1,231 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
-import { AIRDROP_CONFIG } from '../config';
-import { fetchAirdropProgress } from '../utils/airdropClient';
-import { clearAirdropState, loadAirdropState, persistAirdropState } from '../utils/airdropStorage';
-import { formatPercent, formatTokenAmount } from '../utils/tokenAmount';
-
-const DEFAULT_TRACKER_STATE = {
-  claimed: 0n,
-  lastProcessedBlock: AIRDROP_CONFIG.startBlock - 1,
-  lastProcessedLogIndex: -1,
-  lastScannedBlock: AIRDROP_CONFIG.startBlock - 1,
-  lastUpdated: null,
-  history: [],
-};
-
-function createInitialState() {
-  const baseState = {
-    ...DEFAULT_TRACKER_STATE,
-    history: [],
-  };
-  const cached = typeof window !== 'undefined' ? loadAirdropState(AIRDROP_CONFIG.id) : null;
-  if (!cached) {
-    return baseState;
-  }
-  return {
-    ...baseState,
-    ...cached,
-    claimed: cached.claimed ?? baseState.claimed,
-    lastProcessedBlock: cached.lastProcessedBlock ?? baseState.lastProcessedBlock,
-    lastProcessedLogIndex: cached.lastProcessedLogIndex ?? baseState.lastProcessedLogIndex,
-    lastScannedBlock: cached.lastScannedBlock ?? baseState.lastScannedBlock,
-    lastUpdated: cached.lastUpdated ?? baseState.lastUpdated,
-    history: Array.isArray(cached.history) ? cached.history : [],
-  };
-}
-
-function shortenAddress(address) {
-  if (!address) return '—';
-  return `${address.slice(0, 6)}…${address.slice(-4)}`;
-}
-
-function formatRelativeTime(timestamp) {
-  if (!timestamp) return '—';
-  const diffMs = Date.now() - timestamp;
-  if (!Number.isFinite(diffMs) || diffMs < 0) {
-    return new Date(timestamp).toLocaleString();
-  }
-  const diffSeconds = Math.floor(diffMs / 1000);
-  if (diffSeconds < 60) {
-    return `${diffSeconds}s ago`;
-  }
-  const diffMinutes = Math.floor(diffSeconds / 60);
-  if (diffMinutes < 60) {
-    return `${diffMinutes}m ago`;
-  }
-  const diffHours = Math.floor(diffMinutes / 60);
-  if (diffHours < 24) {
-    return `${diffHours}h ago`;
-  }
-  return new Date(timestamp).toLocaleString();
-}
-
-function SummaryCard({ label, value, helper }) {
-  return (
-    <div className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm">
-      <div className="text-xs uppercase tracking-wide text-gray-500">{label}</div>
-      <div className="mt-2 text-2xl font-semibold text-gray-900">{value}</div>
-      {helper ? <div className="mt-1 text-xs text-gray-500">{helper}</div> : null}
-    </div>
-  );
-}
-
-function HistoryChart({ history }) {
-  if (!history || history.length < 2) {
-    return (
-      <div className="flex h-40 items-center justify-center rounded-2xl border border-dashed border-gray-200 text-sm text-gray-500">
-        Not enough data yet. Keep the page open to accumulate snapshots.
-      </div>
-    );
-  }
-
-  const width = 640;
-  const height = 200;
-  const padding = 16;
-  const plotWidth = width - padding * 2;
-  const plotHeight = height - padding * 2;
-
-  const points = history.map((entry, index) => {
-    const percentClaimed = entry.percentClaimed ?? (100 - (entry.percentLeft ?? 0));
-    const safePercent = Math.min(100, Math.max(0, percentClaimed));
-    const x = history.length === 1 ? plotWidth / 2 : (index / (history.length - 1)) * plotWidth;
-    const y = plotHeight - (safePercent / 100) * plotHeight;
-    return {
-      x: padding + x,
-      y: padding + y,
-      percent: safePercent,
-      timestamp: entry.timestamp,
-    };
-  });
-
-  const pathData = points
-    .map((point, index) => `${index === 0 ? 'M' : 'L'} ${point.x} ${point.y}`)
-    .join(' ');
-
-  const areaPath = `M ${points[0].x} ${height - padding} ${pathData.replace(/M/, 'L')} L ${points[points.length - 1].x} ${height - padding} Z`;
-
-  const startTimestamp = points[0].timestamp;
-  const endTimestamp = points[points.length - 1].timestamp;
-
-  return (
-    <div className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm">
-      <div className="flex items-center justify-between text-xs text-gray-500">
-        <div>Progress history (claimed %)</div>
-        <div>
-          {new Date(startTimestamp).toLocaleString()} → {new Date(endTimestamp).toLocaleString()}
-        </div>
-      </div>
-      <svg viewBox={`0 0 ${width} ${height}`} className="mt-3 w-full" role="img" aria-label="Airdrop claimed percentage over time">
-        <defs>
-          <linearGradient id="claimedGradient" x1="0" x2="0" y1="0" y2="1">
-            <stop offset="0%" stopColor="#34d399" stopOpacity="0.6" />
-            <stop offset="100%" stopColor="#34d399" stopOpacity="0.05" />
-          </linearGradient>
-        </defs>
-        <rect x={padding} y={padding} width={plotWidth} height={plotHeight} fill="#f9fafb" rx={8} />
-        <path d={areaPath} fill="url(#claimedGradient)" stroke="none" />
-        <path d={pathData} fill="none" stroke="#10b981" strokeWidth={2} strokeLinecap="round" />
-        {points.map((point, index) => (
-          <circle key={index} cx={point.x} cy={point.y} r={3} fill="#10b981" />
-        ))}
-        <g fontSize="10" fill="#6b7280">
-          <text x={padding} y={height - 4}>{formatRelativeTime(startTimestamp)}</text>
-          <text x={width - padding} y={height - 4} textAnchor="end">
-            {formatRelativeTime(endTimestamp)}
-          </text>
-        </g>
-      </svg>
-    </div>
-  );
-}
-
-function RecentEventsTable({ events, tokenSymbol, explorerBaseUrl }) {
-  if (!events || events.length === 0) {
-    return (
-      <div className="rounded-2xl border border-dashed border-gray-200 p-4 text-sm text-gray-500">
-        No claim transactions detected yet.
-      </div>
-    );
-  }
-
-  const explorerBase = explorerBaseUrl ? explorerBaseUrl.replace(/\/$/, '') : null;
-
-  return (
-    <div className="overflow-hidden rounded-2xl border border-gray-200">
-      <table className="min-w-full divide-y divide-gray-200 text-sm">
-        <thead className="bg-gray-50">
-          <tr className="text-left">
-            <th className="px-4 py-3 font-medium text-gray-500">Block</th>
-            <th className="px-4 py-3 font-medium text-gray-500">Claimer</th>
-            <th className="px-4 py-3 font-medium text-gray-500">Amount</th>
-            <th className="px-4 py-3 font-medium text-gray-500">Detected</th>
-            <th className="px-4 py-3 font-medium text-gray-500">Explorer</th>
-          </tr>
-        </thead>
-        <tbody className="divide-y divide-gray-200 bg-white">
-          {events.map((event) => {
-            const timestamp = event.blockTimestamp ?? event.detectedAt;
-            const explorerLink = explorerBase && event.transactionHash
-              ? `${explorerBase}/tx/${event.transactionHash}`
-              : null;
-            return (
-              <tr key={`${event.blockNumber}-${event.logIndex}-${event.transactionHash}`} className="hover:bg-gray-50">
-                <td className="px-4 py-3 font-mono text-xs text-gray-600">{event.blockNumber}</td>
-                <td className="px-4 py-3 font-mono text-xs text-gray-600">{shortenAddress(event.claimer)}</td>
-                <td className="px-4 py-3 font-medium text-gray-900">
-                  {formatTokenAmount(event.amount, AIRDROP_CONFIG.tokenDecimals, { maximumFractionDigits: 4 })} {tokenSymbol}
-                </td>
-                <td className="px-4 py-3 text-xs text-gray-500">{formatRelativeTime(timestamp)}</td>
-                <td className="px-4 py-3 text-xs">
-                  {explorerLink ? (
-                    <a
-                      href={explorerLink}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="text-emerald-600 hover:text-emerald-700"
-                    >
-                      View tx
-                    </a>
-                  ) : (
-                    <span className="text-gray-400">—</span>
-                  )}
-                </td>
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
-    </div>
-  );
-}
-
 export default function AirdropTracker() {
-  const [trackerState, setTrackerState] = useState(() => createInitialState());
-  const [recentEvents, setRecentEvents] = useState([]);
-  const [isRefreshing, setIsRefreshing] = useState(false);
-  const [error, setError] = useState(null);
-  const [lastScanRange, setLastScanRange] = useState({ from: AIRDROP_CONFIG.startBlock, to: AIRDROP_CONFIG.startBlock });
-  const [latestBlock, setLatestBlock] = useState(null);
-  const trackerStateRef = useRef(trackerState);
-  const isFetchingRef = useRef(false);
-
-  useEffect(() => {
-    trackerStateRef.current = trackerState;
-  }, [trackerState]);
-
-  const totalAllocation = AIRDROP_CONFIG.totalAllocation;
-  const hasTotalAllocation = typeof totalAllocation === 'bigint';
-  const tokenSymbol = AIRDROP_CONFIG.tokenSymbol;
-
-  const claimedRaw = trackerState.claimed ?? 0n;
-  const totalValue = hasTotalAllocation ? totalAllocation : null;
-  const claimedValue = totalValue && claimedRaw > totalValue ? totalValue : claimedRaw;
-  const remainingValue = totalValue != null ? (totalValue > claimedValue ? totalValue - claimedValue : 0n) : null;
-  let percentClaimedValue = null;
-  let percentLeftValue = null;
-  if (totalValue && totalValue > 0n) {
-    percentClaimedValue = Number((claimedValue * 10_000n) / totalValue) / 100;
-    percentLeftValue = Math.max(0, 100 - percentClaimedValue);
-  }
-
-  const refresh = useCallback(
-    async ({ manual = false } = {}) => {
-      if (!AIRDROP_CONFIG.enabled || !AIRDROP_CONFIG.isConfigured) {
-        return;
-      }
-      if (isFetchingRef.current) {
-        return;
-      }
-      isFetchingRef.current = true;
-        if (manual) {
-          setIsRefreshing(true);
-        }
-      setError(null);
-      try {
-        const currentState = trackerStateRef.current ?? createInitialState();
-        const progress = await fetchAirdropProgress(currentState);
-        setLatestBlock(progress.latestBlock ?? null);
-        setLastScanRange({ from: progress.scannedFromBlock, to: progress.scannedToBlock });
-
-        let nextClaimed = currentState.claimed + progress.deltaClaimed;
-        if (nextClaimed < 0n) {
-          nextClaimed = 0n;
-        }
-        const total = AIRDROP_CONFIG.totalAllocation;
-        if (typeof total === 'bigint' && total >= 0n && nextClaimed > total) {
-          nextClaimed = total;
-        }
-        const remaining = typeof total === 'bigint' ? (total > nextClaimed ? total - nextClaimed : 0n) : 0n;
-        const percentClaimed = typeof total === 'bigint' && total > 0n ? Number((nextClaimed * 10_000n) / total) / 100 : 0;
-        const percentLeft = typeof total === 'bigint' && total > 0n ? Math.max(0, 100 - percentClaimed) : 0;
-        const timestamp = Date.now();
-
-        const historyEntry = {
-          timestamp,
-          claimed: nextClaimed,
-          remaining,
-          percentLeft,
-          percentClaimed,
-        };
-        const historyBase = Array.isArray(currentState.history) ? [...currentState.history] : [];
-        historyBase.push(historyEntry);
-        const nextHistory = historyBase.slice(-AIRDROP_CONFIG.historyLimit);
-
-        const nextState = {
-          ...currentState,
-          claimed: nextClaimed,
-          lastProcessedBlock: progress.lastProcessedBlock ?? currentState.lastProcessedBlock,
-          lastProcessedLogIndex: progress.lastProcessedLogIndex ?? currentState.lastProcessedLogIndex,
-          lastScannedBlock: progress.lastScannedBlock ?? currentState.lastScannedBlock,
-          lastUpdated: timestamp,
-          history: nextHistory,
-        };
-        trackerStateRef.current = nextState;
-        setTrackerState(nextState);
-        persistAirdropState(AIRDROP_CONFIG.id, nextState);
-
-        if (progress.events?.length) {
-          setRecentEvents((prev) => {
-            const incoming = [...progress.events].reverse();
-            const combined = [...incoming, ...prev];
-            const seen = new Set();
-            const unique = [];
-            for (const event of combined) {
-              const key = `${event.blockNumber}:${event.logIndex}:${event.transactionHash}`;
-              if (seen.has(key)) continue;
-              seen.add(key);
-              unique.push(event);
-              if (unique.length >= 25) break;
-            }
-            return unique;
-          });
-        }
-      } catch (err) {
-        console.error(err);
-        setError(err.message || 'Failed to refresh airdrop progress');
-      } finally {
-        isFetchingRef.current = false;
-        if (manual) {
-          setIsRefreshing(false);
-        }
-      }
-    },
-    []
-  );
-
-  useEffect(() => {
-    if (!AIRDROP_CONFIG.enabled || !AIRDROP_CONFIG.isConfigured) {
-      return;
-    }
-    let mounted = true;
-    const performInitialRefresh = async () => {
-      if (!mounted) return;
-      await refresh();
-    };
-    performInitialRefresh();
-    const interval = window.setInterval(() => {
-      refresh();
-    }, AIRDROP_CONFIG.refreshIntervalMs);
-    return () => {
-      mounted = false;
-      window.clearInterval(interval);
-    };
-  }, [refresh]);
-
-  const handleReset = useCallback(() => {
-    clearAirdropState(AIRDROP_CONFIG.id);
-    const resetState = createInitialState();
-    trackerStateRef.current = resetState;
-    setTrackerState(resetState);
-    setRecentEvents([]);
-    setError(null);
-    setLastScanRange({ from: AIRDROP_CONFIG.startBlock, to: AIRDROP_CONFIG.startBlock });
-    setLatestBlock(null);
-  }, []);
-
-  const lastUpdated = trackerState.lastUpdated ? new Date(trackerState.lastUpdated).toLocaleString() : '—';
-  const claimedDisplay = formatTokenAmount(claimedValue ?? 0n, AIRDROP_CONFIG.tokenDecimals, {
-    maximumFractionDigits: 2,
-  });
-  const remainingDisplay =
-    remainingValue != null
-      ? `${formatTokenAmount(remainingValue, AIRDROP_CONFIG.tokenDecimals, { maximumFractionDigits: 2 })}`
-      : '—';
-  const totalDisplay =
-    totalValue != null
-      ? `${formatTokenAmount(totalValue, AIRDROP_CONFIG.tokenDecimals, { maximumFractionDigits: 2 })}`
-      : '—';
-  const percentClaimedDisplay =
-    percentClaimedValue != null ? formatPercent(percentClaimedValue, { maximumFractionDigits: 2 }) : '—';
-  const percentLeftDisplay =
-    percentLeftValue != null ? formatPercent(percentLeftValue, { maximumFractionDigits: 2 }) : '—';
-
-  const claimedProgress = percentClaimedValue != null ? Math.min(100, Math.max(0, percentClaimedValue)) : 0;
-
   return (
-    <div className="space-y-6">
-      <header className="space-y-1">
-        <h1 className="text-2xl font-semibold text-gray-900">{AIRDROP_CONFIG.name}</h1>
-        {AIRDROP_CONFIG.description ? (
-          <p className="text-sm text-gray-600">{AIRDROP_CONFIG.description}</p>
-        ) : null}
-        <p className="text-xs text-gray-500">
-          Tracking smart contract {AIRDROP_CONFIG.contractAddress || '—'} from block {AIRDROP_CONFIG.startBlock}.
-        </p>
-      </header>
+    <div className="min-h-screen bg-slate-950 text-slate-50">
+      <div className="mx-auto flex w-full max-w-6xl flex-col gap-16 px-6 pb-24 pt-16 md:px-10 lg:px-16">
+        <header className="mx-auto max-w-3xl text-center">
+          <p className="text-sm font-semibold uppercase tracking-[0.3em] text-emerald-300">
+            On-chain campaign overview
+          </p>
+          <h1 className="mt-4 text-4xl font-bold leading-tight tracking-tight text-white sm:text-5xl">
+            Community Airdrop Progress Tracker
+          </h1>
+          <p className="mt-4 text-base text-slate-300">
+            Follow the live distribution of our community airdrop. This page outlines the total allocation,
+            claimed amounts, and activity from recent participants so everyone can stay informed.
+          </p>
+        </header>
 
-      {!AIRDROP_CONFIG.enabled ? (
-        <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
-          Airdrop tracker is disabled via configuration.
-        </div>
-      ) : null}
+        <main className="space-y-16">
+          <section aria-labelledby="stats-heading" className="space-y-6">
+            <div className="flex items-center justify-between">
+              <h2 id="stats-heading" className="text-xl font-semibold text-white">
+                Snapshot
+              </h2>
+              <p className="text-xs text-slate-400">Updated automatically once the integration is connected.</p>
+            </div>
 
-      {AIRDROP_CONFIG.enabled && !AIRDROP_CONFIG.isConfigured ? (
-        <div className="rounded-2xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-700">
-          Missing configuration values: {AIRDROP_CONFIG.missingFields.join(', ')}
-        </div>
-      ) : null}
+            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+              <article className="rounded-2xl border border-white/10 bg-white/5 p-5 shadow-lg shadow-emerald-500/10">
+                <p className="text-xs uppercase tracking-wide text-slate-400">Total allocation</p>
+                <p className="mt-3 text-2xl font-semibold text-white">—</p>
+                <p className="mt-2 text-xs text-slate-400">Populate with the full campaign token pool.</p>
+              </article>
+              <article className="rounded-2xl border border-white/10 bg-white/5 p-5 shadow-lg shadow-emerald-500/10">
+                <p className="text-xs uppercase tracking-wide text-slate-400">Claimed</p>
+                <p className="mt-3 text-2xl font-semibold text-white">—</p>
+                <p className="mt-2 text-xs text-slate-400">Replace with the cumulative claimed amount.</p>
+              </article>
+              <article className="rounded-2xl border border-white/10 bg-white/5 p-5 shadow-lg shadow-emerald-500/10">
+                <p className="text-xs uppercase tracking-wide text-slate-400">Remaining</p>
+                <p className="mt-3 text-2xl font-semibold text-white">—</p>
+                <p className="mt-2 text-xs text-slate-400">Shows the still-available allocation.</p>
+              </article>
+              <article className="rounded-2xl border border-white/10 bg-white/5 p-5 shadow-lg shadow-emerald-500/10">
+                <p className="text-xs uppercase tracking-wide text-slate-400">Last updated</p>
+                <p className="mt-3 text-2xl font-semibold text-white">—</p>
+                <p className="mt-2 text-xs text-slate-400">Timestamp of the latest processed block.</p>
+              </article>
+            </div>
+          </section>
 
-      {error ? (
-        <div className="rounded-2xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-700">
-          {error}
-        </div>
-      ) : null}
+          <section aria-labelledby="progress-heading" className="space-y-6">
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <h2 id="progress-heading" className="text-xl font-semibold text-white">
+                  Campaign progress
+                </h2>
+                <p className="mt-1 text-sm text-slate-400">
+                  Insert chart or progress visualisation that highlights the claimed vs remaining supply.
+                </p>
+              </div>
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  className="inline-flex items-center rounded-full border border-emerald-400 px-5 py-2 text-sm font-medium text-emerald-300 transition hover:bg-emerald-400 hover:text-slate-950"
+                >
+                  Refresh data
+                </button>
+                <button
+                  type="button"
+                  className="inline-flex items-center rounded-full border border-white/20 px-5 py-2 text-sm font-medium text-white transition hover:bg-white hover:text-slate-950"
+                >
+                  Clear cache
+                </button>
+              </div>
+            </div>
 
-      <div className="grid gap-4 sm:grid-cols-2">
-        <SummaryCard label="Total allocation" value={`${totalDisplay} ${tokenSymbol}`} />
-        <SummaryCard label="Claimed" value={`${claimedDisplay} ${tokenSymbol}`} helper={percentClaimedDisplay} />
-        <SummaryCard label="Remaining" value={`${remainingDisplay} ${tokenSymbol}`} helper={percentLeftDisplay} />
-        <SummaryCard label="Last updated" value={lastUpdated} helper={`Latest block processed: ${latestBlock ?? '—'}`} />
+            <div className="rounded-3xl border border-dashed border-white/20 bg-white/5 p-8">
+              <div className="flex flex-col gap-6 lg:flex-row lg:items-center lg:justify-between">
+                <div className="max-w-2xl space-y-4">
+                  <p className="text-sm text-slate-300">
+                    Highlight the latest block range processed and surface contextual insights. Replace this placeholder copy with
+                    live summaries once the airdrop data pipeline is wired up.
+                  </p>
+                  <ul className="grid gap-3 text-xs text-slate-400 sm:grid-cols-2">
+                    <li className="rounded-xl border border-white/10 bg-black/30 px-4 py-3">
+                      <p className="font-semibold text-white">Last scan</p>
+                      <p className="mt-1">Blocks — to —</p>
+                    </li>
+                    <li className="rounded-xl border border-white/10 bg-black/30 px-4 py-3">
+                      <p className="font-semibold text-white">Next refresh</p>
+                      <p className="mt-1">Every 60–120 seconds</p>
+                    </li>
+                    <li className="rounded-xl border border-white/10 bg-black/30 px-4 py-3">
+                      <p className="font-semibold text-white">Token</p>
+                      <p className="mt-1">Symbol · decimals</p>
+                    </li>
+                    <li className="rounded-xl border border-white/10 bg-black/30 px-4 py-3">
+                      <p className="font-semibold text-white">Network</p>
+                      <p className="mt-1">Chain name / explorer</p>
+                    </li>
+                  </ul>
+                </div>
+                <div className="flex w-full max-w-md flex-col gap-3">
+                  <div className="h-3 w-full overflow-hidden rounded-full bg-slate-800">
+                    <div className="h-full w-1/2 rounded-full bg-emerald-400" aria-hidden="true" />
+                  </div>
+                  <div className="grid grid-cols-2 gap-3 text-sm">
+                    <div className="rounded-2xl bg-emerald-500/10 px-4 py-3 text-emerald-200">
+                      <p className="text-xs uppercase tracking-wide">Claimed</p>
+                      <p className="mt-1 text-lg font-semibold">50%</p>
+                    </div>
+                    <div className="rounded-2xl bg-slate-800/80 px-4 py-3 text-slate-200">
+                      <p className="text-xs uppercase tracking-wide">Remaining</p>
+                      <p className="mt-1 text-lg font-semibold">50%</p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <section aria-labelledby="activity-heading" className="space-y-6">
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+              <div>
+                <h2 id="activity-heading" className="text-xl font-semibold text-white">
+                  Recent activity
+                </h2>
+                <p className="mt-1 text-sm text-slate-400">
+                  Showcase the most recent claim transactions once the backend feed is connected.
+                </p>
+              </div>
+              <button
+                type="button"
+                className="w-full rounded-2xl bg-emerald-500/20 px-4 py-3 text-sm font-medium text-emerald-200 transition hover:bg-emerald-500/30 sm:w-auto"
+              >
+                Download CSV export
+              </button>
+            </div>
+
+            <div className="overflow-hidden rounded-3xl border border-white/10 bg-black/40">
+              <table className="min-w-full divide-y divide-white/5 text-left text-sm">
+                <thead className="bg-white/5 text-xs uppercase tracking-[0.2em] text-slate-300">
+                  <tr>
+                    <th scope="col" className="px-6 py-4">Block</th>
+                    <th scope="col" className="px-6 py-4">Claimer</th>
+                    <th scope="col" className="px-6 py-4">Amount</th>
+                    <th scope="col" className="px-6 py-4">Detected</th>
+                    <th scope="col" className="px-6 py-4">Explorer</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-white/5 text-slate-200">
+                  <tr>
+                    <td className="px-6 py-4 font-mono text-xs text-slate-400">—</td>
+                    <td className="px-6 py-4 font-mono text-xs text-slate-400">wallet…address</td>
+                    <td className="px-6 py-4 text-sm font-medium text-white">—</td>
+                    <td className="px-6 py-4 text-xs text-slate-400">—</td>
+                    <td className="px-6 py-4 text-xs text-emerald-300">Link</td>
+                  </tr>
+                  <tr>
+                    <td className="px-6 py-4 font-mono text-xs text-slate-400">—</td>
+                    <td className="px-6 py-4 font-mono text-xs text-slate-400">wallet…address</td>
+                    <td className="px-6 py-4 text-sm font-medium text-white">—</td>
+                    <td className="px-6 py-4 text-xs text-slate-400">—</td>
+                    <td className="px-6 py-4 text-xs text-emerald-300">Link</td>
+                  </tr>
+                  <tr>
+                    <td className="px-6 py-4 font-mono text-xs text-slate-400">—</td>
+                    <td className="px-6 py-4 font-mono text-xs text-slate-400">wallet…address</td>
+                    <td className="px-6 py-4 text-sm font-medium text-white">—</td>
+                    <td className="px-6 py-4 text-xs text-slate-400">—</td>
+                    <td className="px-6 py-4 text-xs text-emerald-300">Link</td>
+                  </tr>
+                </tbody>
+              </table>
+              <div className="border-t border-white/5 bg-black/30 px-6 py-4 text-xs text-slate-400">
+                Showing placeholder rows. Replace with live data when available.
+              </div>
+            </div>
+          </section>
+
+          <section aria-labelledby="faq-heading" className="space-y-6">
+            <div className="space-y-2">
+              <h2 id="faq-heading" className="text-xl font-semibold text-white">
+                Frequently asked questions
+              </h2>
+              <p className="text-sm text-slate-400">
+                Provide guidance for claimants so that newcomers understand how to participate in the distribution.
+              </p>
+            </div>
+            <div className="grid gap-4 md:grid-cols-2">
+              <article className="rounded-2xl border border-white/10 bg-white/5 p-6">
+                <h3 className="text-lg font-semibold text-white">How do I verify my eligibility?</h3>
+                <p className="mt-2 text-sm text-slate-300">
+                  Outline the official eligibility checker, snapshot details, or claim portal used to confirm whether a wallet can
+                  participate.
+                </p>
+              </article>
+              <article className="rounded-2xl border border-white/10 bg-white/5 p-6">
+                <h3 className="text-lg font-semibold text-white">Which network does the drop use?</h3>
+                <p className="mt-2 text-sm text-slate-300">
+                  Mention the blockchain, chain ID, and any bridge considerations so users interact with the correct network.
+                </p>
+              </article>
+              <article className="rounded-2xl border border-white/10 bg-white/5 p-6">
+                <h3 className="text-lg font-semibold text-white">What if my claim fails?</h3>
+                <p className="mt-2 text-sm text-slate-300">
+                  Document troubleshooting steps, links to support channels, and how to re-submit transactions safely.
+                </p>
+              </article>
+              <article className="rounded-2xl border border-white/10 bg-white/5 p-6">
+                <h3 className="text-lg font-semibold text-white">Can the allocation change?</h3>
+                <p className="mt-2 text-sm text-slate-300">
+                  Explain whether admins can reclaim tokens or adjust the schedule, and how such changes will be communicated.
+                </p>
+              </article>
+            </div>
+          </section>
+        </main>
+
+        <footer className="rounded-3xl border border-white/10 bg-white/5 p-8 text-center text-sm text-slate-400">
+          <p className="font-semibold text-white">Need the live integration?</p>
+          <p className="mt-2">
+            Connect your indexer, supply the token metadata, and swap the placeholder components with your data fetching logic.
+            This layout is ready for wiring into a backend or SDK of your choice.
+          </p>
+          <p className="mt-4 text-xs uppercase tracking-[0.3em] text-emerald-300">Stay transparent · empower the community</p>
+        </footer>
       </div>
-
-      <div>
-        <div className="flex items-center justify-between text-xs text-gray-500">
-          <span>{percentClaimedDisplay} claimed</span>
-          <span>{percentLeftDisplay} remaining</span>
-        </div>
-        <div className="mt-2 h-3 w-full overflow-hidden rounded-full bg-gray-200">
-          <div
-            className="h-full rounded-full bg-emerald-500 transition-[width] duration-700"
-            style={{ width: `${claimedProgress}%` }}
-          />
-        </div>
-        <div className="mt-2 text-xs text-gray-500">
-          Last scan range: blocks {lastScanRange.from} → {lastScanRange.to} (latest on chain: {latestBlock ?? '—'})
-        </div>
-      </div>
-
-      <div className="flex flex-wrap gap-2">
-        <button
-          type="button"
-          onClick={() => refresh({ manual: true })}
-          disabled={isRefreshing || !AIRDROP_CONFIG.enabled || !AIRDROP_CONFIG.isConfigured}
-          className="inline-flex items-center rounded-full border border-emerald-500 px-4 py-2 text-sm font-medium text-emerald-700 transition-colors hover:bg-emerald-500 hover:text-white disabled:cursor-not-allowed disabled:border-gray-300 disabled:text-gray-400"
-        >
-          {isRefreshing ? 'Refreshing…' : 'Refresh now'}
-        </button>
-        <button
-          type="button"
-          onClick={handleReset}
-          className="inline-flex items-center rounded-full border border-gray-300 px-4 py-2 text-sm font-medium text-gray-600 transition-colors hover:bg-gray-100"
-        >
-          Reset cache
-        </button>
-      </div>
-
-      <HistoryChart history={trackerState.history} />
-
-      <section className="space-y-3">
-        <div className="flex items-center justify-between">
-          <h2 className="text-lg font-semibold text-gray-900">Most recent claims</h2>
-          <span className="text-xs text-gray-500">Showing last {recentEvents.length} transactions</span>
-        </div>
-        <RecentEventsTable events={recentEvents} tokenSymbol={tokenSymbol} explorerBaseUrl={AIRDROP_CONFIG.explorerBaseUrl} />
-      </section>
     </div>
   );
 }
