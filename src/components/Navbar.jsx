@@ -14,6 +14,7 @@ export default function Navbar() {
         <nav className="flex items-center gap-2 text-sm">
           <Link className={`px-3 py-1 rounded-lg ${is('/') ? 'bg-gray-100' : ''}`} to="/">Календар</Link>
           <Link className={`px-3 py-1 rounded-lg ${is('/events') ? 'bg-gray-100' : ''}`} to="/events">Івенти</Link>
+          <Link className={`px-3 py-1 rounded-lg ${is('/airdrop') ? 'bg-gray-100' : ''}`} to="/airdrop">Ейрдроп</Link>
           <Link className={`px-3 py-1 rounded-lg ${is('/admin') ? 'bg-gray-100' : ''}`} to="/admin">Адмін</Link>
           <ThemeToggle />
 
