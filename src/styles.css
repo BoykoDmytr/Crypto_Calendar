@@ -89,6 +89,110 @@
     box-shadow: 0 1px 0 rgba(15, 23, 42, 0.02);
   }
 
+  .token-panel {
+    border-radius: 1rem;
+    padding: 0.875rem 1rem;
+    background: color-mix(in oklab, var(--card) 96%, transparent);
+    border: 1px solid color-mix(in oklab, var(--border) 94%, transparent);
+    box-shadow: 0 14px 34px color-mix(in oklab, var(--bg) 74%, transparent);
+    color: color-mix(in oklab, var(--text) 90%, transparent);
+    font-size: 0.9375rem;
+    line-height: 1.5;
+  }
+
+  html.dark .token-panel {
+    background: color-mix(in oklab, var(--card) 90%, transparent);
+    border-color: color-mix(in oklab, var(--border) 96%, transparent);
+    box-shadow: 0 18px 40px rgba(8, 13, 25, 0.55);
+    color: color-mix(in oklab, var(--text) 94%, transparent);
+  }
+
+  .token-panel__header {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.35rem 0.85rem;
+    margin-bottom: 0.75rem;
+  }
+
+  .token-panel__name {
+    font-weight: 600;
+    color: var(--text);
+  }
+
+  .token-panel__label {
+    display: inline-flex;
+    align-items: baseline;
+    gap: 0.25rem;
+    color: color-mix(in oklab, var(--text) 70%, transparent);
+  }
+
+  .token-panel__value {
+    font-weight: 600;
+    color: color-mix(in oklab, var(--text) 96%, transparent);
+  }
+
+  .token-panel__muted {
+    color: color-mix(in oklab, var(--text) 55%, transparent);
+    font-weight: 500;
+    margin-left: 0.15rem;
+  }
+
+  .token-panel__body {
+    margin-top: 0.5rem;
+  }
+
+  .token-panel__metrics {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.5rem 1.25rem;
+  }
+
+  .token-panel__meta {
+    font-size: 0.75rem;
+    color: color-mix(in oklab, var(--text) 60%, transparent);
+  }
+
+  .token-panel__status {
+    color: color-mix(in oklab, var(--text) 72%, transparent);
+    font-size: 0.9375rem;
+  }
+
+  .token-panel__status--muted {
+    color: color-mix(in oklab, var(--text) 58%, transparent);
+  }
+
+  .token-panel__error {
+    color: #dc2626;
+    font-weight: 500;
+  }
+
+  html.dark .token-panel__error {
+    color: #f87171;
+  }
+
+  .token-panel__link {
+    color: var(--brand);
+    text-decoration: underline;
+    text-decoration-thickness: 1px;
+    text-underline-offset: 3px;
+  }
+
+  .token-panel__link:hover {
+    color: var(--brand-hov);
+  }
+
+  .token-panel__link-wrapper {
+    margin-top: 0.75rem;
+  }
+
+  .token-panel__refresh-hint {
+    margin-top: 0.75rem;
+    font-size: 0.75rem;
+    color: color-mix(in oklab, var(--text) 55%, transparent);
+  }
+
   .sticky-filters {
     background: var(--bg);
     backdrop-filter: blur(6px);
@@ -171,12 +275,19 @@ html.dark{
 }
 
 /* Хедер / стікі */
-html.dark header,
+.site-header{
+  background-color: color-mix(in oklab, var(--bg) 92%, transparent);
+  border-color: color-mix(in oklab, var(--border) 92%, transparent);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  transition: background-color .2s ease, border-color .2s ease;
+}
+html.dark .site-header,
 html.dark .sticky,
 html.dark .sticky-filters,
 html.dark .page-header{
-  background-color: var(--bg) !important;
-  border-color: var(--border) !important;
+  background-color: color-mix(in oklab, var(--bg) 86%, transparent) !important;
+  border-color: color-mix(in oklab, var(--border) 96%, transparent) !important;
 }
 
 /* Витоки світлих утиліт */
@@ -184,24 +295,49 @@ html.dark .bg-white      { background-color: var(--card) !important; }
 html.dark .border-gray-200{ border-color: var(--border) !important; }
 html.dark .text-gray-900 { color: var(--text) !important; }
 
-/* Активна вкладка в хедері (дарк) */
-html.dark header a[aria-current="page"],
-html.dark header button[aria-current="page"]{
-  background-color: var(--brand) !important;
-  color: #fff !important;
-  border-color: transparent !important;
+/* Хедерні лінки */
+.nav-link{
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  border-radius: 0.75rem;
+  border: 1px solid color-mix(in oklab, var(--border) 60%, transparent);
+  background-color: color-mix(in oklab, var(--bg) 96%, transparent);
+  color: color-mix(in oklab, var(--text) 82%, transparent);
+  transition: background-color .18s ease, color .18s ease, border-color .18s ease, box-shadow .18s ease;
 }
 
-/* Неактивні — темні, без білої «таблетки» */
-html.dark header a,
-html.dark header button{
-  background-color: transparent;
+.nav-link:hover{
+  background-color: color-mix(in oklab, var(--bg-alt) 88%, transparent);
+  border-color: color-mix(in oklab, var(--border) 88%, transparent);
   color: var(--text);
-  border-color: var(--border);
 }
-html.dark header a:not([aria-current="page"]):hover,
-html.dark header button:not([aria-current="page"]):hover{
-  background-color: var(--bg-alt);
+.nav-link:focus-visible{
+  outline: 2px solid var(--brand);
+  outline-offset: 2px;
+}
+.nav-link--active{
+  background-color: color-mix(in oklab, var(--brand) 18%, transparent);
+  border-color: color-mix(in oklab, var(--brand) 55%, transparent);
+  color: #0f172a;
+  box-shadow: 0 10px 18px -14px rgba(37, 99, 235, 0.55);
+}
+
+html.dark .nav-link{
+  background-color: color-mix(in oklab, var(--bg) 84%, transparent);
+  border-color: color-mix(in oklab, var(--border) 78%, transparent);
+  color: color-mix(in oklab, var(--text) 68%, transparent);
+}
+html.dark .nav-link:hover{
+  background-color: color-mix(in oklab, var(--bg-alt) 82%, transparent);
+  border-color: color-mix(in oklab, var(--border) 90%, transparent);
+  color: color-mix(in oklab, var(--text) 94%, transparent);
+}
+html.dark .nav-link--active{
+  background-color: color-mix(in oklab, var(--brand) 42%, var(--bg) 58%);
+  border-color: color-mix(in oklab, var(--brand) 68%, transparent);
+  color: #f7f9ff;
+  box-shadow: 0 16px 32px -24px rgba(59, 130, 246, 0.7);
 }
 
 /* Світліший опис і заголовок дня у списку івентів (дарк) */

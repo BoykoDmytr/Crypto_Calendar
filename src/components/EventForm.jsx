@@ -12,6 +12,20 @@ dayjs.extend(timezone);
 
 const kyivTZ = 'Europe/Kyiv';
 
+const hasTokenInfo = (src) => {
+  if (!src) return false;
+  const hasValue = (value) => {
+    if (value === undefined || value === null) return false;
+    if (typeof value === 'string') return value.trim().length > 0;
+    return String(value).trim().length > 0;
+  };
+  return (
+    hasValue(src.coin_name) ||
+    hasValue(src.coin_quantity) ||
+    hasValue(src.coin_price_link)
+  );
+}
+
 export default function EventForm({ onSubmit, loading, initial = {} }) {
   const [types, setTypes] = useState([]); // довідник типів
   const [form, setForm] = useState(() => {
@@ -49,6 +63,8 @@ export default function EventForm({ onSubmit, loading, initial = {} }) {
   });
 
   const hydratedRef = useRef(false);
+  const [showTokenFields, setShowTokenFields] = useState(() => hasTokenInfo(initial));
+  const initialHasTokenInfo = useMemo(() => hasTokenInfo(initial), [initial]);
 
   /** 1) Тягаємо типи і НЕ перетираємо тип, якщо прийшли редагувати */
   useEffect(() => {
@@ -174,7 +190,25 @@ export default function EventForm({ onSubmit, loading, initial = {} }) {
     return () => { alive = false; };
   }, []);
 
+  useEffect(() => {
+    if (initialHasTokenInfo) {
+      setShowTokenFields(true);
+    }
+  }, [initialHasTokenInfo]);
+
   const change = (k, v) => setForm(s => ({ ...s, [k]: v }));
+
+  const handleTokenToggle = (checked) => {
+    setShowTokenFields(checked);
+    if (!checked) {
+      setForm((s) => ({
+        ...s,
+        coin_name: '',
+        coin_quantity: '',
+        coin_price_link: '',
+      }));
+    }
+  };
 
   // ряди бірж (TGE)
   const addExchange = () =>
@@ -253,30 +287,36 @@ export default function EventForm({ onSubmit, loading, initial = {} }) {
     if (!payload.link)        delete payload.link;
     if (!payload.description) delete payload.description;
 
-    const coinName = (form.coin_name || '').trim();
-    if (coinName) {
-      payload.coin_name = coinName;
-    } else {
-      delete payload.coin_name;
-    }
+    if (showTokenFields) {
+      const coinName = (form.coin_name || '').trim();
+      if (coinName) {
+        payload.coin_name = coinName;
+      } else {
+        delete payload.coin_name;
+      }
 
     const rawQty = typeof form.coin_quantity === 'string' ? form.coin_quantity.trim() : '';
-    if (rawQty) {
-      const normalized = rawQty.replace(/\s+/g, '').replace(/,/g, '.');
-      const qty = Number(normalized);
-      if (!Number.isNaN(qty)) {
-        payload.coin_quantity = qty;
+      if (rawQty) {
+        const normalized = rawQty.replace(/\s+/g, '').replace(/,/g, '.');
+        const qty = Number(normalized);
+        if (!Number.isNaN(qty)) {
+          payload.coin_quantity = qty;
+        } else {
+          delete payload.coin_quantity;
+        }
       } else {
         delete payload.coin_quantity;
       }
-    } else {
-      delete payload.coin_quantity;
-    }
 
     const coinPriceLink = (form.coin_price_link || '').trim();
-    if (coinPriceLink) {
-      payload.coin_price_link = coinPriceLink;
+      if (coinPriceLink) {
+        payload.coin_price_link = coinPriceLink;
+      } else {
+        delete payload.coin_price_link;
+      }
     } else {
+      delete payload.coin_name;
+      delete payload.coin_quantity;
       delete payload.coin_price_link;
     }
 
@@ -393,40 +433,56 @@ export default function EventForm({ onSubmit, loading, initial = {} }) {
       </div>
       
       {/* Монета */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-        <div>
-          <label className="label">Назва монети</label>
+      <div className="space-y-2">
+        <label className="label inline-flex items-center gap-2 mb-0">
           <input
-            className="input"
-            value={form.coin_name || ''}
-            onChange={(e) => change('coin_name', e.target.value)}
-            placeholder="Напр., TURTLE"
+            type="checkbox"
+            checked={showTokenFields}
+            onChange={(e) => handleTokenToggle(e.target.checked)}
           />
-        </div>
-        <div>
-          <label className="label">Кількість монет</label>
-          <input
-            className="input"
-            inputMode="decimal"
-            pattern="[0-9.,\s]*"
-            value={form.coin_quantity || ''}
-            onChange={(e) => change('coin_quantity', e.target.value)}
-            placeholder="1 000 000"
-          />
-        </div>
-        <div>
-          <label className="label">Посилання на ціну (Debot)</label>
-          <input
-            className="input"
-            value={form.coin_price_link || ''}
-            onChange={(e) => change('coin_price_link', e.target.value)}
-            placeholder="https://debot.ai/token/..."
-          />
-        </div>
+        <span>Додати інформацію про монету</span>
+        </label>
+
+        {showTokenFields && (
+          <div className="space-y-2">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <div>
+                <label className="label">Назва монети</label>
+                <input
+                  className="input"
+                  value={form.coin_name || ''}
+                  onChange={(e) => change('coin_name', e.target.value)}
+                  placeholder="Напр., TURTLE"
+                />
+              </div>
+              <div>
+                <label className="label">Кількість монет</label>
+                <input
+                  className="input"
+                  inputMode="decimal"
+                  pattern="[0-9.,\s]*"
+                  value={form.coin_quantity || ''}
+                  onChange={(e) => change('coin_quantity', e.target.value)}
+                  placeholder="1 000 000"
+                />
+              </div>
+              <div>
+                <label className="label">Посилання на ціну (Debot)</label>
+                <input
+                  className="input"
+                  value={form.coin_price_link || ''}
+                  onChange={(e) => change('coin_price_link', e.target.value)}
+                  placeholder="https://debot.ai/token/..."
+                />
+              </div>
+            </div>
+            <p className="text-xs text-gray-500">
+              Вкажіть монету, її кількість і посилання на Debot — ми автоматично підтягнемо USD-ціну й оновлюватимемо її
+              щохвилини.
+            </p>
+          </div>
+        )}
       </div>
-      <p className="text-xs text-gray-500">
-        Вкажіть монету, її кількість і посилання на Debot — ми автоматично підтягнемо USD-ціну й оновлюватимемо її щохвилини.
-      </p>
 
       {/* Біржі + час (лише для TGE) */}
       {currentType.is_tge && (
