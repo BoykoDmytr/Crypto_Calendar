@@ -10,6 +10,12 @@ const priceRegexes = [
   /"usdPrice"\s*[:=]\s*"?(?<price>[-0-9.,eE]+)"?/i,
   /"price_usd"\s*[:=]\s*"?(?<price>[-0-9.,eE]+)"?/i,
   /\bpriceUsd\b[^0-9A-Za-z]*(?<price>[-0-9.,eE]+)/i,
+  /"usd_last_price"\s*[:=]\s*"?(?<price>[-0-9.,eE]+)"?/i,
+  /"usdLastPrice"\s*[:=]\s*"?(?<price>[-0-9.,eE]+)"?/i,
+  /"lastPrice"\s*[:=]\s*"?(?<price>[-0-9.,eE]+)"?(?![^,]*change)/i,
+  /"tokenPrice"\s*[:=]\s*"?(?<price>[-0-9.,eE]+)"?/i,
+  /"price"\s*[:=]\s*"?(?<price>[-0-9.,eE]+)"?\s*(?:USD|\$)?/i,
+  /\bprice\b[^0-9A-Za-z]*(?<price>[-0-9.,eE]+)\s*(?:USD|\$)/i,
 ];
 
 const defaultSnapshot = {
@@ -69,6 +75,151 @@ function parseTokenMeta(link) {
   return null;
 }
 
+const dexScreenerNetworkMap = {
+  ton: 'ton',
+  eth: 'ethereum',
+  ethereum: 'ethereum',
+  bsc: 'bsc',
+  binance: 'bsc',
+  'binance-smart-chain': 'bsc',
+  matic: 'polygon',
+  polygon: 'polygon',
+  sol: 'solana',
+  solana: 'solana',
+  tron: 'tron',
+  trx: 'tron',
+  avax: 'avalanche',
+  avalanche: 'avalanche',
+  arbitrum: 'arbitrum',
+  arb: 'arbitrum',
+  optimism: 'optimism',
+  opt: 'optimism',
+  base: 'base',
+  fantom: 'fantom',
+  ftm: 'fantom',
+  linea: 'linea',
+  celo: 'celo',
+  harmony: 'harmony',
+};
+
+function describeEndpoint(entry) {
+  if (!entry) return 'невідомий ендпоїнт';
+  if (typeof entry === 'string') return entry;
+  if (entry.label && entry.url) return `${entry.label}: ${entry.url}`;
+  if (entry.url) return entry.url;
+  return 'невідомий ендпоїнт';
+}
+
+function selectBestDexScreenerPair(pairs) {
+  if (!Array.isArray(pairs) || pairs.length === 0) return null;
+  let best = null;
+  let bestLiquidity = 0;
+  for (const pair of pairs) {
+    const priceCandidate =
+      sanitizeNumber(pair?.priceUsd) ??
+      sanitizeNumber(pair?.price?.usd) ??
+      sanitizeNumber(pair?.price?.usdPrice);
+    if (priceCandidate === null || priceCandidate === undefined) continue;
+
+    const liquidityCandidate =
+      sanitizeNumber(pair?.liquidity?.usd) ??
+      sanitizeNumber(pair?.liquidityUsd) ??
+      sanitizeNumber(pair?.liquidity?.usdValue);
+
+    const liquidity = Number.isFinite(liquidityCandidate) ? liquidityCandidate : 0;
+    if (!best || liquidity > bestLiquidity) {
+      best = priceCandidate;
+      bestLiquidity = liquidity;
+    }
+  }
+  return best;
+}
+
+function parseDexScreenerPrice({ getJson }) {
+  const json = getJson();
+  if (!json) return null;
+  const pairs = json?.pairs || json?.data?.pairs || null;
+  const price = selectBestDexScreenerPair(pairs);
+  if (price !== null && price !== undefined && Number(price) > 0) {
+    return price;
+  }
+  return null;
+}
+
+function parseTonapiJettonInfo({ getJson }) {
+  const json = getJson();
+  if (!json) return null;
+  const direct =
+    sanitizeNumber(json?.price?.usd) ??
+    sanitizeNumber(json?.market_data?.price_usd) ??
+    sanitizeNumber(json?.market_data?.priceUSD) ??
+    sanitizeNumber(json?.price_usd) ??
+    sanitizeNumber(json?.priceUSD);
+  if (direct !== null && direct !== undefined && Number(direct) > 0) {
+    return direct;
+  }
+  return null;
+}
+
+function parseTonapiJettonPrices({ getJson }) {
+  const json = getJson();
+  if (!json) return null;
+  const items = json?.prices || json?.data?.prices;
+  if (!Array.isArray(items)) return null;
+  for (const item of items) {
+    const candidate =
+      sanitizeNumber(item?.price?.usd) ??
+      sanitizeNumber(item?.usd) ??
+      sanitizeNumber(item?.priceUsd) ??
+      sanitizeNumber(item?.usdPrice);
+    if (candidate !== null && candidate !== undefined && Number(candidate) > 0) {
+      return candidate;
+    }
+  }
+  return null;
+}
+
+function buildFallbackEndpoints(meta) {
+  if (!meta?.address) return [];
+  const chain = (meta.chain || '').toLowerCase();
+  const address = meta.address;
+  const endpoints = [];
+
+  const dexNetwork = dexScreenerNetworkMap[chain];
+  const dexCandidates = new Set();
+  if (dexNetwork) {
+    dexCandidates.add(`https://api.dexscreener.com/latest/dex/tokens/${dexNetwork}/${address}`);
+    if (['ethereum', 'bsc', 'polygon', 'base', 'arbitrum', 'optimism', 'avalanche', 'fantom'].includes(dexNetwork)) {
+      dexCandidates.add(`https://api.dexscreener.com/latest/dex/tokens/${address}`);
+    }
+  } else if (address?.startsWith('0x')) {
+    dexCandidates.add(`https://api.dexscreener.com/latest/dex/tokens/${address}`);
+  }
+
+  for (const url of dexCandidates) {
+    endpoints.push({
+      url,
+      label: 'DexScreener',
+      parser: parseDexScreenerPrice,
+    });
+  }
+
+  if (chain === 'ton') {
+    endpoints.push({
+      url: `https://tonapi.io/v2/jetton/info?address=${address}`,
+      label: 'TonAPI jetton info',
+      parser: parseTonapiJettonInfo,
+    });
+    endpoints.push({
+      url: `https://tonapi.io/v2/jetton/prices?tokens=${address}`,
+      label: 'TonAPI jetton prices',
+      parser: parseTonapiJettonPrices,
+    });
+  }
+
+  return endpoints;
+}
+
 function sanitizeNumber(value) {
   if (typeof value === 'number' && Number.isFinite(value)) return value;
   if (typeof value === 'string') {
@@ -120,11 +271,20 @@ function extractPriceFromObject(obj) {
         if (lowerKey.includes('change') || lowerKey.includes('percent')) continue;
         if (!lowerKey.includes('price')) continue;
 
+        const sanitizedKey = lowerKey.replace(/[^a-z0-9]/g, '');
         const hasUsdHint =
           lowerKey.includes('usd') ||
           keyPath.some((segment) => segment.includes('usd'));
 
-        if (!hasUsdHint && lowerKey !== 'price') continue;
+        const isPrimaryPriceKey =
+          lowerKey === 'price' ||
+          sanitizedKey === 'lastprice' ||
+          sanitizedKey === 'tokenprice' ||
+          sanitizedKey === 'currentprice' ||
+          sanitizedKey.endsWith('price') ||
+          sanitizedKey.startsWith('price');
+
+        if (!hasUsdHint && !isPrimaryPriceKey) continue;
 
         const num = sanitizeNumber(value);
         if (num !== null && num > 0) {
@@ -139,18 +299,137 @@ function extractPriceFromObject(obj) {
   return found;
 }
 
-function extractFromHtml(text) {
-  const scriptMatch = text.match(
-    /<script id="__NEXT_DATA__" type="application\/json">(?<json>[\s\S]+?)<\/script>/
-  );
-  if (scriptMatch?.groups?.json) {
-    try {
-      const json = JSON.parse(scriptMatch.groups.json);
-      const price = extractPriceFromObject(json);
-      if (price !== null) return price;
-    } catch {
-      // ignore JSON parse errors and continue with regexes
+function tryParseJsonPayload(payload) {
+  if (!payload) return null;
+  const trimmed = payload.trim();
+  if (!trimmed) return null;
+
+  let jsonText = null;
+  if (trimmed.startsWith('{') || trimmed.startsWith('[')) {
+    jsonText = trimmed;
+  } else {
+    const assignmentMatch = trimmed.match(/=\s*(\{[\s\S]*\}|\[[\s\S]*\])\s*;?$/);
+    if (assignmentMatch?.[1]) {
+      jsonText = assignmentMatch[1];
     }
+  }
+
+  if (!jsonText) return null;
+
+  try {
+    return JSON.parse(jsonText);
+  } catch {
+    try {
+      const cleaned = jsonText
+        .replace(/&quot;/g, '"')
+        .replace(/&#34;/g, '"')
+        .replace(/&amp;/g, '&');
+      return JSON.parse(cleaned);
+    } catch {
+      return null;
+    }
+  }
+}
+
+function extractFromHtml(text) {
+  const candidates = [];
+
+  const nextScriptMatch = text.match(
+    /<script[^>]*id=["']__NEXT_DATA__["'][^>]*>(?<json>[\s\S]+?)<\/script>/i
+  );
+  if (nextScriptMatch?.groups?.json) {
+    candidates.push(nextScriptMatch.groups.json);
+  }
+
+  const nuxtScriptMatch = text.match(
+    /<script[^>]*id=["']__NUXT_DATA__["'][^>]*>(?<json>[\s\S]+?)<\/script>/i
+  );
+  if (nuxtScriptMatch?.groups?.json) {
+    candidates.push(nuxtScriptMatch.groups.json);
+  }
+
+  const inlineNextMatch = text.match(/__NEXT_DATA__\s*=\s*(\{[\s\S]+?\})\s*;?\s*<\/script>/i);
+  if (inlineNextMatch?.[1]) {
+    candidates.push(inlineNextMatch[1]);
+  }
+
+  const inlineNuxtMatch = text.match(/__NUXT__\s*=\s*(\{[\s\S]+?\})\s*;?\s*<\/script>/i);
+  if (inlineNuxtMatch?.[1]) {
+    candidates.push(inlineNuxtMatch[1]);
+  }
+  if (typeof DOMParser !== 'undefined') {
+    try {
+      const parser = new DOMParser();
+      const doc = parser.parseFromString(text, 'text/html');
+
+      ['__NEXT_DATA__', '__NUXT_DATA__'].forEach((id) => {
+        const el = doc.getElementById(id);
+        if (el?.textContent) {
+          candidates.push(el.textContent);
+        }
+      });
+
+      doc.querySelectorAll('script').forEach((script) => {
+        const content = script.textContent;
+        if (!content) return;
+        const trimmed = content.trim();
+        if (!trimmed) return;
+
+        if (/__NEXT_DATA__\s*=/.test(trimmed) || /__NUXT__\s*=/.test(trimmed)) {
+          const match = trimmed.match(/=\s*(\{[\s\S]*\}|\[[\s\S]*\])\s*;?$/);
+          if (match?.[1]) {
+            candidates.push(match[1]);
+          }
+          return;
+        }
+
+        if (/^[{[]/.test(trimmed) && /[}\]]$/.test(trimmed)) {
+          candidates.push(trimmed);
+        }
+      });
+
+      const metaSelectors = [
+        ['meta[property="og:price:amount"]', 'content'],
+        ['meta[itemprop="price"]', 'content'],
+        ['meta[name="price"]', 'content'],
+        ['meta[name="twitter:data1"]', 'content'],
+        ['meta[name="twitter:label1"]', 'content'],
+      ];
+
+      for (const [selector, attr] of metaSelectors) {
+        const el = doc.querySelector(selector);
+        const value = el?.getAttribute(attr);
+        const num = sanitizeNumber(value);
+        if (num !== null && num > 0) {
+          return num;
+        }
+      }
+
+      const dataAttrSelectors = [
+        'data-price',
+        'data-price-usd',
+        'data-usd-price',
+        'data-priceusd',
+        'data-last-price',
+      ];
+
+      for (const attr of dataAttrSelectors) {
+        const el = doc.querySelector(`[${attr}]`);
+        const num = sanitizeNumber(el?.getAttribute(attr));
+        if (num !== null && num > 0) {
+          return num;
+        }
+      }
+    } catch {
+      // ignore DOM parsing failures
+    }
+  }
+
+  for (const candidate of candidates) {
+    const json = tryParseJsonPayload(candidate);
+    if (!json) continue;
+    const price = extractPriceFromObject(json);
+    if (price !== null) return price;
   }
 
   for (const regex of priceRegexes) {
@@ -164,13 +443,25 @@ function extractFromHtml(text) {
   return null;
 }
 
-async function fetchEndpoint(endpoint, signal) {
-  const response = await fetch(endpoint, {
+async function fetchEndpoint(entry, signal) {
+  const { url, parser, headers: extraHeaders } =
+    typeof entry === 'string'
+      ? { url: entry, parser: null, headers: null }
+      : entry || {};
+
+  if (!url) {
+    throw new Error('Некоректна адреса запиту');
+  }
+
+  const headers = {
+    Accept: 'application/json,text/plain,*/*',
+    ...(extraHeaders || {}),
+  };
+
+  const response = await fetch(url, {
     signal,
     cache: 'no-store',
-    headers: {
-      Accept: 'application/json,text/plain,*/*',
-    },
+    headers,
   });
 
   if (!response.ok) {
@@ -180,12 +471,43 @@ async function fetchEndpoint(endpoint, signal) {
   const text = await response.text();
   if (!text) throw new Error('Порожня відповідь');
 
-  try {
-    const json = JSON.parse(text);
+  let cachedJson;
+  const getJson = () => {
+    if (cachedJson !== undefined) return cachedJson;
+    try {
+      cachedJson = JSON.parse(text);
+    } catch {
+      cachedJson = null;
+    }
+    return cachedJson;
+  };
+
+  if (typeof parser === 'function') {
+    try {
+      const parsedValue = parser({
+        text,
+        response,
+        getJson,
+      });
+      if (parsedValue !== null && parsedValue !== undefined) {
+        const numeric = sanitizeNumber(parsedValue);
+        if (numeric !== null && numeric > 0) {
+          return numeric;
+        }
+        if (typeof parsedValue === 'number' && Number.isFinite(parsedValue) && parsedValue > 0) {
+          return parsedValue;
+        }
+      }
+    } catch (parserError) {
+      const message = parserError?.message || 'Помилка обробки відповіді';
+      throw new Error(message);
+    }
+  }
+
+  const json = getJson();
+  if (json) {
     const price = extractPriceFromObject(json);
     if (price !== null) return price;
-  } catch {
-    // not JSON, try HTML parsing below
   }
 
   const price = extractFromHtml(text);
@@ -205,6 +527,10 @@ async function fetchTokenPrice(link, signal) {
   }
   endpoints.push(link);
 
+  if (meta) {
+    endpoints.push(...buildFallbackEndpoints(meta));
+  }
+
   const errors = [];
   for (const endpoint of endpoints) {
     try {
@@ -212,7 +538,7 @@ async function fetchTokenPrice(link, signal) {
       if (price !== null) return price;
     } catch (err) {
       if (err?.name === 'AbortError') throw err;
-      errors.push(`${endpoint}: ${err?.message || err}`);
+      errors.push(`${describeEndpoint(endpoint)}: ${err?.message || err}`);
     }
   }
 
