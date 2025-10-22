@@ -2,6 +2,7 @@
 import dayjs from 'dayjs';
 import { Link } from 'react-router-dom';
 import { timeStringToMinutes } from '../utils/time';
+import EventTokenInfo from './EventTokenInfo';
 
 // Типи, де час НЕобов'язковий (щоб не показувати 00:00)
 const TIME_OPTIONAL = new Set(['Binance Alpha', 'OKX Alpha', 'Token Sales', 'Claim / Airdrop', 'Unlocks']);
