@@ -135,6 +135,13 @@ export default function EventCard({ ev }) {
               ))}
             </div>
           )}
+          {(ev.coin_name || ev.coin_quantity || ev.coin_price_link) && (
+            <EventTokenInfo
+              coinName={ev.coin_name}
+              coinQuantity={ev.coin_quantity}
+              priceLink={ev.coin_price_link}
+            />
+          )}
         </div>
       </div>
     </article>

@@ -110,6 +110,9 @@ export default function SuggestEdit() {
       'event_type_slug',
       'tge_exchanges',
       'link',
+      'coin_name',
+      'coin_quantity',
+      'coin_price_link',
     ];
     const clean = Object.fromEntries(
       Object.entries(payload).filter(([k]) => allowed.includes(k))

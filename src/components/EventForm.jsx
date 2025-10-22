@@ -18,22 +18,34 @@ export default function EventForm({ onSubmit, loading, initial = {} }) {
     const isEditing = initial && Object.keys(initial).length > 0;
     const defaultTimezone = isEditing ? (initial.timezone || 'UTC') : 'Kyiv';
 
-    return {
-    title: '',
-    description: '',
-    // важливо: тепер зберігаємо slug типу
-    event_type_slug: initial.event_type_slug || 'listing-tge',
-    type: initial.type || 'Listing (TGE)', // лишаємо для відображення у картках/легасі
-    // 👇 ключова правка: узгоджуємо з тим, чим гідратимемо поля
-    timezone: defaultTimezone,
-    start_at: '',
-    end_at: '',
-    start_date: '',
-    start_time: '',
-    link: '',
-    tge_exchanges: [],
-    ...initial,
-  };
+    const base = {
+      title: '',
+      description: '',
+      // важливо: тепер зберігаємо slug типу
+      event_type_slug: initial?.event_type_slug || 'listing-tge',
+      type: initial?.type || 'Listing (TGE)', // лишаємо для відображення у картках/легасі
+      // 👇 ключова правка: узгоджуємо з тим, чим гідратимемо поля
+      timezone: defaultTimezone,
+      start_at: '',
+      end_at: '',
+      start_date: '',
+      start_time: '',
+      link: '',
+      coin_name: '',
+      coin_quantity: '',
+      coin_price_link: '',
+      tge_exchanges: [],
+    };
+
+    const merged = { ...base, ...(initial || {}) };
+    merged.coin_name = merged.coin_name || '';
+    merged.coin_price_link = merged.coin_price_link || '';
+    merged.coin_quantity =
+      merged.coin_quantity !== undefined && merged.coin_quantity !== null && merged.coin_quantity !== ''
+        ? String(merged.coin_quantity)
+        : '';
+
+    return merged;
   });
 
   const hydratedRef = useRef(false);
@@ -122,6 +134,13 @@ export default function EventForm({ onSubmit, loading, initial = {} }) {
 
       // 👇 ключова правка: зафіксувати у формі ту саму TZ, якою гідратнули поля
       next.timezone = tz;
+      
+      next.coin_name = next.coin_name || '';
+      next.coin_price_link = next.coin_price_link || '';
+      next.coin_quantity =
+        next.coin_quantity !== undefined && next.coin_quantity !== null && next.coin_quantity !== ''
+          ? String(next.coin_quantity)
+          : '';
 
       return next;
     });
@@ -234,6 +253,33 @@ export default function EventForm({ onSubmit, loading, initial = {} }) {
     if (!payload.link)        delete payload.link;
     if (!payload.description) delete payload.description;
 
+    const coinName = (form.coin_name || '').trim();
+    if (coinName) {
+      payload.coin_name = coinName;
+    } else {
+      delete payload.coin_name;
+    }
+
+    const rawQty = typeof form.coin_quantity === 'string' ? form.coin_quantity.trim() : '';
+    if (rawQty) {
+      const normalized = rawQty.replace(/\s+/g, '').replace(/,/g, '.');
+      const qty = Number(normalized);
+      if (!Number.isNaN(qty)) {
+        payload.coin_quantity = qty;
+      } else {
+        delete payload.coin_quantity;
+      }
+    } else {
+      delete payload.coin_quantity;
+    }
+
+    const coinPriceLink = (form.coin_price_link || '').trim();
+    if (coinPriceLink) {
+      payload.coin_price_link = coinPriceLink;
+    } else {
+      delete payload.coin_price_link;
+    }
+
     onSubmit?.(payload);
   };
 
@@ -345,6 +391,42 @@ export default function EventForm({ onSubmit, loading, initial = {} }) {
             placeholder="https://…" />
         </div>
       </div>
+      
+      {/* Монета */}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+        <div>
+          <label className="label">Назва монети</label>
+          <input
+            className="input"
+            value={form.coin_name || ''}
+            onChange={(e) => change('coin_name', e.target.value)}
+            placeholder="Напр., TURTLE"
+          />
+        </div>
+        <div>
+          <label className="label">Кількість монет</label>
+          <input
+            className="input"
+            inputMode="decimal"
+            pattern="[0-9.,\s]*"
+            value={form.coin_quantity || ''}
+            onChange={(e) => change('coin_quantity', e.target.value)}
+            placeholder="1 000 000"
+          />
+        </div>
+        <div>
+          <label className="label">Посилання на ціну (Debot)</label>
+          <input
+            className="input"
+            value={form.coin_price_link || ''}
+            onChange={(e) => change('coin_price_link', e.target.value)}
+            placeholder="https://debot.ai/token/..."
+          />
+        </div>
+      </div>
+      <p className="text-xs text-gray-500">
+        Вкажіть монету, її кількість і посилання на Debot — ми автоматично підтягнемо USD-ціну й оновлюватимемо її щохвилини.
+      </p>
 
       {/* Біржі + час (лише для TGE) */}
       {currentType.is_tge && (

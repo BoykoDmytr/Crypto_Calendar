@@ -6,6 +6,7 @@ import utc from 'dayjs/plugin/utc';
 import timezone from 'dayjs/plugin/timezone';
 import { supabase } from '../lib/supabase';
 import EventForm from '../components/EventForm';
+import { formatQuantity as formatTokenQuantity } from '../hooks/useTokenPrice';
 
 dayjs.extend(utc);
 dayjs.extend(timezone);
@@ -30,6 +31,11 @@ const toMinutes = (s) => {
   const m = /^([0-9]{1,2}):([0-9]{2})(?::([0-9]{2}))?$/.exec(s);
   if (!m) return Number.POSITIVE_INFINITY;
   return (+m[1]) * 60 + (+m[2]);
+};
+
+const formatCoinQuantity = (value) => {
+  const formatted = formatTokenQuantity(value);
+  return formatted ?? '—';
 };
 
 /* ===== Helpers for edit preview (правки) ===== */
@@ -292,6 +298,7 @@ export default function Admin() {
   const approve = async (ev) => {
     const allowed = [
       'title','description','start_at','end_at','timezone','type','tge_exchanges','link',
+      'coin_name','coin_quantity','coin_price_link',
     ];
     const payload = Object.fromEntries(Object.entries(ev).filter(([k]) => allowed.includes(k)));
 
@@ -340,6 +347,7 @@ export default function Admin() {
   const approveEdit = async (edit) => {
     const allowed = [
       'title','description','start_at','end_at','timezone','type','tge_exchanges','link',
+      'coin_name','coin_quantity','coin_price_link',
     ];
     const patch = Object.fromEntries(
       Object.entries(edit.payload || {}).filter(([k]) => allowed.includes(k))
@@ -574,6 +582,33 @@ const saveType = async (row) => {
                     )}
                   </div>
 
+                  {(ev.coin_name || ev.coin_quantity !== undefined || ev.coin_price_link) && (
+                    <div className="mt-2 text-xs text-gray-600 flex flex-wrap items-center gap-3">
+                      {ev.coin_name && (
+                        <span>
+                          Монета: <span className="font-medium text-gray-800">{ev.coin_name}</span>
+                        </span>
+                      )}
+                      {ev.coin_quantity !== undefined && ev.coin_quantity !== null && !Number.isNaN(Number(ev.coin_quantity)) && (
+                        <span>
+                          Кількість:{' '}
+                          <span className="font-medium text-gray-800">
+                            {formatCoinQuantity(ev.coin_quantity)}
+                          </span>
+                        </span>
+                      )}
+                      {ev.coin_price_link && (
+                        <a
+                          className="underline"
+                          href={ev.coin_price_link}
+                          target="_blank"
+                          rel="noreferrer"
+                        >
+                          Debot
+                        </a>
+                      )}
+                    </div>
+                  )}
 
                   <RowActions>
                     <button className="btn" onClick={() => approve(ev)}>
@@ -675,7 +710,51 @@ const saveType = async (row) => {
               changed.push(
                 <DiffRow key="link" label="Посилання" oldVal={base.link || '—'} newVal={patch.link || '—'} />
               );
+            
+            if (patch.coin_name !== undefined && patch.coin_name !== base.coin_name)
+              changed.push(
+                <DiffRow
+                  key="coin_name"
+                  label="Монета"
+                  oldVal={base.coin_name || '—'}
+                  newVal={patch.coin_name || '—'}
+                />
+              );
 
+            if (patch.coin_quantity !== undefined) {
+              const baseQty =
+                base.coin_quantity === undefined || base.coin_quantity === null
+                  ? null
+                  : Number(base.coin_quantity);
+              const patchQty =
+                patch.coin_quantity === undefined || patch.coin_quantity === null
+                  ? null
+                  : Number(patch.coin_quantity);
+              const qtyChanged =
+                (baseQty === null && patchQty !== null) ||
+                (baseQty !== null && patchQty === null) ||
+                (baseQty !== null && patchQty !== null && !Object.is(baseQty, patchQty));
+              if (qtyChanged)
+                changed.push(
+                  <DiffRow
+                    key="coin_quantity"
+                    label="Кількість монет"
+                    oldVal={baseQty === null ? '—' : formatCoinQuantity(baseQty)}
+                    newVal={patchQty === null ? '—' : formatCoinQuantity(patchQty)}
+                  />
+                );
+            }
+
+            if (patch.coin_price_link !== undefined && patch.coin_price_link !== base.coin_price_link)
+              changed.push(
+                <DiffRow
+                  key="coin_price_link"
+                  label="Посилання на ціну"
+                  oldVal={base.coin_price_link || '—'}
+                  newVal={patch.coin_price_link || '—'}
+                />
+              );
+            
             return (
               <article key={ed.id} className="card p-4">
                 <div className="text-xs text-gray-500 mb-2">
@@ -721,6 +800,34 @@ const saveType = async (row) => {
                     <span className="event-when">{formatEventDate(ev)}</span>
                     <TypeBadge type={ev.type} />
                   </div>
+
+                  {(ev.coin_name || ev.coin_quantity !== undefined || ev.coin_price_link) && (
+                    <div className="mt-2 text-xs text-gray-600 flex flex-wrap items-center gap-3">
+                      {ev.coin_name && (
+                        <span>
+                          Монета: <span className="font-medium text-gray-800">{ev.coin_name}</span>
+                        </span>
+                      )}
+                      {ev.coin_quantity !== undefined && ev.coin_quantity !== null && !Number.isNaN(Number(ev.coin_quantity)) && (
+                        <span>
+                          Кількість:{' '}
+                          <span className="font-medium text-gray-800">
+                            {formatCoinQuantity(ev.coin_quantity)}
+                          </span>
+                        </span>
+                      )}
+                      {ev.coin_price_link && (
+                        <a
+                          className="underline"
+                          href={ev.coin_price_link}
+                          target="_blank"
+                          rel="noreferrer"
+                        >
+                          Debot
+                        </a>
+                      )}
+                    </div>
+                  )}
 
                   <RowActions>
                     <button
