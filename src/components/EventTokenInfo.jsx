@@ -43,33 +43,27 @@ export default function EventTokenInfo({ coinName, coinQuantity, priceLink }) {
   if (!name && quantityValue === null && !link) return null;
 
   return (
-    <div className="token-panel mt-3">
-  <div className="token-panel__header flex items-center justify-between">
-    {name && <span className="token-panel__name">{name}</span>}
+    <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2 text-sm sm:text-base">
+      {name && <span className="token-panel__name">{name}</span>}
 
-    <div className="flex items-center gap-6 text-sm">
-      {loading ? (
-        <span className="opacity-80">Оновлюємо ціну…</span>
-      ) : error ? (
-        <span className="text-red-600">Не вдалося отримати ціну.</span>
-      ) : (
-        <>
-          {quantityLabel && (
-            <span>
-              Кількість: <strong>{quantityLabel}</strong>
-            </span>
-          )}
-          {totalLabel && (
-            <span>
-              Разом: <strong>{totalLabel}</strong>
-            </span>
-          )}
-        </>
-      )}
+    {loading ? (
+          <span className="token-panel__muted">Оновлюємо ціну…</span>
+        ) : error ? (
+          <span className="token-panel__error">Не вдалося отримати ціну.</span>
+        ) : (
+          <>
+            {quantityLabel && (
+              <span className="token-panel__label">
+               <span className="token-panel__value">{quantityLabel}</span>
+              </span>
+            )}
+            {totalLabel && (
+              <span className="token-panel__label">
+                <span className="token-panel__value">{totalLabel}</span>
+              </span>
+            )}
+          </>
+        )}
     </div>
-  </div>
-</div>
-
-
-  );
+    );
 }
