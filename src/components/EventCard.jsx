@@ -9,7 +9,12 @@ const TIME_OPTIONAL = new Set(['Binance Alpha', 'OKX Alpha', 'Token Sales', 'Cla
 
 export default function EventCard({ ev }) {
   const isTGE = ev?.type === 'Listing (TGE)';
-
+  const nicknameRaw = (ev?.nickname || '').trim();
+  const nickname = nicknameRaw
+    ? nicknameRaw.startsWith('@')
+      ? nicknameRaw
+      : `@${nicknameRaw}`
+    : '';
   // Без конвертацій: показуємо як є (ми вже зберігаємо все в UTC ISO)
   const start = ev?.start_at ? dayjs(ev.start_at) : null;
   const end   = ev?.end_at   ? dayjs(ev.end_at)   : null;
@@ -142,6 +147,11 @@ export default function EventCard({ ev }) {
               coinQuantity={ev.coin_quantity}
               priceLink={ev.coin_price_link}
             />
+          )}
+          {nickname && (
+            <div className="mt-3 text-sm text-gray-500 dark:text-gray-400 flex justify-end">
+              <span>{nickname}</span>
+            </div>
           )}
         </div>
       </div>

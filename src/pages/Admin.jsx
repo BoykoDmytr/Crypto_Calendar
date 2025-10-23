@@ -37,7 +37,11 @@ const formatCoinQuantity = (value) => {
   const formatted = formatTokenQuantity(value);
   return formatted ?? '—';
 };
-
+const formatNickname = (value) => {
+  const trimmed = (value || '').trim();
+  if (!trimmed) return '';
+  return trimmed.startsWith('@') ? trimmed : `@${trimmed}`;
+};
 /* ===== Helpers for edit preview (правки) ===== */
 const prettyDate = (type, ts, tz) => {
   if (!ts) return '—';
@@ -297,7 +301,7 @@ export default function Admin() {
   // ===== МОДЕРАЦІЯ ЗАЯВОК =====
   const approve = async (ev) => {
     const allowed = [
-      'title','description','start_at','end_at','timezone','type','tge_exchanges','link',
+      'title','description','start_at','end_at','timezone','type','tge_exchanges','link','nickname',
       'coin_name','coin_quantity','coin_price_link',
     ];
     const payload = Object.fromEntries(Object.entries(ev).filter(([k]) => allowed.includes(k)));
@@ -308,6 +312,11 @@ export default function Admin() {
       );
     }
     if (payload.end_at === '' || payload.end_at == null) delete payload.end_at;
+    if ('nickname' in payload) {
+      const trimmed = (payload.nickname || '').trim();
+      if (trimmed) payload.nickname = trimmed;
+      else delete payload.nickname;
+    }
 
     const { error } = await supabase.from('events_approved').insert(payload);
     if (error) return alert('Помилка: ' + error.message);
@@ -328,6 +337,15 @@ export default function Admin() {
       Object.entries(payload).filter(([, v]) => v !== '' && v !== undefined)
     );
     if (clean.end_at === '') delete clean.end_at;
+    if ('nickname' in clean) {
+      if (clean.nickname === null) {
+        // leave as null to clear the value
+      } else {
+        const trimmed = (clean.nickname || '').trim();
+        if (trimmed) clean.nickname = trimmed;
+        else delete clean.nickname;
+      }
+    }
 
     const { error } = await supabase.from(table).update(clean).eq('id', id);
     if (error) return alert('Помилка: ' + error.message);
@@ -346,7 +364,7 @@ export default function Admin() {
   // ===== ПРАВКИ =====
   const approveEdit = async (edit) => {
     const allowed = [
-      'title','description','start_at','end_at','timezone','type','tge_exchanges','link',
+      'title','description','start_at','end_at','timezone','type','tge_exchanges','link','nickname',
       'coin_name','coin_quantity','coin_price_link',
     ];
     const patch = Object.fromEntries(
@@ -357,6 +375,15 @@ export default function Admin() {
       patch.tge_exchanges = [...patch.tge_exchanges].sort(
         (a, b) => toMinutes(a?.time) - toMinutes(b?.time)
       );
+    }
+    if ('nickname' in patch) {
+      if (patch.nickname === null) {
+        // keep null to clear the field
+      } else {
+        const trimmed = (patch.nickname || '').trim();
+        if (trimmed) patch.nickname = trimmed;
+        else delete patch.nickname;
+      }
     }
     if (patch.end_at === '' || patch.end_at == null) delete patch.end_at;
 
@@ -609,7 +636,11 @@ const saveType = async (row) => {
                       )}
                     </div>
                   )}
-
+                  {formatNickname(ev.nickname) && (
+                    <div className="mt-2 text-xs text-gray-500">
+                      Нікнейм: {formatNickname(ev.nickname)}
+                    </div>
+                  )}
                   <RowActions>
                     <button className="btn" onClick={() => approve(ev)}>
                       Схвалити
@@ -710,7 +741,19 @@ const saveType = async (row) => {
               changed.push(
                 <DiffRow key="link" label="Посилання" oldVal={base.link || '—'} newVal={patch.link || '—'} />
               );
-            
+            if (patch.nickname !== undefined && patch.nickname !== base.nickname)
+              changed.push(
+                <DiffRow
+                  key="nickname"
+                  label="Нікнейм"
+                  oldVal={formatNickname(base.nickname) || '—'}
+                  newVal={
+                    patch.nickname === null
+                      ? '—'
+                      : formatNickname(patch.nickname) || '—'
+                  }
+                />
+              );
             if (patch.coin_name !== undefined && patch.coin_name !== base.coin_name)
               changed.push(
                 <DiffRow
@@ -828,7 +871,11 @@ const saveType = async (row) => {
                       )}
                     </div>
                   )}
-
+                  {formatNickname(ev.nickname) && (
+                    <div className="mt-2 text-xs text-gray-500">
+                      Нікнейм: {formatNickname(ev.nickname)}
+                    </div>
+                  )}
                   <RowActions>
                     <button
                       className="btn-secondary"

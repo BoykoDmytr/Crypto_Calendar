@@ -35,6 +35,7 @@ export default function EventForm({ onSubmit, loading, initial = {} }) {
     const base = {
       title: '',
       description: '',
+      nickname: '',
       // важливо: тепер зберігаємо slug типу
       event_type_slug: initial?.event_type_slug || 'listing-tge',
       type: initial?.type || 'Listing (TGE)', // лишаємо для відображення у картках/легасі
@@ -58,7 +59,7 @@ export default function EventForm({ onSubmit, loading, initial = {} }) {
       merged.coin_quantity !== undefined && merged.coin_quantity !== null && merged.coin_quantity !== ''
         ? String(merged.coin_quantity)
         : '';
-
+    merged.nickname = merged.nickname || '';
     return merged;
   });
 
@@ -157,7 +158,7 @@ export default function EventForm({ onSubmit, loading, initial = {} }) {
         next.coin_quantity !== undefined && next.coin_quantity !== null && next.coin_quantity !== ''
           ? String(next.coin_quantity)
           : '';
-
+      next.nickname = next.nickname || '';
       return next;
     });
 
@@ -319,12 +320,29 @@ export default function EventForm({ onSubmit, loading, initial = {} }) {
       delete payload.coin_quantity;
       delete payload.coin_price_link;
     }
-
+    const nickname = (form.nickname || '').trim();
+    if (nickname) {
+      payload.nickname = nickname;
+    } else if (initial?.nickname) {
+      payload.nickname = null;
+    } else {
+      delete payload.nickname;
+    }
     onSubmit?.(payload);
   };
 
   return (
     <form onSubmit={submit} className="space-y-3">
+      {/* Нікнейм відправника */}
+      <div>
+        <label className="label">Нікнейм (опц.)</label>
+        <input
+          className="input"
+          value={form.nickname || ''}
+          onChange={(e) => change('nickname', e.target.value)}
+          placeholder="Напр., cryptofan"
+        />
+      </div>
       {/* Заголовок */}
       <div>
         <label className="label">Заголовок *</label>
@@ -342,7 +360,7 @@ export default function EventForm({ onSubmit, loading, initial = {} }) {
           onChange={e => change('description', e.target.value)}
           placeholder="Короткий опис події" />
       </div>
-
+      
       {/* Часова зона вводу */}
       <div>
         <label className="label">Часова зона вводу</label>
