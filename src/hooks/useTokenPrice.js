@@ -63,10 +63,17 @@ function parseTokenMeta(link) {
   try {
     const url = new URL(link);
     const segments = url.pathname.split('/').filter(Boolean);
-    if (segments.length >= 3 && segments[0].toLowerCase() === 'token') {
+    if (segments.length < 3) return null;
+
+    const lowerSegments = segments.map((segment) => segment.toLowerCase());
+    const tokenIndex = lowerSegments.findIndex((segment) =>
+      segment === 'token' || segment === 'token-price'
+    );
+
+    if (tokenIndex !== -1 && segments.length > tokenIndex + 2) {
       return {
-        chain: segments[1],
-        address: segments[2],
+        chain: segments[tokenIndex + 1],
+        address: segments[tokenIndex + 2],
       };
     }
   } catch {
@@ -176,6 +183,54 @@ function parseJupiterPrice({ getJson }) {
   return null;
 }
 
+function parseSolscanMarketData({ getJson }) {
+  const json = getJson();
+  if (!json) return null;
+
+  const tryCandidates = (values) => {
+    for (const value of values) {
+      const num = sanitizeNumber(value);
+      if (num !== null && num > 0) {
+        return num;
+      }
+    }
+    return null;
+  };
+
+  const primary = tryCandidates([
+    json?.data?.priceUsdt,
+    json?.data?.priceUsd,
+    json?.data?.price,
+    json?.data?.usdPrice,
+    json?.priceUsdt,
+    json?.priceUsd,
+    json?.price,
+  ]);
+  if (primary !== null) return primary;
+
+  const markets = Array.isArray(json?.data?.markets)
+    ? json.data.markets
+    : Array.isArray(json?.markets)
+    ? json.markets
+    : null;
+
+  if (markets) {
+    for (const market of markets) {
+      const marketPrice = tryCandidates([
+        market?.priceUsdt,
+        market?.priceUsd,
+        market?.price,
+        market?.usdPrice,
+      ]);
+      if (marketPrice !== null) {
+        return marketPrice;
+      }
+    }
+  }
+
+  return null;
+}
+
 function parseTonapiJettonInfo({ getJson }) {
   const json = getJson();
   if (!json) return null;
@@ -253,6 +308,11 @@ function buildFallbackEndpoints(meta) {
       url: `https://price.jup.ag/v6/price?ids=${encodedAddress}`,
       label: 'Jupiter price',
       parser: parseJupiterPrice,
+    });
+    endpoints.push({
+      url: `https://public-api.solscan.io/market/token/${encodedAddress}`,
+      label: 'Solscan market data',
+      parser: parseSolscanMarketData,
     });
   }
   return endpoints;
