@@ -40,6 +40,49 @@ function normalizeLink(value) {
   }
 }
 
+function normalizeChainIdentifier(chain) {
+  const trimmed = typeof chain === 'string' ? chain.trim() : '';
+  if (!trimmed) return '';
+
+  const lower = trimmed.toLowerCase();
+  const normalized = lower.replace(/[\s_]+/g, '-');
+
+  if (
+    normalized === 'sol' ||
+    normalized === 'solana' ||
+    normalized.startsWith('solana-') ||
+    normalized.startsWith('sol-')
+  ) {
+    return 'solana';
+  }
+
+  return normalized;
+}
+
+function buildChainCandidates(chain) {
+  const trimmed = typeof chain === 'string' ? chain.trim() : '';
+  if (!trimmed) return [];
+
+  const candidates = new Set();
+  candidates.add(trimmed);
+
+  const lower = trimmed.toLowerCase();
+  if (lower) candidates.add(lower);
+
+  const normalized = lower.replace(/[\s_]+/g, '-');
+  if (normalized) candidates.add(normalized);
+
+  const canonical = normalizeChainIdentifier(trimmed);
+  if (canonical) {
+    candidates.add(canonical);
+    if (canonical === 'solana') {
+      candidates.add('sol');
+    }
+  }
+
+  return Array.from(candidates).filter(Boolean);
+}
+
 function createSnapshot(store) {
   return {
     price: store.price,
@@ -93,6 +136,10 @@ const dexScreenerNetworkMap = {
   polygon: 'polygon',
   sol: 'solana',
   solana: 'solana',
+  'solana-mainnet': 'solana',
+  'solana-mainnet-beta': 'solana',
+  'sol-mainnet': 'solana',
+  'sol-mainnet-beta': 'solana',
   tron: 'tron',
   trx: 'tron',
   avax: 'avalanche',
@@ -266,16 +313,21 @@ function parseTonapiJettonPrices({ getJson }) {
 
 function buildFallbackEndpoints(meta) {
   if (!meta?.address) return [];
-  const chain = (meta.chain || '').toLowerCase();
+  const canonicalChain = normalizeChainIdentifier(meta.chain);
+  const chain = canonicalChain || (meta?.chain || '').toLowerCase();
   const address = meta.address;
   const encodedAddress = encodeURIComponent(address);
   const endpoints = [];
 
-  const dexNetwork = dexScreenerNetworkMap[chain];
+  const dexNetwork = dexScreenerNetworkMap[chain] || dexScreenerNetworkMap[canonicalChain];
   const dexCandidates = new Set();
   if (dexNetwork) {
     dexCandidates.add(`https://api.dexscreener.com/latest/dex/tokens/${dexNetwork}/${encodedAddress}`);
-    if (['ethereum', 'bsc', 'polygon', 'base', 'arbitrum', 'optimism', 'avalanche', 'fantom'].includes(dexNetwork)) {
+    if (
+      ['ethereum', 'bsc', 'polygon', 'base', 'arbitrum', 'optimism', 'avalanche', 'fantom', 'solana'].includes(
+        dexNetwork
+      )
+    ) {
       dexCandidates.add(`https://api.dexscreener.com/latest/dex/tokens/${encodedAddress}`);
     }
   } else if (address?.startsWith('0x')) {
@@ -707,17 +759,35 @@ async function fetchEndpoint(entry, signal) {
 
 async function fetchTokenPrice(link, signal) {
   const endpoints = [];
+  const seen = new Set();
+
+  const pushEndpoint = (entry) => {
+    if (!entry) return;
+    const key =
+      typeof entry === 'string'
+        ? entry
+        : entry && entry.url
+        ? entry.url
+        : JSON.stringify(entry);
+    if (!key || seen.has(key)) return;
+    seen.add(key);
+    endpoints.push(entry);
+  };
   const meta = parseTokenMeta(link);
   if (meta) {
-    const { chain, address } = meta;
-    endpoints.push(`https://debot.ai/api/token/${chain}/${address}`);
-    endpoints.push(`https://debot.ai/api/token/${chain}/${address}?format=json`);
-    endpoints.push(`https://debot.ai/api/token-price/${chain}/${address}`);
+    const { address } = meta;
+    for (const chainName of buildChainCandidates(meta.chain)) {
+      pushEndpoint(`https://debot.ai/api/token/${chainName}/${address}`);
+      pushEndpoint(`https://debot.ai/api/token/${chainName}/${address}?format=json`);
+      pushEndpoint(`https://debot.ai/api/token-price/${chainName}/${address}`);
+    }
   }
-  endpoints.push(link);
+  pushEndpoint(link);
 
   if (meta) {
-    endpoints.push(...buildFallbackEndpoints(meta));
+    for (const entry of buildFallbackEndpoints(meta)) {
+      pushEndpoint(entry);
+    }
   }
 
   const errors = [];
