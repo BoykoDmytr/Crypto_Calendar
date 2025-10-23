@@ -110,6 +110,7 @@ export default function SuggestEdit() {
       'event_type_slug',
       'tge_exchanges',
       'link',
+      'coins',
       'nickname',
       'coin_name',
       'coin_quantity',
