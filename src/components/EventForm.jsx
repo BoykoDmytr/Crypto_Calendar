@@ -6,25 +6,50 @@ import timezone from 'dayjs/plugin/timezone';
 import { supabase } from '../lib/supabase';
 import { fetchEventTypes } from '../lib/api';
 import { toLocalInput } from '../utils/timeLocal';
+import { extractCoinEntries, hasCoinEntries, parseCoinQuantity } from '../utils/coins';
 
 dayjs.extend(utc);
 dayjs.extend(timezone);
 
 const kyivTZ = 'Europe/Kyiv';
 
-const hasTokenInfo = (src) => {
-  if (!src) return false;
-  const hasValue = (value) => {
-    if (value === undefined || value === null) return false;
-    if (typeof value === 'string') return value.trim().length > 0;
-    return String(value).trim().length > 0;
-  };
-  return (
-    hasValue(src.coin_name) ||
-    hasValue(src.coin_quantity) ||
-    hasValue(src.coin_price_link)
-  );
-}
+const emptyCoin = { name: '', quantity: '', price_link: '' };
+
+const toFormCoin = (coin) => {
+  const name = coin?.name || '';
+  const hasQuantity = coin && Object.prototype.hasOwnProperty.call(coin, 'quantity');
+  const quantity = hasQuantity && coin.quantity !== null && coin.quantity !== undefined
+    ? String(coin.quantity)
+    : '';
+  const priceLink = coin?.price_link || '';
+  return { name, quantity, price_link: priceLink };
+};
+
+const deriveCoinsForState = (source) => {
+  const entries = extractCoinEntries(source);
+  if (!entries.length) return [];
+  return entries.map((coin) => toFormCoin(coin));
+};
+
+const sanitizeCoinsForPayload = (coins) => {
+  if (!Array.isArray(coins)) return [];
+  return coins
+    .map((coin) => {
+      const name = (coin?.name || '').trim();
+      const priceLink = (coin?.price_link || '').trim();
+      const quantityValue = parseCoinQuantity(coin?.quantity);
+
+      const hasAny = name || priceLink || quantityValue !== null;
+      if (!hasAny) return null;
+
+      const entry = {};
+      if (name) entry.name = name;
+      if (quantityValue !== null) entry.quantity = quantityValue;
+      if (priceLink) entry.price_link = priceLink;
+      return entry;
+    })
+    .filter(Boolean);
+};
 
 export default function EventForm({ onSubmit, loading, initial = {} }) {
   const [types, setTypes] = useState([]); // довідник типів
@@ -46,26 +71,23 @@ export default function EventForm({ onSubmit, loading, initial = {} }) {
       start_date: '',
       start_time: '',
       link: '',
-      coin_name: '',
-      coin_quantity: '',
-      coin_price_link: '',
+      coins: [],
       tge_exchanges: [],
     };
 
     const merged = { ...base, ...(initial || {}) };
-    merged.coin_name = merged.coin_name || '';
-    merged.coin_price_link = merged.coin_price_link || '';
-    merged.coin_quantity =
-      merged.coin_quantity !== undefined && merged.coin_quantity !== null && merged.coin_quantity !== ''
-        ? String(merged.coin_quantity)
-        : '';
+    const coins = deriveCoinsForState(initial);
+    merged.coins = coins.length ? coins : [];
+    delete merged.coin_name;
+    delete merged.coin_quantity;
+    delete merged.coin_price_link;
     merged.nickname = merged.nickname || '';
     return merged;
   });
 
   const hydratedRef = useRef(false);
-  const [showTokenFields, setShowTokenFields] = useState(() => hasTokenInfo(initial));
-  const initialHasTokenInfo = useMemo(() => hasTokenInfo(initial), [initial]);
+  const [showTokenFields, setShowTokenFields] = useState(() => hasCoinEntries(initial));
+  const initialHasTokenInfo = useMemo(() => hasCoinEntries(initial), [initial]);
 
   /** 1) Тягаємо типи і НЕ перетираємо тип, якщо прийшли редагувати */
   useEffect(() => {
@@ -152,12 +174,15 @@ export default function EventForm({ onSubmit, loading, initial = {} }) {
       // 👇 ключова правка: зафіксувати у формі ту саму TZ, якою гідратнули поля
       next.timezone = tz;
       
-      next.coin_name = next.coin_name || '';
-      next.coin_price_link = next.coin_price_link || '';
-      next.coin_quantity =
-        next.coin_quantity !== undefined && next.coin_quantity !== null && next.coin_quantity !== ''
-          ? String(next.coin_quantity)
-          : '';
+      const derivedCoins = deriveCoinsForState(initial);
+      if (derivedCoins.length) {
+        next.coins = derivedCoins;
+      } else {
+        next.coins = Array.isArray(prev.coins) ? prev.coins : [];
+      }
+      delete next.coin_name;
+      delete next.coin_quantity;
+      delete next.coin_price_link;
       next.nickname = next.nickname || '';
       return next;
     });
@@ -197,6 +222,14 @@ export default function EventForm({ onSubmit, loading, initial = {} }) {
     }
   }, [initialHasTokenInfo]);
 
+  useEffect(() => {
+    if (!showTokenFields) return;
+    setForm((prev) => {
+      const coins = Array.isArray(prev.coins) ? prev.coins.filter(Boolean) : [];
+      if (coins.length > 0) return prev;
+      return { ...prev, coins: [{ ...emptyCoin }] };
+    });
+  }, [showTokenFields]);
   const change = (k, v) => setForm(s => ({ ...s, [k]: v }));
 
   const handleTokenToggle = (checked) => {
@@ -204,13 +237,39 @@ export default function EventForm({ onSubmit, loading, initial = {} }) {
     if (!checked) {
       setForm((s) => ({
         ...s,
-        coin_name: '',
-        coin_quantity: '',
-        coin_price_link: '',
+        coins: [],
       }));
     }
   };
 
+  const addCoin = () => {
+    setForm((prev) => {
+      const list = Array.isArray(prev.coins) ? prev.coins.slice() : [];
+      return { ...prev, coins: [...list, { ...emptyCoin }] };
+    });
+  };
+
+  const updateCoin = (index, key, value) => {
+    setForm((prev) => {
+      const list = Array.isArray(prev.coins) ? prev.coins.slice() : [];
+      if (!list[index]) {
+        list[index] = { ...emptyCoin };
+      }
+      list[index] = { ...list[index], [key]: value };
+      return { ...prev, coins: list };
+    });
+  };
+
+  const removeCoin = (index) => {
+    setForm((prev) => {
+      const list = Array.isArray(prev.coins) ? prev.coins.slice() : [];
+      if (list.length <= 1) {
+        return { ...prev, coins: [{ ...emptyCoin }] };
+      }
+      list.splice(index, 1);
+      return { ...prev, coins: list };
+    });
+  };
   // ряди бірж (TGE)
   const addExchange = () =>
     change('tge_exchanges', [ ...(form.tge_exchanges || []), { name: '', time: '' } ]);
@@ -289,33 +348,33 @@ export default function EventForm({ onSubmit, loading, initial = {} }) {
     if (!payload.description) delete payload.description;
 
     if (showTokenFields) {
-      const coinName = (form.coin_name || '').trim();
-      if (coinName) {
-        payload.coin_name = coinName;
-      } else {
-        delete payload.coin_name;
-      }
-
-    const rawQty = typeof form.coin_quantity === 'string' ? form.coin_quantity.trim() : '';
-      if (rawQty) {
-        const normalized = rawQty.replace(/\s+/g, '').replace(/,/g, '.');
-        const qty = Number(normalized);
-        if (!Number.isNaN(qty)) {
-          payload.coin_quantity = qty;
+      const sanitizedCoins = sanitizeCoinsForPayload(form.coins);
+      if (sanitizedCoins.length > 0) {
+        payload.coins = sanitizedCoins.map((coin) => ({ ...coin }));
+        const [primary] = sanitizedCoins;
+        if (primary.name) {
+          payload.coin_name = primary.name;
+        } else {
+          delete payload.coin_name;
+        }
+        if (Object.prototype.hasOwnProperty.call(primary, 'quantity')) {
+          payload.coin_quantity = primary.quantity;
         } else {
           delete payload.coin_quantity;
         }
+        if (primary.price_link) {
+          payload.coin_price_link = primary.price_link;
+        } else {
+          delete payload.coin_price_link;
+        }
       } else {
+        delete payload.coins;
+        delete payload.coin_name;
         delete payload.coin_quantity;
-      }
-
-    const coinPriceLink = (form.coin_price_link || '').trim();
-      if (coinPriceLink) {
-        payload.coin_price_link = coinPriceLink;
-      } else {
         delete payload.coin_price_link;
       }
     } else {
+      delete payload.coins;
       delete payload.coin_name;
       delete payload.coin_quantity;
       delete payload.coin_price_link;
@@ -330,7 +389,7 @@ export default function EventForm({ onSubmit, loading, initial = {} }) {
     }
     onSubmit?.(payload);
   };
-
+  const coinsList = Array.isArray(form.coins) ? form.coins : [];
   return (
     <form onSubmit={submit} className="space-y-3">
       {/* Нікнейм відправника */}
@@ -450,7 +509,7 @@ export default function EventForm({ onSubmit, loading, initial = {} }) {
         </div>
       </div>
       
-      {/* Монета */}
+      {/* Монети */}
       <div className="space-y-2">
         <label className="label inline-flex items-center gap-2 mb-0">
           <input
@@ -458,42 +517,56 @@ export default function EventForm({ onSubmit, loading, initial = {} }) {
             checked={showTokenFields}
             onChange={(e) => handleTokenToggle(e.target.checked)}
           />
-        <span>Додати інформацію про монету</span>
+        <span>Додати інформацію про монети</span>
         </label>
 
         {showTokenFields && (
-          <div className="space-y-2">
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-              <div>
-                <label className="label">Назва монети</label>
-                <input
-                  className="input"
-                  value={form.coin_name || ''}
-                  onChange={(e) => change('coin_name', e.target.value)}
-                  placeholder="Напр., TURTLE"
-                />
+          <div className="space-y-3">
+            {coinsList.map((coin, index) => (
+              <div key={`coin-${index}`} className="space-y-2 rounded-xl border border-gray-200 p-3">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  <div>
+                    <label className="label">Назва монети</label>
+                    <input
+                      className="input"
+                      value={coin?.name || ''}
+                      onChange={(e) => updateCoin(index, 'name', e.target.value)}
+                      placeholder="Напр., TURTLE"
+                    />
+                  </div>
+                  <div>
+                    <label className="label">Кількість монет</label>
+                    <input
+                      className="input"
+                      inputMode="decimal"
+                      pattern="[0-9.,\s]*"
+                      value={coin?.quantity || ''}
+                      onChange={(e) => updateCoin(index, 'quantity', e.target.value)}
+                      placeholder="1 000 000"
+                    />
+                  </div>
+                  <div>
+                    <label className="label">Посилання на ціну (Debot)</label>
+                    <input
+                      className="input"
+                      value={coin?.price_link || ''}
+                      onChange={(e) => updateCoin(index, 'price_link', e.target.value)}
+                      placeholder="https://debot.ai/token/..."
+                    />
+                  </div>
+                </div>
+                {coinsList.length > 1 && (
+                  <div className="flex justify-end">
+                    <button type="button" className="btn-secondary" onClick={() => removeCoin(index)}>
+                      Видалити монету
+                    </button>
+                  </div>
+                )}
               </div>
-              <div>
-                <label className="label">Кількість монет</label>
-                <input
-                  className="input"
-                  inputMode="decimal"
-                  pattern="[0-9.,\s]*"
-                  value={form.coin_quantity || ''}
-                  onChange={(e) => change('coin_quantity', e.target.value)}
-                  placeholder="1 000 000"
-                />
-              </div>
-              <div>
-                <label className="label">Посилання на ціну (Debot)</label>
-                <input
-                  className="input"
-                  value={form.coin_price_link || ''}
-                  onChange={(e) => change('coin_price_link', e.target.value)}
-                  placeholder="https://debot.ai/token/..."
-                />
-              </div>
-            </div>
+              ))}
+            <button type="button" className="btn" onClick={addCoin}>
+              + Додати монету
+            </button>
             <p className="text-xs text-gray-500">
               Вкажіть монету, її кількість і посилання на Debot — ми автоматично підтягнемо USD-ціну й оновлюватимемо її
               щохвилини.

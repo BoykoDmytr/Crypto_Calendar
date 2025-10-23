@@ -7,6 +7,7 @@ import timezone from 'dayjs/plugin/timezone';
 import { supabase } from '../lib/supabase';
 import EventForm from '../components/EventForm';
 import { formatQuantity as formatTokenQuantity } from '../hooks/useTokenPrice';
+import { extractCoinEntries, coinEntriesEqual } from '../utils/coins';
 
 dayjs.extend(utc);
 dayjs.extend(timezone);
@@ -37,6 +38,64 @@ const formatCoinQuantity = (value) => {
   const formatted = formatTokenQuantity(value);
   return formatted ?? '—';
 };
+
+const CoinList = ({ coins = [], className = '', valueClassName = 'font-medium text-gray-800', linkClassName = 'underline' }) => {
+  if (!coins || coins.length === 0) return null;
+  const containerClass = ['flex flex-col gap-1', className].filter(Boolean).join(' ');
+  return (
+    <div className={containerClass}>
+      {coins.map((coin, idx) => (
+        <div key={`${coin?.name || 'coin'}-${idx}`} className="flex flex-wrap items-center gap-3">
+          {coin?.name && (
+            <span>
+              Монета:{' '}
+              <span className={valueClassName}>{coin.name}</span>
+            </span>
+          )}
+          {Object.prototype.hasOwnProperty.call(coin || {}, 'quantity') && (
+            <span>
+              Кількість:{' '}
+              <span className={valueClassName}>{formatCoinQuantity(coin.quantity)}</span>
+            </span>
+          )}
+          {coin?.price_link && (
+            <a
+              className={linkClassName}
+              href={coin.price_link}
+              target="_blank"
+              rel="noreferrer"
+            >
+              Debot
+            </a>
+          )}
+        </div>
+      ))}
+    </div>
+  );
+};
+
+const CoinsDiffRow = ({ oldCoins = [], newCoins = [] }) => (
+  <div className="rounded-xl border border-amber-300 bg-amber-50 px-3 py-2">
+    <div className="text-xs font-medium text-amber-800">Монети</div>
+    <div className="mt-1 grid grid-cols-1 sm:grid-cols-2 gap-2 items-start">
+      <div className="text-sm text-amber-900 line-through decoration-2 decoration-amber-400">
+        {oldCoins.length > 0 ? (
+          <CoinList coins={oldCoins} className="text-sm" valueClassName="font-medium" linkClassName="underline" />
+        ) : (
+          '—'
+        )}
+      </div>
+      <div className="text-sm font-semibold text-amber-900">
+        {newCoins.length > 0 ? (
+          <CoinList coins={newCoins} className="text-sm" valueClassName="font-semibold" linkClassName="underline" />
+        ) : (
+          '—'
+        )}
+      </div>
+    </div>
+  </div>
+);
+
 const formatNickname = (value) => {
   const trimmed = (value || '').trim();
   if (!trimmed) return '';
@@ -301,7 +360,7 @@ export default function Admin() {
   // ===== МОДЕРАЦІЯ ЗАЯВОК =====
   const approve = async (ev) => {
     const allowed = [
-      'title','description','start_at','end_at','timezone','type','tge_exchanges','link','nickname',
+      'title','description','start_at','end_at','timezone','type','tge_exchanges','link','nickname','coins',
       'coin_name','coin_quantity','coin_price_link',
     ];
     const payload = Object.fromEntries(Object.entries(ev).filter(([k]) => allowed.includes(k)));
@@ -310,6 +369,9 @@ export default function Admin() {
       payload.tge_exchanges = [...ev.tge_exchanges].sort(
         (a, b) => toMinutes(a?.time) - toMinutes(b?.time)
       );
+    }
+    if (Array.isArray(payload.coins)) {
+      payload.coins = payload.coins.map((coin) => ({ ...coin }));
     }
     if (payload.end_at === '' || payload.end_at == null) delete payload.end_at;
     if ('nickname' in payload) {
@@ -346,6 +408,10 @@ export default function Admin() {
         else delete clean.nickname;
       }
     }
+    if (Array.isArray(clean.coins)) {
+      clean.coins = clean.coins.map((coin) => ({ ...coin }));
+      if (clean.coins.length === 0) delete clean.coins;
+    }
 
     const { error } = await supabase.from(table).update(clean).eq('id', id);
     if (error) return alert('Помилка: ' + error.message);
@@ -364,7 +430,7 @@ export default function Admin() {
   // ===== ПРАВКИ =====
   const approveEdit = async (edit) => {
     const allowed = [
-      'title','description','start_at','end_at','timezone','type','tge_exchanges','link','nickname',
+      'title','description','start_at','end_at','timezone','type','tge_exchanges','link','nickname','coins',
       'coin_name','coin_quantity','coin_price_link',
     ];
     const patch = Object.fromEntries(
@@ -375,6 +441,9 @@ export default function Admin() {
       patch.tge_exchanges = [...patch.tge_exchanges].sort(
         (a, b) => toMinutes(a?.time) - toMinutes(b?.time)
       );
+    }
+    if (Array.isArray(patch.coins)) {
+      patch.coins = patch.coins.map((coin) => ({ ...coin }));
     }
     if ('nickname' in patch) {
       if (patch.nickname === null) {
@@ -588,88 +657,62 @@ const saveType = async (row) => {
         <h2 className="font-semibold mb-2">Заявки на модерації</h2>
         {pending.length === 0 && <p className="text-sm text-gray-600">Немає заявок.</p>}
         <div className="space-y-3">
-          {pending.map((ev) => (
-            <article key={ev.id} className="card p-4">
-              {editId === ev.id && editTable === 'events_pending' ? (
-                <EditingCard table="events_pending" ev={ev} />
-              ) : (
-                <>
-                  <div className="text-xs text-gray-500">
-                    {dayjs(ev.created_at).format('DD MMM HH:mm')}
-                  </div>
-                  <h3 className="font-semibold">{ev.title}</h3>
-                  {ev.description && (
-                    <p className="text-sm text-gray-600 mt-1">{ev.description}</p>
-                  )}
-                  <div className="text-sm mt-2 flex flex-wrap items-center gap-2">
-                    <TypeBadge type={ev.type} />
-                    <span className="event-when">🕒 {formatEventDate(ev)}</span>
-                    {ev.link && (
-                      <a className="underline" href={ev.link} target="_blank" rel="noreferrer">Лінк</a>
+          {pending.map((ev) => {
+            const coins = extractCoinEntries(ev);
+            return (
+              <article key={ev.id} className="card p-4">
+                {editId === ev.id && editTable === 'events_pending' ? (
+                  <EditingCard table="events_pending" ev={ev} />
+                ) : (
+                  <>
+                    <div className="text-xs text-gray-500">
+                      {dayjs(ev.created_at).format('DD MMM HH:mm')}
+                    </div>
+                    <h3 className="font-semibold">{ev.title}</h3>
+                    {ev.description && (
+                      <p className="text-sm text-gray-600 mt-1">{ev.description}</p>
                     )}
-                  </div>
+                  <div className="text-sm mt-2 flex flex-wrap items-center gap-2">
+                      <TypeBadge type={ev.type} />
+                      <span className="event-when">🕒 {formatEventDate(ev)}</span>
+                      {ev.link && (
+                        <a className="underline" href={ev.link} target="_blank" rel="noreferrer">Лінк</a>
+                      )}
+                    </div>
+                  {coins.length > 0 && (
+                      <CoinList coins={coins} className="mt-2 text-xs text-gray-600" />
+                    )}
 
-                  {(ev.coin_name || ev.coin_quantity !== undefined || ev.coin_price_link) && (
-                    <div className="mt-2 text-xs text-gray-600 flex flex-wrap items-center gap-3">
-                      {ev.coin_name && (
-                        <span>
-                          Монета: <span className="font-medium text-gray-800">{ev.coin_name}</span>
-                        </span>
-                      )}
-                      {ev.coin_quantity !== undefined && ev.coin_quantity !== null && !Number.isNaN(Number(ev.coin_quantity)) && (
-                        <span>
-                          Кількість:{' '}
-                          <span className="font-medium text-gray-800">
-                            {formatCoinQuantity(ev.coin_quantity)}
-                          </span>
-                        </span>
-                      )}
-                      {ev.coin_price_link && (
-                        <a
-                          className="underline"
-                          href={ev.coin_price_link}
-                          target="_blank"
-                          rel="noreferrer"
-                        >
-                          Debot
-                        </a>
-                      )}
-                    </div>
-                  )}
-                  {formatNickname(ev.nickname) && (
-                    <div className="mt-2 text-xs text-gray-500">
-                      Нікнейм: {formatNickname(ev.nickname)}
-                    </div>
-                  )}
-                  <RowActions>
-                    <button className="btn" onClick={() => approve(ev)}>
-                      Схвалити
-                    </button>
-                    <button className="btn-secondary" onClick={() => reject(ev)}>
-                      Відхилити
-                    </button>
+                    <RowActions>
+                      <button className="btn" onClick={() => approve(ev)}>
+                        Схвалити
+                      </button>
+                      <button className="btn-secondary" onClick={() => reject(ev)}>
+                        Відхилити
+                      </button>
                     <div className="flex gap-2">
-                      <button
-                        className="btn-secondary"
-                        onClick={() => {
-                          setEditId(ev.id);
-                          setEditTable('events_pending');
-                        }}
-                      >
-                        Редагувати
-                      </button>
-                      <button
-                        className="btn-secondary"
-                        onClick={() => removeRow('events_pending', ev.id)}
-                      >
-                        Видалити
-                      </button>
-                    </div>
-                  </RowActions>
-                </>
-              )}
-            </article>
-          ))}
+                        <button
+                          className="btn-secondary"
+                          onClick={() => {
+                            setEditId(ev.id);
+                            setEditTable('events_pending');
+                          }}
+                        >
+                          Редагувати
+                        </button>
+                        <button
+                          className="btn-secondary"
+                          onClick={() => removeRow('events_pending', ev.id)}
+                        >
+                          Видалити
+                        </button>
+                      </div>
+                    </RowActions>
+                  </>
+                )}
+              </article>
+            );
+          })}
         </div>
       </section>
 
@@ -754,50 +797,13 @@ const saveType = async (row) => {
                   }
                 />
               );
-            if (patch.coin_name !== undefined && patch.coin_name !== base.coin_name)
+            const baseCoins = extractCoinEntries(base);
+            const nextCoins = extractCoinEntries(next);
+            if (!coinEntriesEqual(baseCoins, nextCoins)) {
               changed.push(
-                <DiffRow
-                  key="coin_name"
-                  label="Монета"
-                  oldVal={base.coin_name || '—'}
-                  newVal={patch.coin_name || '—'}
-                />
+                <CoinsDiffRow key="coins" oldCoins={baseCoins} newCoins={nextCoins} />
               );
-
-            if (patch.coin_quantity !== undefined) {
-              const baseQty =
-                base.coin_quantity === undefined || base.coin_quantity === null
-                  ? null
-                  : Number(base.coin_quantity);
-              const patchQty =
-                patch.coin_quantity === undefined || patch.coin_quantity === null
-                  ? null
-                  : Number(patch.coin_quantity);
-              const qtyChanged =
-                (baseQty === null && patchQty !== null) ||
-                (baseQty !== null && patchQty === null) ||
-                (baseQty !== null && patchQty !== null && !Object.is(baseQty, patchQty));
-              if (qtyChanged)
-                changed.push(
-                  <DiffRow
-                    key="coin_quantity"
-                    label="Кількість монет"
-                    oldVal={baseQty === null ? '—' : formatCoinQuantity(baseQty)}
-                    newVal={patchQty === null ? '—' : formatCoinQuantity(patchQty)}
-                  />
-                );
             }
-
-            if (patch.coin_price_link !== undefined && patch.coin_price_link !== base.coin_price_link)
-              changed.push(
-                <DiffRow
-                  key="coin_price_link"
-                  label="Посилання на ціну"
-                  oldVal={base.coin_price_link || '—'}
-                  newVal={patch.coin_price_link || '—'}
-                />
-              );
-            
             return (
               <article key={ed.id} className="card p-4">
                 <div className="text-xs text-gray-500 mb-2">
@@ -832,71 +838,51 @@ const saveType = async (row) => {
         <h2 className="font-semibold mb-2">Схвалені події</h2>
         {approved.length === 0 && <p className="text-sm text-gray-600">Поки що немає.</p>}
         <div className="space-y-3">
-          {approved.map((ev) => (
-            <article key={ev.id} className="card p-4">
-              {editId === ev.id && editTable === 'events_approved' ? (
-                <EditingCard table="events_approved" ev={ev} />
-              ) : (
-                <>
-                  <div className="font-semibold">{ev.title}</div>
-                  <div className="text-sm mt-1 flex flex-wrap items-center gap-2">
-                    <span className="event-when">{formatEventDate(ev)}</span>
-                    <TypeBadge type={ev.type} />
-                  </div>
-
-                  {(ev.coin_name || ev.coin_quantity !== undefined || ev.coin_price_link) && (
-                    <div className="mt-2 text-xs text-gray-600 flex flex-wrap items-center gap-3">
-                      {ev.coin_name && (
-                        <span>
-                          Монета: <span className="font-medium text-gray-800">{ev.coin_name}</span>
-                        </span>
-                      )}
-                      {ev.coin_quantity !== undefined && ev.coin_quantity !== null && !Number.isNaN(Number(ev.coin_quantity)) && (
-                        <span>
-                          Кількість:{' '}
-                          <span className="font-medium text-gray-800">
-                            {formatCoinQuantity(ev.coin_quantity)}
-                          </span>
-                        </span>
-                      )}
-                      {ev.coin_price_link && (
-                        <a
-                          className="underline"
-                          href={ev.coin_price_link}
-                          target="_blank"
-                          rel="noreferrer"
-                        >
-                          Debot
-                        </a>
-                      )}
+          {approved.map((ev) => {
+            const coins = extractCoinEntries(ev);
+            return (
+              <article key={ev.id} className="card p-4">
+                {editId === ev.id && editTable === 'events_approved' ? (
+                  <EditingCard table="events_approved" ev={ev} />
+                ) : (
+                  <>
+                    <div className="font-semibold">{ev.title}</div>
+                    <div className="text-sm mt-1 flex flex-wrap items-center gap-2">
+                      <span className="event-when">{formatEventDate(ev)}</span>
+                      <TypeBadge type={ev.type} />
                     </div>
                   )}
                   {formatNickname(ev.nickname) && (
                     <div className="mt-2 text-xs text-gray-500">
                       Нікнейм: {formatNickname(ev.nickname)}
                     </div>
-                  )}
-                  <RowActions>
-                    <button
-                      className="btn-secondary"
-                      onClick={() => {
-                        setEditId(ev.id);
-                        setEditTable('events_approved');
-                      }}
-                    >
-                      Редагувати
-                    </button>
-                    <button
-                      className="btn-secondary"
-                      onClick={() => removeRow('events_approved', ev.id)}
-                    >
-                      Видалити
-                    </button>
-                  </RowActions>
-                </>
-              )}
-            </article>
-          ))}
+                  {coins.length > 0 && (
+                      <CoinList coins={coins} className="mt-2 text-xs text-gray-600" />
+                    )}
+
+                    <RowActions>
+                      <button
+                        className="btn-secondary"
+                        onClick={() => {
+                          setEditId(ev.id);
+                          setEditTable('events_approved');
+                        }}
+                      >
+                        Редагувати
+                      </button>
+                      <button
+                        className="btn-secondary"
+                        onClick={() => removeRow('events_approved', ev.id)}
+                      >
+                        Видалити
+                      </button>
+                    </RowActions>
+                  </>
+                )}
+              </article>
+            );
+          }
+          })}
         </div>
       </section>
 

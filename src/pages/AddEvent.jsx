@@ -14,6 +14,7 @@ export default function AddEvent() {
       Object.entries(obj).filter(([k, v]) => {
         if (v === '' || v === undefined || v === null) return false;
         if (k === 'tge_exchanges' && Array.isArray(v) && v.length === 0) return false;
+        if (k === 'coins' && Array.isArray(v) && v.length === 0) return false
         return true;
       })
     );

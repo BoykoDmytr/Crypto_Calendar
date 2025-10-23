@@ -1,8 +1,10 @@
 // src/components/EventCard.jsx
+import { useMemo } from 'react';
 import dayjs from 'dayjs';
 import { Link } from 'react-router-dom';
 import { timeStringToMinutes } from '../utils/time';
 import EventTokenInfo from './EventTokenInfo';
+import { extractCoinEntries } from '../utils/coins';
 
 // Типи, де час НЕобов'язковий (щоб не показувати 00:00)
 const TIME_OPTIONAL = new Set(['Binance Alpha', 'OKX Alpha', 'Token Sales', 'Claim / Airdrop', 'Unlocks']);
@@ -18,6 +20,8 @@ export default function EventCard({ ev }) {
   // Без конвертацій: показуємо як є (ми вже зберігаємо все в UTC ISO)
   const start = ev?.start_at ? dayjs(ev.start_at) : null;
   const end   = ev?.end_at   ? dayjs(ev.end_at)   : null;
+
+  const tokenEntries = useMemo(() => extractCoinEntries(ev), [ev]);
 
   // Біржі для TGE
   const tge = Array.isArray(ev?.tge_exchanges) ? [...ev.tge_exchanges] : [];
@@ -141,13 +145,7 @@ export default function EventCard({ ev }) {
               ))}
             </div>
           )}
-          {(ev.coin_name || ev.coin_quantity || ev.coin_price_link) && (
-            <EventTokenInfo
-              coinName={ev.coin_name}
-              coinQuantity={ev.coin_quantity}
-              priceLink={ev.coin_price_link}
-            />
-          )}
+          {tokenEntries.length > 0 && <EventTokenInfo coins={tokenEntries} />}
           {nickname && (
             <div className="mt-3 text-sm text-gray-500 dark:text-gray-400 flex justify-end">
               <span>{nickname}</span>
