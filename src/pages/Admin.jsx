@@ -517,56 +517,55 @@ export default function Admin() {
   // Додаємо тип — автоматично у кінець списку
   // додати тип
 const addType = async () => {
-  const label = newType.label.trim();
-  if (!label) return alert('Вкажіть назву типу');
+    const label = newType.label.trim();
+    if (!label) return alert('Вкажіть назву типу');
 
   const { data: all, error: e0 } = await supabase.from('event_types').select('slug');
-  if (e0) return alert('Помилка: ' + e0.message);
+    if (e0) return alert('Помилка: ' + e0.message);
 
-  const existing = new Set((all || []).map(x => (x.slug || '').trim()));
-  const slug = makeUniqueSlug(newType.slug || label, existing);
-
-  const payload = {
-    label,
-    slug,
-    is_tge: !!newType.is_tge,
-    active: !!newType.active,
-    order_index: Number(newType.order_index || 0),
-  };
-
-  const { error } = await supabase.from('event_types').insert(payload);
-  if (error) return alert('Помилка: ' + error.message);
-
-  setNewType({ label: '', slug: '', is_tge: false, active: true, order_index: 0 });
-  await refresh();
-};
+  const existing = new Set((all || []).map((x) => (x.slug || '').trim()));
+    const slug = makeUniqueSlug(newType.slug || label, existing);
 
 // зберегти тип
-const saveType = async (row) => {
-  const label = row.label.trim();
+const payload = {
+      label,
+      slug,
+      is_tge: !!newType.is_tge,
+      active: !!newType.active,
+      order_index: Number(newType.order_index || 0),
+    };
 
-  const { data: all, error: e0 } = await supabase.from('event_types').select('id, slug');
-  if (e0) return alert('Помилка: ' + e0.message);
+  const { error } = await supabase.from('event_types').insert(payload);
+    if (error) return alert('Помилка: ' + error.message);
 
-  const existing = new Set(
-    (all || []).filter(x => x.id !== row.id).map(x => (x.slug || '').trim())
-  );
-
-  const desired = (row.slug || label).trim();
-  const slug = makeUniqueSlug(desired, existing);
-
-  const payload = {
-    label,
-    slug,
-    is_tge: !!row.is_tge,
-    active: !!row.active,
-    order_index: Number(row.order_index || 0),
+  setNewType({ label: '', slug: '', is_tge: false, active: true, order_index: 0 });
+    await refresh();
   };
 
-  const { error } = await supabase.from('event_types').update(payload).eq('id', row.id);
-  if (error) return alert('Помилка: ' + error.message);
-  await refresh();
-};
+  const saveType = async (row) => {
+    const label = row.label.trim();
+
+  const { data: all, error: e0 } = await supabase.from('event_types').select('id, slug');
+    if (e0) return alert('Помилка: ' + e0.message);
+
+  const existing = new Set(
+      (all || []).filter((x) => x.id !== row.id).map((x) => (x.slug || '').trim())
+    );
+
+    const desired = (row.slug || label).trim();
+    const slug = makeUniqueSlug(desired, existing);
+
+    const payload = {
+      label,
+      slug,
+      is_tge: !!row.is_tge,
+      active: !!row.active,
+      order_index: Number(row.order_index || 0),
+    };
+    const { error } = await supabase.from('event_types').update(payload).eq('id', row.id);
+    if (error) return alert('Помилка: ' + error.message);
+    await refresh();
+  };
 
 
   const deleteType = async (id) => {
@@ -672,14 +671,16 @@ const saveType = async (row) => {
                     {ev.description && (
                       <p className="text-sm text-gray-600 mt-1">{ev.description}</p>
                     )}
-                  <div className="text-sm mt-2 flex flex-wrap items-center gap-2">
+                    <div className="text-sm mt-2 flex flex-wrap items-center gap-2">
                       <TypeBadge type={ev.type} />
                       <span className="event-when">🕒 {formatEventDate(ev)}</span>
                       {ev.link && (
-                        <a className="underline" href={ev.link} target="_blank" rel="noreferrer">Лінк</a>
+                        <a className="underline" href={ev.link} target="_blank" rel="noreferrer">
+                          Лінк
+                        </a>
                       )}
                     </div>
-                  {coins.length > 0 && (
+                    {coins.length > 0 && (
                       <CoinList coins={coins} className="mt-2 text-xs text-gray-600" />
                     )}
 
@@ -851,12 +852,12 @@ const saveType = async (row) => {
                       <span className="event-when">{formatEventDate(ev)}</span>
                       <TypeBadge type={ev.type} />
                     </div>
-                  )}
                   {formatNickname(ev.nickname) && (
-                    <div className="mt-2 text-xs text-gray-500">
-                      Нікнейм: {formatNickname(ev.nickname)}
-                    </div>
-                  {coins.length > 0 && (
+                      <div className="mt-2 text-xs text-gray-500">
+                        Нікнейм: {formatNickname(ev.nickname)}
+                      </div>
+                    )}
+                    {coins.length > 0 && (
                       <CoinList coins={coins} className="mt-2 text-xs text-gray-600" />
                     )}
 
@@ -881,7 +882,6 @@ const saveType = async (row) => {
                 )}
               </article>
             );
-          }
           })}
         </div>
       </section>
