@@ -146,6 +146,36 @@ function parseDexScreenerPrice({ getJson }) {
   return null;
 }
 
+function parseJupiterPrice({ getJson }) {
+  const json = getJson();
+  if (!json) return null;
+  const data = json?.data;
+  if (!data || typeof data !== 'object') return null;
+  for (const entry of Object.values(data)) {
+    if (!entry || typeof entry !== 'object') continue;
+    const direct =
+      sanitizeNumber(entry?.price) ??
+      sanitizeNumber(entry?.usd) ??
+      sanitizeNumber(entry?.value) ??
+      sanitizeNumber(entry?.priceUsd) ??
+      sanitizeNumber(entry?.usdPrice);
+    if (direct !== null && direct !== undefined && Number(direct) > 0) {
+      return direct;
+    }
+
+    const extraCandidate =
+      sanitizeNumber(entry?.extra?.price) ??
+      sanitizeNumber(entry?.extra?.usd) ??
+      sanitizeNumber(entry?.extra?.value) ??
+      sanitizeNumber(entry?.extra?.priceUsd) ??
+      sanitizeNumber(entry?.extra?.usdPrice);
+    if (extraCandidate !== null && extraCandidate !== undefined && Number(extraCandidate) > 0) {
+      return extraCandidate;
+    }
+  }
+  return null;
+}
+
 function parseTonapiJettonInfo({ getJson }) {
   const json = getJson();
   if (!json) return null;
@@ -183,17 +213,18 @@ function buildFallbackEndpoints(meta) {
   if (!meta?.address) return [];
   const chain = (meta.chain || '').toLowerCase();
   const address = meta.address;
+  const encodedAddress = encodeURIComponent(address);
   const endpoints = [];
 
   const dexNetwork = dexScreenerNetworkMap[chain];
   const dexCandidates = new Set();
   if (dexNetwork) {
-    dexCandidates.add(`https://api.dexscreener.com/latest/dex/tokens/${dexNetwork}/${address}`);
+    dexCandidates.add(`https://api.dexscreener.com/latest/dex/tokens/${dexNetwork}/${encodedAddress}`);
     if (['ethereum', 'bsc', 'polygon', 'base', 'arbitrum', 'optimism', 'avalanche', 'fantom'].includes(dexNetwork)) {
-      dexCandidates.add(`https://api.dexscreener.com/latest/dex/tokens/${address}`);
+      dexCandidates.add(`https://api.dexscreener.com/latest/dex/tokens/${encodedAddress}`);
     }
   } else if (address?.startsWith('0x')) {
-    dexCandidates.add(`https://api.dexscreener.com/latest/dex/tokens/${address}`);
+    dexCandidates.add(`https://api.dexscreener.com/latest/dex/tokens/${encodedAddress}`);
   }
 
   for (const url of dexCandidates) {
@@ -206,17 +237,24 @@ function buildFallbackEndpoints(meta) {
 
   if (chain === 'ton') {
     endpoints.push({
-      url: `https://tonapi.io/v2/jetton/info?address=${address}`,
+      url: `https://tonapi.io/v2/jetton/info?address=${encodedAddress}`,
       label: 'TonAPI jetton info',
       parser: parseTonapiJettonInfo,
     });
     endpoints.push({
-      url: `https://tonapi.io/v2/jetton/prices?tokens=${address}`,
+      url: `https://tonapi.io/v2/jetton/prices?tokens=${encodedAddress}`,
       label: 'TonAPI jetton prices',
       parser: parseTonapiJettonPrices,
     });
   }
 
+  if (chain === 'solana' || chain === 'sol') {
+    endpoints.push({
+      url: `https://price.jup.ag/v6/price?ids=${encodedAddress}`,
+      label: 'Jupiter price',
+      parser: parseJupiterPrice,
+    });
+  }
   return endpoints;
 }
 
@@ -246,6 +284,68 @@ function sanitizeNumber(value) {
 function extractPriceFromObject(obj) {
   let found = null;
 
+  const hasUsdHintInValue = (value, depth = 0) => {
+    if (!value || depth > 2) return false;
+    if (typeof value === 'string') {
+      const normalized = value.toLowerCase();
+      return (
+        normalized.includes('usd') ||
+        normalized.includes('dollar') ||
+        normalized.includes('usdc') ||
+        normalized.includes('usdt') ||
+        normalized.includes('$')
+      );
+    }
+    if (Array.isArray(value)) {
+      return value.some((item) => hasUsdHintInValue(item, depth + 1));
+    }
+    if (typeof value === 'object') {
+      const nestedKeys = [
+        'symbol',
+        'code',
+        'currency',
+        'currencyCode',
+        'currencySymbol',
+        'name',
+        'ticker',
+        'denom',
+        'unit',
+        'id',
+        'label',
+        'target',
+        'pair',
+        'quote',
+        'quoteCurrency',
+        'quoteSymbol',
+      ];
+      return nestedKeys.some((key) => hasUsdHintInValue(value[key], depth + 1));
+    }
+    return false;
+  };
+
+  const objectHasUsdHint = (node) => {
+    if (!node || typeof node !== 'object') return false;
+    const fields = [
+      'currency',
+      'currencyCode',
+      'currencySymbol',
+      'fiat',
+      'fiatCurrency',
+      'fiatSymbol',
+      'symbol',
+      'unit',
+      'ticker',
+      'denom',
+      'code',
+      'quote',
+      'quoteCurrency',
+      'quoteSymbol',
+      'counterCurrency',
+      'counterSymbol',
+    ];
+    return fields.some((field) => hasUsdHintInValue(node[field]));
+  };
+
   const visit = (node, keyPath = []) => {
     if (found !== null) return;
     if (!node || typeof node !== 'object') return;
@@ -261,6 +361,7 @@ function extractPriceFromObject(obj) {
     for (const [key, value] of Object.entries(node)) {
       if (found !== null) break;
       const lowerKey = key.toLowerCase();
+      const normalizedKey = lowerKey.replace(/[^a-z0-9]/g, '');
 
       if (value !== null && typeof value === 'object') {
         visit(value, keyPath.concat(lowerKey));
@@ -269,22 +370,50 @@ function extractPriceFromObject(obj) {
 
       if (typeof value === 'number' || typeof value === 'string') {
         if (lowerKey.includes('change') || lowerKey.includes('percent')) continue;
-        if (!lowerKey.includes('price')) continue;
+        if (normalizedKey.includes('history') || normalizedKey.includes('spark')) continue;
 
-        const sanitizedKey = lowerKey.replace(/[^a-z0-9]/g, '');
-        const hasUsdHint =
+        const normalizedPath = keyPath.map((segment) => segment.replace(/[^a-z0-9]/g, ''));
+        const hasQuoteContext = normalizedPath.some((segment) => segment.includes('quote'));
+        const hasFiatContext = normalizedPath.some((segment) => segment.includes('fiat'));
+        const hasUsdInPath =
           lowerKey.includes('usd') ||
-          keyPath.some((segment) => segment.includes('usd'));
+          normalizedPath.some((segment) => segment.includes('usd') || segment.includes('dollar'));
+
+        const hasPriceContext =
+          lowerKey.includes('price') ||
+          normalizedPath.some((segment) => segment.includes('price')) ||
+          ((normalizedKey === 'value' || normalizedKey === 'amount' || normalizedKey.endsWith('value') || normalizedKey.endsWith('amount')) &&
+            (hasQuoteContext || hasFiatContext) &&
+            (hasUsdInPath || objectHasUsdHint(node)));
+
+        if (!hasPriceContext) continue;
+
+        const parentHasUsdHint = objectHasUsdHint(node);
+        const valueHasUsdHint = typeof value === 'string' ? hasUsdHintInValue(value) : false;
+        const hasUsdHint = hasUsdInPath || parentHasUsdHint || valueHasUsdHint;
 
         const isPrimaryPriceKey =
-          lowerKey === 'price' ||
-          sanitizedKey === 'lastprice' ||
-          sanitizedKey === 'tokenprice' ||
-          sanitizedKey === 'currentprice' ||
-          sanitizedKey.endsWith('price') ||
-          sanitizedKey.startsWith('price');
+          normalizedKey === 'price' ||
+          normalizedKey === 'tokenprice' ||
+          normalizedKey === 'lastprice' ||
+          normalizedKey === 'currentprice' ||
+          normalizedKey === 'spotprice' ||
+          normalizedKey === 'closeprice' ||
+          normalizedKey === 'latestprice' ||
+          normalizedKey === 'usdprice' ||
+          normalizedKey === 'priceusd' ||
+          normalizedKey === 'priceinusd' ||
+          normalizedKey.startsWith('priceusd') ||
+          normalizedKey.endsWith('usdprice');
+
+        const isValueLikeKey =
+          normalizedKey === 'value' ||
+          normalizedKey === 'amount' ||
+          normalizedKey.endsWith('value') ||
+          normalizedKey.endsWith('amount');
 
         if (!hasUsdHint && !isPrimaryPriceKey) continue;
+        if (isValueLikeKey && !hasUsdHint && !isPrimaryPriceKey) continue;
 
         const num = sanitizeNumber(value);
         if (num !== null && num > 0) {
