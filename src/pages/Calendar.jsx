@@ -224,20 +224,35 @@ export default function Calendar() {
       )}
 
       <div className="space-y-6 px-3 sm:px-4">
-        {groups.map((g) => (
-          <section key={g.key}>
-            <div className="flex items-center gap-3 text-xs mb-6">
-              <div className="h-px bg-gray-200 flex-1" />
-            </div>
+        {groups.map((g, index) => {
+          const monthLabel = dayjs(g.key).format('MMMM YYYY');
+          const prevMonth = index > 0 ? dayjs(groups[index - 1].key).format('MMMM YYYY') : null;
+          const isNewMonth = index === 0 || monthLabel !== prevMonth;
+
+          return (
+            <section key={g.key}>
+              {isNewMonth && (
+                <div className="mb-6">
+                  <div className="flex items-center gap-3">
+                    <div className="h-px flex-1 bg-gradient-to-r from-transparent via-zinc-400 to-transparent dark:via-zinc-600" />
+                    <div className="text-sm md:text-base font-extrabold uppercase tracking-widest text-white drop-shadow-[0_0_1px_rgba(0,0,0,0.35)]">
+                      {monthLabel}
+                    </div>
+                    <div className="h-px flex-1 bg-gradient-to-r from-transparent via-zinc-400 to-transparent dark:via-zinc-600" />
+                  </div>
+                </div>
+              )}
 
 
-            <div className="space-y-2">
-              {g.items.map((ev) => (
-                <EventCard key={ev.id} ev={ev} />
-              ))}
-            </div>
-          </section>
-        ))}
+
+              <div className="space-y-2">
+                {g.items.map((ev) => (
+                  <EventCard key={ev.id} ev={ev} />
+                ))}
+              </div>
+            </section>
+          );
+        })}
       </div>
 
       {/* ── КНОПКА TELEGRAM ВНИЗУ ─────────────────────────────────────────────── */}
