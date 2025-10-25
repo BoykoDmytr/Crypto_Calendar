@@ -86,6 +86,7 @@ export default function EventForm({ onSubmit, loading, initial = {} }) {
   });
 
   const hydratedRef = useRef(false);
+  const hydratedWithTypesRef = useRef(false);
   const [showTokenFields, setShowTokenFields] = useState(() => hasCoinEntries(initial));
   const initialHasTokenInfo = useMemo(() => hasCoinEntries(initial), [initial]);
 
@@ -117,25 +118,40 @@ export default function EventForm({ onSubmit, loading, initial = {} }) {
 
   /** 2) Одноразова гідрація форми з initial (щоб не “злітав” час, тип і біржі) */
   useEffect(() => {
-    if (hydratedRef.current) return;
+    const hasTypes = Array.isArray(types) && types.length > 0;
     if (!initial || Object.keys(initial).length === 0) return;
+
+    if (hasTypes && hydratedWithTypesRef.current) return;
+    if (!hasTypes && hydratedRef.current) return;
 
     setForm((prev) => {
       let next = { ...prev, ...initial };
 
       // Підтягнемо slug за назвою, якщо прийшла тільки назва типу
-      if (!next.event_type_slug && (initial.type || initial.event_type_slug) && types?.length) {
-        const match =
+      let matchedType = null;
+      if (types?.length) {
+        matchedType =
           types.find(
             (t) =>
-              t.slug === initial.event_type_slug ||
+              t.slug === (initial.event_type_slug || next.event_type_slug) ||
               t.name === initial.type ||
               t.label === initial.type
           ) || null;
-        if (match) {
-          next.event_type_slug = match.slug;
-          next.type = match.name ?? match.label ?? initial.type ?? prev.type;
         }
+
+      if (!next.event_type_slug && matchedType) {
+        next.event_type_slug = matchedType.slug;
+        next.type = matchedType.name ?? matchedType.label ?? initial.type ?? prev.type;
+      }
+
+      if (!matchedType && (initial.type || initial.event_type_slug) && types?.length) {
+        matchedType =
+          types.find(
+            (t) =>
+              t.slug === next.event_type_slug ||
+              t.name === next.type ||
+              t.label === next.type
+          ) || null;
       }
 
       // Зберігаємо біржі як є (якщо це TGE і масив присутній)
@@ -146,15 +162,17 @@ export default function EventForm({ onSubmit, loading, initial = {} }) {
       // Конвертації дат/часів під інпути (це лише для ПРЕФІЛУ UI; у submit ти вже конвертуєш назад у UTC)
       const tz = initial.timezone || 'UTC';
       const typeName = next.type;
+      const isTge = matchedType?.is_tge || typeName === 'Listing (TGE)';
+      const isTimeOptional = !!matchedType?.time_optional || typeName === 'Binance Alpha';
 
-      if (typeName === 'Listing (TGE)') {
+      if (isTge) {
         if (initial.start_at) {
           next.start_at = toLocalInput(initial.start_at, tz, 'date'); // YYYY-MM-DD
           const timeLocal = toLocalInput(initial.start_at, tz, 'time');
           next.start_time = timeLocal === '00:00' ? '' : timeLocal;
         }
         // end_at для TGE ігноруємо
-      } else if (typeName === 'Binance Alpha') {
+      } else if (isTimeOptional) {
         if (initial.start_at) {
           next.start_date = toLocalInput(initial.start_at, tz, 'date');   // YYYY-MM-DD
           next.start_time = toLocalInput(initial.start_at, tz, 'time');   // HH:mm (або '')
@@ -190,6 +208,9 @@ export default function EventForm({ onSubmit, loading, initial = {} }) {
     });
 
     hydratedRef.current = true;
+    if (hasTypes) {
+      hydratedWithTypesRef.current = true;
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [initial, types]);
 
