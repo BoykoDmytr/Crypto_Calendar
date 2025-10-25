@@ -150,6 +150,8 @@ export default function EventForm({ onSubmit, loading, initial = {} }) {
       if (typeName === 'Listing (TGE)') {
         if (initial.start_at) {
           next.start_at = toLocalInput(initial.start_at, tz, 'date'); // YYYY-MM-DD
+          const timeLocal = toLocalInput(initial.start_at, tz, 'time');
+          next.start_time = timeLocal === '00:00' ? '' : timeLocal;
         }
         // end_at для TGE ігноруємо
       } else if (typeName === 'Binance Alpha') {
@@ -284,12 +286,6 @@ export default function EventForm({ onSubmit, loading, initial = {} }) {
     change('tge_exchanges', arr);
   };
 
-  // конвертації
-  const toISODateOnly = (yyyy_mm_dd, mode) => {
-    if (!yyyy_mm_dd) return null;
-    if (mode === 'UTC') return new Date(`${yyyy_mm_dd}T00:00:00Z`).toISOString();
-    return dayjs.tz(`${yyyy_mm_dd} 00:00`, kyivTZ).toDate().toISOString();
-  };
   const toISOorNull = (localStr, mode) => {
     if (!localStr) return null;
     if (mode === 'UTC') return new Date(localStr + 'Z').toISOString();
@@ -314,8 +310,16 @@ export default function EventForm({ onSubmit, loading, initial = {} }) {
     payload.type = currentType.name;
 
     if (currentType.is_tge) {
-      // тільки дата + біржі
-      payload.start_at = toISODateOnly(form.start_at, form.timezone);
+      // дата + (опційний) час + біржі
+      const rawDate = (form.start_at || '').trim();
+      const date = rawDate.includes('T') ? rawDate.split('T')[0] : rawDate;
+      const manualTime = (form.start_time || '').trim();
+      const fallbackTime = !manualTime && rawDate.includes('T')
+        ? rawDate.split('T')[1].slice(0, 5)
+        : '';
+      const time = manualTime || fallbackTime || '00:00';
+      const local = date ? `${date}T${time}` : '';
+      payload.start_at = toISOorNull(local, form.timezone);
       delete payload.end_at;
       payload.tge_exchanges = (payload.tge_exchanges || [])
         .filter(x => (x?.name || '').trim() || (x?.time || '').trim());
@@ -390,6 +394,15 @@ export default function EventForm({ onSubmit, loading, initial = {} }) {
     onSubmit?.(payload);
   };
   const coinsList = Array.isArray(form.coins) ? form.coins : [];
+  const tgeDateValue = form.start_at ? String(form.start_at).slice(0, 10) : '';
+  const tgeTimeValue = (() => {
+    if (form.start_time) return form.start_time;
+    if (!form.start_at) return '';
+    const raw = String(form.start_at);
+    if (!raw.includes('T')) return '';
+    const candidate = raw.split('T')[1].slice(0, 5);
+    return candidate === '00:00' ? '' : candidate;
+  })();
   return (
     <form onSubmit={submit} className="space-y-3">
       {/* Нікнейм відправника */}
@@ -440,8 +453,18 @@ export default function EventForm({ onSubmit, loading, initial = {} }) {
           <div>
             <label className="label">Початок *</label>
             <input type="date" required className="input"
-              value={form.start_at || ''}
+              value={tgeDateValue}
               onChange={e=>change('start_at', e.target.value)} />
+          </div>
+          <div>
+            <label className="label">Час (опц.)</label>
+            <input
+              type="time"
+              step="60"
+              className="input"
+              value={tgeTimeValue}
+              onChange={e=>change('start_time', e.target.value)}
+            />
           </div>
         </div>
       ) : currentType.time_optional ? (
@@ -598,7 +621,7 @@ export default function EventForm({ onSubmit, loading, initial = {} }) {
             </div>
           ))}
           <button type="button" className="btn" onClick={addExchange}>+ Додати біржу</button>
-          <p className="text-xs text-gray-500">Дата задається вище, час — для кожної біржі окремо.</p>
+          <p className="text-xs text-gray-500">Дата й (за потреби) час задаються вище, нижче — часи для конкретних бірж.</p>
         </div>
       )}
 

@@ -33,8 +33,9 @@ export default function EventCard({ ev }) {
 
   if (start) {
     if (isTGE) {
-      // TGE — тільки дата
-      whenLabel = start.format('DD MMM');
+      // TGE — дата + (опц.) час
+      const hasTime = start.hour() !== 0 || start.minute() !== 0;
+      whenLabel = start.format(hasTime ? 'DD MMM HH:mm' : 'DD MMM');
     } else {
       // Чи є реальний час у start/end (не 00:00)
       const hasStartTime = !!start && (start.hour() !== 0 || start.minute() !== 0);

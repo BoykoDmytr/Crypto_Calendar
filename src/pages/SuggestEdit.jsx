@@ -78,6 +78,9 @@ export default function SuggestEdit() {
     const startLocal = isTGE
       ? toLocalInput(ev.start_at, ev.timezone, 'date')
       : toLocalInput(ev.start_at, ev.timezone, 'datetime');
+    const startLocalTime = isTGE
+      ? toLocalInput(ev.start_at, ev.timezone, 'time')
+      : '';
     const endLocal = ev.end_at
       ? toLocalInput(ev.end_at, ev.timezone, 'datetime')
       : '';
@@ -91,6 +94,7 @@ export default function SuggestEdit() {
       timezone: ev.timezone || 'UTC',
 
       start_at: startLocal, // 'YYYY-MM-DD' або 'YYYY-MM-DDTHH:mm'
+      ...(isTGE && startLocalTime ? { start_time: startLocalTime === '00:00' ? '' : startLocalTime } : {}),
       end_at: endLocal,
 
       // не втрачати закріплені біржі

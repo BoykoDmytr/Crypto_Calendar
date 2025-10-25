@@ -24,7 +24,7 @@ export default function AddEvent() {
       setLoading(true);
 
       // EventForm вже робить:
-      // - TGE: start_at = дата (00:00), без end_at
+      // - TGE: start_at = дата + (опц.) час (00:00, якщо не задано), без end_at
       // - Binance Alpha: дата + опційний час у start_at, без start_time
       // - Інші типи: стандартний datetime-local
       const payload = sanitize(form);

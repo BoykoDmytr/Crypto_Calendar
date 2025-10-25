@@ -22,7 +22,10 @@ function RowActions({ children }) {
 function formatEventDate(ev) {
   const tz = ev?.timezone || 'UTC';
   const base = tz === 'Kyiv' ? dayjs.utc(ev.start_at).tz(KYIV_TZ) : dayjs.utc(ev.start_at);
-  if (ev?.type === 'Listing (TGE)') return `${base.format('DD MMM YYYY')} ${tz}`;
+  if (ev?.type === 'Listing (TGE)') {
+    const hasTime = base.hour() !== 0 || base.minute() !== 0;
+    return `${base.format(hasTime ? 'DD MMM YYYY, HH:mm' : 'DD MMM YYYY')} ${tz}`;
+  }
   return `${base.format('DD MMM YYYY, HH:mm')} ${tz}`;
 }
 
@@ -105,7 +108,10 @@ const formatNickname = (value) => {
 const prettyDate = (type, ts, tz) => {
   if (!ts) return '—';
   const d = dayjs(ts);
-  const base = type === 'Listing (TGE)' ? d.format('DD MMM YYYY') : d.format('DD MMM YYYY, HH:mm');
+  const hasTime = d.hour() !== 0 || d.minute() !== 0;
+  const base = type === 'Listing (TGE)'
+    ? d.format(hasTime ? 'DD MMM YYYY, HH:mm' : 'DD MMM YYYY')
+    : d.format('DD MMM YYYY, HH:mm');
   return tz ? `${base} ${tz}` : base;
 };
 
@@ -583,12 +589,17 @@ const payload = {
   // ===== РЕДАГУВАЛКА КАРТКИ =====
   const EditingCard = ({ table, ev }) => {
     const isTGE = ev?.type === 'Listing (TGE)';
+    const startLocal = isTGE
+      ? toLocalInput(ev.start_at, ev.timezone, 'date')
+      : toLocalInput(ev.start_at, ev.timezone, 'datetime');
+    const startLocalTime = isTGE
+      ? toLocalInput(ev.start_at, ev.timezone, 'time')
+      : '';
     const initial = {
       ...ev,
       // важливо: передаємо в інпут ЛОКАЛЬНИЙ рядок без 'Z'
-      start_at: isTGE
-        ? toLocalInput(ev.start_at, ev.timezone, 'date')
-        : toLocalInput(ev.start_at, ev.timezone, 'datetime'),
+      start_at: startLocal,
+      ...(isTGE && startLocalTime ? { start_time: startLocalTime === '00:00' ? '' : startLocalTime } : {}),
       end_at: ev.end_at
         ? toLocalInput(ev.end_at, ev.timezone, 'datetime')
         : '',
