@@ -235,7 +235,7 @@ export default function Calendar() {
                 <div className="mb-6">
                   <div className="flex items-center gap-3">
                     <div className="h-px flex-1 bg-gradient-to-r from-transparent via-zinc-400 to-transparent dark:via-zinc-600" />
-                    <div className="text-sm md:text-base font-extrabold uppercase tracking-widest text-white drop-shadow-[0_0_1px_rgba(0,0,0,0.35)]">
+                    <div className="text-sm md:text-base font-extrabold uppercase tracking-widest text-zinc-900 dark:text-white drop-shadow-none dark:drop-shadow-[0_0_1px_rgba(0,0,0,0.35)]">
                       {monthLabel}
                     </div>
                     <div className="h-px flex-1 bg-gradient-to-r from-transparent via-zinc-400 to-transparent dark:via-zinc-600" />

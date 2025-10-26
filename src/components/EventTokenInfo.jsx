@@ -49,7 +49,7 @@ function TokenRow({ coin }) {
         loading ? (
           <span className="token-panel__muted">Оновлюємо ціну…</span>
         ) : error ? (
-          <span className="token-panel__error">Не вдалося отримати ціну.</span>
+          <span className="token-panel__error">Очікуємо ціну</span>
         ) : (
           totalLabel && (
             <span className="token-panel__label">

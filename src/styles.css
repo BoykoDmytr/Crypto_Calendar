@@ -164,12 +164,8 @@
   }
 
   .token-panel__error {
-    color: #dc2626;
+    color: #ffffff;
     font-weight: 500;
-  }
-
-  html.dark .token-panel__error {
-    color: #f87171;
   }
 
   .token-panel__link {
