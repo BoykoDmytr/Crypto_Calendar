@@ -26,7 +26,8 @@ export function toLocalInput(value, tz = "UTC", mode = "datetime") {
     if (mode === "time") {
       if (str.length === 5 && str.includes(":")) return str;
       if (str.includes("T")) return str.split("T")[1].slice(0, 5);
-      return str.slice(-5);
+      const match = str.match(/\d{2}:\d{2}/);
+      return match ? match[0] : "";
     }
     if (str.includes("T")) return str.slice(0, 16);
     return str.replace(" ", "T").slice(0, 16);

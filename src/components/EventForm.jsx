@@ -15,6 +15,12 @@ const kyivTZ = 'Europe/Kyiv';
 
 const emptyCoin = { name: '', quantity: '', price_link: '' };
 
+const extractTimeSegment = (value) => {
+  if (!value) return '';
+  const match = String(value).match(/(\d{2}:\d{2})/);
+  return match ? match[1] : '';
+};
+
 const toFormCoin = (coin) => {
   const name = coin?.name || '';
   const hasQuantity = coin && Object.prototype.hasOwnProperty.call(coin, 'quantity');
@@ -168,15 +174,31 @@ export default function EventForm({ onSubmit, loading, initial = {} }) {
       if (isTge) {
         if (initial.start_at) {
           next.start_at = toLocalInput(initial.start_at, tz, 'date'); // YYYY-MM-DD
-          const timeLocal = toLocalInput(initial.start_at, tz, 'time');
+          const hasTime = /(\d{2}:\d{2})/.test(String(initial.start_at));
+          let timeLocal = '';
+          if (hasTime) {
+            timeLocal = toLocalInput(initial.start_at, tz, 'time');
+          } else if (initial.start_time) {
+            timeLocal = extractTimeSegment(initial.start_time);
+          } else if (prev.start_time) {
+            timeLocal = extractTimeSegment(prev.start_time);
+          }
           next.start_time = timeLocal === '00:00' ? '' : timeLocal;
+          } else if (initial.start_time) {
+          const cleaned = extractTimeSegment(initial.start_time);
+          next.start_time = cleaned === '00:00' ? '' : cleaned;
         }
         // end_at для TGE ігноруємо
       } else if (isTimeOptional) {
         if (initial.start_at) {
           next.start_date = toLocalInput(initial.start_at, tz, 'date');   // YYYY-MM-DD
-          next.start_time = toLocalInput(initial.start_at, tz, 'time');   // HH:mm (або '')
-          if (next.start_time === '00:00') next.start_time = '';
+          let optionalTime = toLocalInput(initial.start_at, tz, 'time');   // HH:mm (або '')
+          if (!optionalTime && initial.start_time) {
+            optionalTime = extractTimeSegment(initial.start_time);
+          } else if (!optionalTime && prev.start_time) {
+            optionalTime = extractTimeSegment(prev.start_time);
+          }
+          next.start_time = optionalTime === '00:00' ? '' : optionalTime;
         }
         if (initial.end_at) {
           next.end_at = toLocalInput(initial.end_at, tz, 'datetime');     // YYYY-MM-DDTHH:mm

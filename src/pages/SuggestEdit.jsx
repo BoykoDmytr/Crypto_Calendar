@@ -75,9 +75,12 @@ export default function SuggestEdit() {
     const isTGE = matchedType?.is_tge || ev.type === 'Listing (TGE)';
 
     // час у форму — ТІЛЬКИ локальний (без 'Z'), щоб нічого не “з’їжджало”
-    const startLocal = isTGE
-      ? toLocalInput(ev.start_at, ev.timezone, 'date')
-      : toLocalInput(ev.start_at, ev.timezone, 'datetime');
+    const startDateLocal = toLocalInput(ev.start_at, ev.timezone, isTGE ? 'date' : 'datetime');
+    const startTimeLocal = isTGE ? toLocalInput(ev.start_at, ev.timezone, 'time') : '';
+    const normalizedTime = startTimeLocal === '00:00' ? '' : startTimeLocal;
+    const startLocal = isTGE && normalizedTime
+      ? `${startDateLocal}T${startTimeLocal}`
+      : startDateLocal;
     const endLocal = ev.end_at
       ? toLocalInput(ev.end_at, ev.timezone, 'datetime')
       : '';
@@ -91,6 +94,7 @@ export default function SuggestEdit() {
       timezone: ev.timezone || 'UTC',
 
       start_at: startLocal, // 'YYYY-MM-DD' або 'YYYY-MM-DDTHH:mm'
+       ...(isTGE ? { start_time: normalizedTime } : {}),
       end_at: endLocal,
 
       // не втрачати закріплені біржі
