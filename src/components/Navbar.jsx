@@ -12,14 +12,16 @@ export default function Navbar() {
 
   return (
     <header className="site-header sticky top-0 z-10 border-b backdrop-blur">
-      
-      <div className="max-w-screen-md mx-auto px-3 sm:px-4 h-14 flex items-center gap-3">
+       <div className="max-w-screen-md mx-auto px-3 sm:px-4 h-14 flex items-center gap-3 sm:gap-4 justify-between">
         <Link to="/" className="font-semibold text-lg flex items-center gap-1 shrink-0">
           <img src="/icon.png" alt="icon" className="w-4 h-4 inline-block" />
         </Link>
-        <div className="flex items-center gap-2 flex-1 min-w-0">
+        <div className="flex items-center gap-2 sm:gap-3 flex-1 sm:flex-none justify-end min-w-0">
           <div className="nav-scroll">
-            <nav className="flex items-center gap-2 text-sm min-w-max pr-2" aria-label="Site sections">
+            <nav
+              className="flex items-center gap-2 text-sm min-w-max sm:min-w-0 pr-2 sm:pr-0"
+              aria-label="Site sections"
+            >
               <Link
                 className={linkClasses(is('/'))}
                 to="/"

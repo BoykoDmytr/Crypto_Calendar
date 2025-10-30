@@ -346,6 +346,24 @@ html.dark .nav-link--active{
   mask-image: linear-gradient(to right, transparent, rgba(0,0,0,.65) 12px, rgba(0,0,0,1) 32px, rgba(0,0,0,1) calc(100% - 32px), rgba(0,0,0,.65) calc(100% - 12px), transparent);
 }
 
+@media (min-width: 640px){
+  .nav-scroll{
+    flex: 0 0 auto;
+    overflow-x: visible;
+    scroll-snap-type: none;
+    -webkit-overflow-scrolling: auto;
+    mask-image: none;
+  }
+}
+
+.nav-scroll:focus-within{
+  mask-image: none;
+}
+
+.nav-scroll::-webkit-scrollbar{
+  display: none;
+}
+
 .nav-scroll:focus-within{
   mask-image: none;
 }
@@ -487,6 +505,9 @@ html.dark .weekday-chip{
   font-weight: 700;
   letter-spacing: 0.16em;
 }
+.past-pull-hint__label--mobile {
+  display: none;
+}
 .past-pull-hint__sub {
   font-size: 0.7rem;
   color: color-mix(in oklab, var(--text) 55%, transparent);
@@ -496,6 +517,37 @@ html.dark .weekday-chip{
   opacity: 0.65;
   margin-top: 0.25rem;
 }
+
+@media (max-width: 480px) {
+  .past-pull-hint {
+    gap: 0.25rem;
+    padding: 0.75rem 1rem;
+    font-size: 0.65rem;
+    letter-spacing: 0.06em;
+  }
+
+  .past-pull-hint__label {
+    font-size: 0.75rem;
+    letter-spacing: 0.12em;
+  }
+
+  .past-pull-hint__label--desktop {
+    display: none;
+  }
+
+  .past-pull-hint__label--mobile {
+    display: inline;
+  }
+
+  .past-pull-hint__sub {
+    font-size: 0.6rem;
+  }
+
+  .past-pull-hint__icon {
+    display: none;
+  }
+}
+
 .past-pull-hint:hover,
 .past-pull-hint:focus-visible {
   filter: brightness(1.04);

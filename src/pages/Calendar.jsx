@@ -381,7 +381,8 @@ export default function Calendar() {
               onClick={openPast}
               className="past-pull-hint"
             >
-              <span className="past-pull-hint__label">Потягніть вгору, щоб побачити минулі події</span>
+              <span className="past-pull-hint__label past-pull-hint__label--desktop">Потягніть вгору, щоб побачити минулі події</span>
+              <span className="past-pull-hint__label past-pull-hint__label--mobile">Натисність, щоб побачити минулі події</span>
               {latestPastMonthLabel && (
                 <span className="past-pull-hint__sub">Останні: {latestPastMonthLabel}</span>
               )}
