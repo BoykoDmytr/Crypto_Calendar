@@ -350,6 +350,53 @@ html.dark .events-page .day-divider { background-color: #2a3854 !important; }
 .event-when  { color: #667191; }      /* рядок із часом */
 .dark .event-when { color: #c3cce7d2; font-weight: 600;}
 
+.event-card--past {
+  background: color-mix(in oklab, var(--card) 82%, #d4d9e8 18%);
+  border-color: color-mix(in oklab, var(--border) 92%, transparent);
+  color: color-mix(in oklab, var(--text) 78%, transparent);
+  box-shadow: none;
+}
+.event-card--past .event-title {
+  color: color-mix(in oklab, var(--text) 86%, transparent);
+}
+.event-card--past .event-desc {
+  color: color-mix(in oklab, var(--text) 62%, transparent);
+}
+.event-card--past .event-date-num {
+  color: color-mix(in oklab, var(--text) 70%, transparent);
+}
+.event-card--past .event-when {
+  color: color-mix(in oklab, var(--text) 55%, transparent);
+}
+.event-card--past .badge-type,
+.event-card--past .weekday-chip {
+  opacity: .75;
+}
+.event-card--past .event-accent {
+  opacity: .5;
+}
+
+html.dark .event-card--past {
+  background: color-mix(in oklab, var(--card) 58%, #050b16 42%);
+  border-color: color-mix(in oklab, var(--border) 95%, transparent);
+  color: color-mix(in oklab, var(--text) 74%, transparent);
+}
+html.dark .event-card--past .event-title {
+  color: color-mix(in oklab, var(--text) 86%, transparent);
+}
+html.dark .event-card--past .event-desc {
+  color: color-mix(in oklab, var(--text) 60%, transparent);
+}
+html.dark .event-card--past .event-date-num {
+  color: color-mix(in oklab, var(--text) 68%, transparent);
+}
+html.dark .event-card--past .event-when {
+  color: color-mix(in oklab, var(--text) 52%, transparent);
+}
+html.dark .event-card--past .event-accent {
+  opacity: .35;
+}
+
 .exchange-chip{
   font-size:.8rem; line-height:1;
   padding: 6px 10px;
@@ -398,6 +445,139 @@ html.dark .weekday-chip{
   width: 4px; border-radius: 9999px;
   background: #2563eb;
   opacity: .85;
+}
+
+.past-pull-hint {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.35rem;
+  width: 100%;
+  border-radius: 1.5rem;
+  padding: 1rem 1.25rem;
+  background: color-mix(in oklab, var(--bg-alt) 90%, transparent);
+  border: 1px dashed color-mix(in oklab, var(--border) 80%, transparent);
+  color: color-mix(in oklab, var(--text) 72%, transparent);
+  text-align: center;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-size: 0.75rem;
+  transition: filter .2s ease, border-color .2s ease, transform .25s ease;
+}
+.past-pull-hint__label {
+  font-size: 0.85rem;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+}
+.past-pull-hint__sub {
+  font-size: 0.7rem;
+  color: color-mix(in oklab, var(--text) 55%, transparent);
+}
+.past-pull-hint__icon {
+  font-size: 1.1rem;
+  opacity: 0.65;
+  margin-top: 0.25rem;
+}
+.past-pull-hint:hover,
+.past-pull-hint:focus-visible {
+  filter: brightness(1.04);
+  border-color: color-mix(in oklab, var(--brand) 45%, transparent);
+  outline: none;
+  transform: translateY(-2px);
+}
+html.dark .past-pull-hint {
+  background: color-mix(in oklab, var(--bg-alt) 82%, transparent);
+  border-color: color-mix(in oklab, var(--border) 88%, transparent);
+  color: color-mix(in oklab, var(--text) 70%, transparent);
+}
+html.dark .past-pull-hint__sub {
+  color: color-mix(in oklab, var(--text) 52%, transparent);
+}
+html.dark .past-pull-hint__icon {
+  opacity: 0.55;
+}
+
+.past-events-panel {
+  overflow: hidden;
+  max-height: 0;
+  opacity: 0;
+  pointer-events: none;
+  border-radius: 1.5rem;
+  border: 1px solid color-mix(in oklab, var(--border) 88%, transparent);
+  background: color-mix(in oklab, var(--card) 86%, transparent);
+  margin-top: 0;
+  padding: 0 1.25rem;
+  transition: max-height .45s ease, opacity .3s ease, margin-top .45s ease, padding .45s ease, box-shadow .45s ease;
+}
+.past-events-panel--open {
+  max-height: 9999px;
+  opacity: 1;
+  pointer-events: auto;
+  margin-top: 1rem;
+  padding: 1.5rem 1.25rem 1.75rem;
+  box-shadow: 0 28px 44px color-mix(in oklab, var(--bg) 70%, transparent);
+}
+html.dark .past-events-panel {
+  background: color-mix(in oklab, var(--card) 70%, transparent);
+  border-color: color-mix(in oklab, var(--border) 96%, transparent);
+}
+html.dark .past-events-panel--open {
+  box-shadow: 0 34px 60px rgba(5, 9, 18, 0.55);
+}
+
+.past-events-panel__header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem 1.5rem;
+  margin-bottom: 1.5rem;
+}
+.past-events-panel__title {
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  font-size: 0.9rem;
+  color: color-mix(in oklab, var(--text) 78%, transparent);
+}
+.past-events-panel__subtitle {
+  margin-top: 0.25rem;
+  font-size: 0.75rem;
+  letter-spacing: 0.04em;
+  color: color-mix(in oklab, var(--text) 60%, transparent);
+}
+.past-events-panel__close {
+  font-size: 0.75rem;
+  letter-spacing: 0.25em;
+  text-transform: uppercase;
+  font-weight: 600;
+  color: color-mix(in oklab, var(--text) 65%, transparent);
+  border: 1px solid transparent;
+  border-radius: 9999px;
+  padding: 0.35rem 0.85rem;
+  background: color-mix(in oklab, var(--bg-alt) 86%, transparent);
+  transition: filter .2s ease, color .2s ease, border-color .2s ease;
+}
+.past-events-panel__close:hover,
+.past-events-panel__close:focus-visible {
+  color: color-mix(in oklab, var(--text) 88%, transparent);
+  border-color: color-mix(in oklab, var(--brand) 42%, transparent);
+  outline: none;
+  filter: brightness(1.05);
+}
+html.dark .past-events-panel__title {
+  color: color-mix(in oklab, var(--text) 80%, transparent);
+}
+html.dark .past-events-panel__subtitle {
+  color: color-mix(in oklab, var(--text) 58%, transparent);
+}
+html.dark .past-events-panel__close {
+  background: color-mix(in oklab, var(--bg-alt) 70%, transparent);
+  color: color-mix(in oklab, var(--text) 70%, transparent);
+}
+html.dark .past-events-panel__close:hover,
+html.dark .past-events-panel__close:focus-visible {
+  color: color-mix(in oklab, var(--text) 88%, transparent);
 }
 
 /* ========== Пігулки фільтрів (chip) ========== */

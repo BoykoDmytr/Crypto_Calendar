@@ -1,5 +1,5 @@
 // src/pages/Calendar.jsx
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import EventCard from '../components/EventCard';
@@ -49,6 +49,9 @@ function FilterScroller({ children }) {
 export default function Calendar() {
   const [allEvents, setAllEvents] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [showPast, setShowPast] = useState(false);
+  const [now, setNow] = useState(dayjs());
+  const touchStartRef = useRef(null);
 
   // типи з БД (довідник подій)
   const [eventTypes, setEventTypes] = useState([]); // [{label, slug, is_tge, order_index?, sort_order?}]
@@ -93,6 +96,11 @@ export default function Calendar() {
 
       setLoading(false);
     })();
+  }, []);
+
+  useEffect(() => {
+    const timer = setInterval(() => setNow(dayjs()), 60 * 1000);
+    return () => clearInterval(timer);
   }, []);
 
   // застосовуємо фільтр за типом (у подіях поле ev.type містить людську назву типу)
@@ -156,8 +164,135 @@ export default function Calendar() {
       }));
   }, [filtered]);
 
+  const todayStart = useMemo(() => now.startOf('day'), [now]);
+  const todayStartValue = todayStart.valueOf();
+
+  const { pastGroups, upcomingGroups } = useMemo(() => {
+    const past = [];
+    const upcoming = [];
+    for (const group of groups) {
+      const groupDateValue = dayjs(group.key).startOf('day').valueOf();
+      if (groupDateValue < todayStartValue) {
+        past.push(group);
+      } else {
+        upcoming.push(group);
+      }
+    }
+    return { pastGroups: past, upcomingGroups: upcoming };
+  }, [groups, todayStartValue]);
+
+  const hasPast = pastGroups.length > 0;
+  const hasUpcoming = upcomingGroups.length > 0;
+  const latestPastMonthLabel = hasPast
+    ? dayjs(pastGroups[pastGroups.length - 1].key).format('MMMM YYYY')
+    : '';
+
+  useEffect(() => {
+    if (!hasPast && showPast) {
+      setShowPast(false);
+    }
+  }, [hasPast, showPast]);
+
+  const openPast = useCallback(() => {
+    setShowPast(true);
+    if (typeof window !== 'undefined') {
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+  }, []);
+
+  const closePast = useCallback(() => {
+    setShowPast(false);
+  }, []);
+
+  useEffect(() => {
+    if (!hasPast) return;
+
+    const handleWheel = (event) => {
+      if (showPast) return;
+      if (typeof window === 'undefined') return;
+      if (window.scrollY <= 2 && event.deltaY < -24) {
+        openPast();
+      }
+    };
+
+    const handleTouchStart = (event) => {
+      if (showPast) return;
+      if (typeof window === 'undefined') return;
+      if (window.scrollY <= 2) {
+        touchStartRef.current = event.touches?.[0]?.clientY ?? null;
+      } else {
+        touchStartRef.current = null;
+      }
+    };
+
+    const handleTouchMove = (event) => {
+      if (showPast) return;
+      const startY = touchStartRef.current;
+      if (startY == null) return;
+      const currentY = event.touches?.[0]?.clientY ?? startY;
+      if (startY - currentY > 60) {
+        touchStartRef.current = null;
+        openPast();
+      }
+    };
+
+    const handleTouchEnd = () => {
+      touchStartRef.current = null;
+    };
+
+    window.addEventListener('wheel', handleWheel, { passive: true });
+    window.addEventListener('touchstart', handleTouchStart, { passive: true });
+    window.addEventListener('touchmove', handleTouchMove, { passive: true });
+    window.addEventListener('touchend', handleTouchEnd, { passive: true });
+
+    return () => {
+      window.removeEventListener('wheel', handleWheel);
+      window.removeEventListener('touchstart', handleTouchStart);
+      window.removeEventListener('touchmove', handleTouchMove);
+      window.removeEventListener('touchend', handleTouchEnd);
+    };
+  }, [hasPast, openPast, showPast]);
+
+  const renderSections = (groupList, variant) => {
+    let prevMonth = null;
+    return groupList.map((g) => {
+      const monthLabel = dayjs(g.key).format('MMMM YYYY');
+      const isNewMonth = monthLabel !== prevMonth;
+      prevMonth = monthLabel;
+      const headingText = variant === 'past' ? `Earlier in ${monthLabel}` : monthLabel;
+      const lineClass =
+        variant === 'past'
+          ? 'bg-gradient-to-r from-transparent via-zinc-300 to-transparent dark:via-zinc-700'
+          : 'bg-gradient-to-r from-transparent via-zinc-400 to-transparent dark:via-zinc-600';
+      const headingClass =
+        variant === 'past'
+          ? 'text-xs md:text-sm font-semibold uppercase tracking-[0.45em] text-zinc-600 dark:text-zinc-400'
+          : 'text-sm md:text-base font-extrabold uppercase tracking-widest text-zinc-900 dark:text-white drop-shadow-none dark:drop-shadow-[0_0_1px_rgba(0,0,0,0.35)]';
+
+      return (
+        <section key={`${variant}-${g.key}`}>
+          {isNewMonth && (
+            <div className="mb-6">
+              <div className="flex items-center gap-3">
+                <div className={`h-px flex-1 ${lineClass}`} />
+                <div className={headingClass}>{headingText}</div>
+                <div className={`h-px flex-1 ${lineClass}`} />
+              </div>
+            </div>
+          )}
+
+          <div className="space-y-2">
+            {g.items.map((ev) => (
+              <EventCard key={ev.id} ev={ev} isPast={variant === 'past'} />
+            ))}
+          </div>
+        </section>
+      );
+    });
+  };
+
   return (
-    <div className="space-y-4 sm:space-y-6">
+    <div className="events-page space-y-4 sm:space-y-6">
       {/* --- HERO-БАНЕР --- */}
       <section className="-mx-3 sm:-mx-4">
         <div className="relative h-28 sm:h-40 rounded-b-2xl overflow-hidden">
@@ -219,40 +354,58 @@ export default function Calendar() {
 
       {/* --- СПИСОК ПОДІЙ --- */}
       {loading && <p className="text-sm text-gray-500 px-3 sm:px-4">Завантаження…</p>}
-      {!loading && groups.length === 0 && (
-        <p className="text-sm text-gray-600 px-3 sm:px-4">Немає подій за цим фільтром.</p>
+      {!loading && !hasUpcoming && (
+        <p className="text-sm text-gray-600 px-3 sm:px-4">
+          Немає майбутніх подій за цим фільтром.
+        </p>
       )}
 
-      <div className="space-y-6 px-3 sm:px-4">
-        {groups.map((g, index) => {
-          const monthLabel = dayjs(g.key).format('MMMM YYYY');
-          const prevMonth = index > 0 ? dayjs(groups[index - 1].key).format('MMMM YYYY') : null;
-          const isNewMonth = index === 0 || monthLabel !== prevMonth;
-
-          return (
-            <section key={g.key}>
-              {isNewMonth && (
-                <div className="mb-6">
-                  <div className="flex items-center gap-3">
-                    <div className="h-px flex-1 bg-gradient-to-r from-transparent via-zinc-400 to-transparent dark:via-zinc-600" />
-                    <div className="text-sm md:text-base font-extrabold uppercase tracking-widest text-zinc-900 dark:text-white drop-shadow-none dark:drop-shadow-[0_0_1px_rgba(0,0,0,0.35)]">
-                      {monthLabel}
-                    </div>
-                    <div className="h-px flex-1 bg-gradient-to-r from-transparent via-zinc-400 to-transparent dark:via-zinc-600" />
-                  </div>
-                </div>
+      {hasPast && (
+        <div className="px-3 sm:px-4">
+          {!showPast && (
+            <button
+              type="button"
+              onClick={openPast}
+              className="past-pull-hint"
+            >
+              <span className="past-pull-hint__label">Потягніть вгору, щоб побачити минулі події</span>
+              {latestPastMonthLabel && (
+                <span className="past-pull-hint__sub">Останні: {latestPastMonthLabel}</span>
               )}
-
-
-
-              <div className="space-y-2">
-                {g.items.map((ev) => (
-                  <EventCard key={ev.id} ev={ev} />
-                ))}
+              <span className="past-pull-hint__icon" aria-hidden="true">↑</span>
+            </button>
+          )}
+          <div className={`past-events-panel ${showPast ? 'past-events-panel--open' : ''}`}>
+            <div className="past-events-panel__header">
+              <div>
+                <p className="past-events-panel__title">Минулі події</p>
+                <p className="past-events-panel__subtitle">
+                  Події автоматично переходять сюди одразу після завершення дня.
+                </p>
               </div>
-            </section>
-          );
-        })}
+              <button type="button" onClick={closePast} className="past-events-panel__close">
+                Сховати
+              </button>
+            </div>
+
+            <div className="space-y-6">
+              {renderSections(pastGroups, 'past')}
+            </div>
+          </div>
+        </div>
+      )}
+
+
+              <div className="space-y-6 px-3 sm:px-4">
+        {hasUpcoming ? (
+          renderSections(upcomingGroups, 'future')
+        ) : (
+          !loading && (
+            <p className="text-sm text-gray-600">
+              Перегляньте минулі події вище або змініть фільтр.
+            </p>
+          )
+        )}
       </div>
 
       {/* ── КНОПКА TELEGRAM ВНИЗУ ─────────────────────────────────────────────── */}

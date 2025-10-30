@@ -9,7 +9,7 @@ import { extractCoinEntries } from '../utils/coins';
 // Типи, де час НЕобов'язковий (щоб не показувати 00:00)
 const TIME_OPTIONAL = new Set(['Binance Alpha', 'OKX Alpha', 'Token Sales', 'Claim / Airdrop', 'Unlocks']);
 
-export default function EventCard({ ev }) {
+export default function EventCard({ ev, isPast = false }) {
   const isTGE = ev?.type === 'Listing (TGE)';
   const nicknameRaw = (ev?.nickname || '').trim();
   const nickname = nicknameRaw
@@ -64,7 +64,7 @@ export default function EventCard({ ev }) {
   const weekday3 = start ? start.format('ddd') : '';
 
   return (
-    <article className="card event-card relative overflow-hidden">
+    <article className={`card event-card relative overflow-hidden ${isPast ? 'event-card--past' : ''}`}>
       {/* Кнопка-олівець у правому верхньому куті */}
       <Link
         to={`/suggest/${ev.id}`}
