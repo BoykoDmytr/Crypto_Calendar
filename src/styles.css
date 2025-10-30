@@ -336,6 +336,24 @@ html.dark .nav-link--active{
   box-shadow: 0 16px 32px -24px rgba(59, 130, 246, 0.7);
 }
 
+.nav-scroll{
+  flex: 1 1 auto;
+  overflow-x: auto;
+  overflow-y: hidden;
+  -webkit-overflow-scrolling: touch;
+  scroll-snap-type: x proximity;
+  scrollbar-width: none;
+  mask-image: linear-gradient(to right, transparent, rgba(0,0,0,.65) 12px, rgba(0,0,0,1) 32px, rgba(0,0,0,1) calc(100% - 32px), rgba(0,0,0,.65) calc(100% - 12px), transparent);
+}
+
+.nav-scroll:focus-within{
+  mask-image: none;
+}
+
+.nav-scroll::-webkit-scrollbar{
+  display: none;
+}
+
 /* Світліший опис і заголовок дня у списку івентів (дарк) */
 html.dark article.card p.text-sm.text-gray-600 { color: #cfd6eaaf !important; }
 html.dark .events-page .day-header { color: #d7def0 !important; }

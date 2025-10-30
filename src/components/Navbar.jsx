@@ -13,36 +13,46 @@ export default function Navbar() {
   return (
     <header className="site-header sticky top-0 z-10 border-b backdrop-blur">
       
-      <div className="max-w-screen-md mx-auto px-3 sm:px-4 h-14 flex items-center justify-between">
-        <Link to="/" className="font-semibold text-lg flex items-center gap-1">
+      <div className="max-w-screen-md mx-auto px-3 sm:px-4 h-14 flex items-center gap-3">
+        <Link to="/" className="font-semibold text-lg flex items-center gap-1 shrink-0">
           <img src="/icon.png" alt="icon" className="w-4 h-4 inline-block" />
         </Link>
-        <nav className="flex items-center gap-2 text-sm">
-          <Link
-            className={linkClasses(is('/'))}
-            to="/"
-            aria-current={is('/') ? 'page' : undefined}
-          >
-            Календар
-          </Link>
-          <Link
-            className={linkClasses(is('/events'))}
-            to="/events"
-            aria-current={is('/events') ? 'page' : undefined}
-          >
-            Івенти
-          </Link>
-
-          <Link
-            className={linkClasses(is('/admin'))}
-            to="/admin"
-            aria-current={is('/admin') ? 'page' : undefined}
-          >
-            Адмін
-          </Link>
+        <div className="flex items-center gap-2 flex-1 min-w-0">
+          <div className="nav-scroll">
+            <nav className="flex items-center gap-2 text-sm min-w-max pr-2" aria-label="Site sections">
+              <Link
+                className={linkClasses(is('/'))}
+                to="/"
+                aria-current={is('/') ? 'page' : undefined}
+              >
+                Календар
+              </Link>
+              <Link
+                className={linkClasses(is('/events'))}
+                to="/events"
+                aria-current={is('/events') ? 'page' : undefined}
+              >
+                Івенти
+              </Link>
+              <Link
+                className={linkClasses(is('/gifts'))}
+                to="/gifts"
+                aria-current={is('/gifts') ? 'page' : undefined}
+              >
+                Gifts
+              </Link>
+              <Link
+                className={linkClasses(is('/admin'))}
+                to="/admin"
+                aria-current={is('/admin') ? 'page' : undefined}
+              >
+                Адмін
+              </Link>
+            </nav>
+          </div>
           <ThemeToggle />
 
-        </nav>
+        </div>
       </div>
       
     </header>
