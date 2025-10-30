@@ -230,7 +230,7 @@ export default function Calendar() {
       const startY = touchStartRef.current;
       if (startY == null) return;
       const currentY = event.touches?.[0]?.clientY ?? startY;
-      if (currentY - startY > 60) {
+      if (currentY - startY > 30) {
         touchStartRef.current = null;
         openPast();
       }
@@ -240,16 +240,29 @@ export default function Calendar() {
       touchStartRef.current = null;
     };
 
+     const shouldHandleTouch = (() => {
+      if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') {
+        return false;
+      }
+      const prefersCoarsePointer = window.matchMedia('(pointer: coarse)').matches;
+      // Disable the swipe gesture on phone-sized, coarse-pointer devices per product request.
+      return !prefersCoarsePointer;
+    })();
+
     window.addEventListener('wheel', handleWheel, { passive: true });
-    window.addEventListener('touchstart', handleTouchStart, { passive: true });
-    window.addEventListener('touchmove', handleTouchMove, { passive: true });
-    window.addEventListener('touchend', handleTouchEnd, { passive: true });
+    if (shouldHandleTouch) {
+      window.addEventListener('touchstart', handleTouchStart, { passive: true });
+      window.addEventListener('touchmove', handleTouchMove, { passive: true });
+      window.addEventListener('touchend', handleTouchEnd, { passive: true });
+    }
 
     return () => {
       window.removeEventListener('wheel', handleWheel);
-      window.removeEventListener('touchstart', handleTouchStart);
-      window.removeEventListener('touchmove', handleTouchMove);
-      window.removeEventListener('touchend', handleTouchEnd);
+      if (shouldHandleTouch) {
+        window.removeEventListener('touchstart', handleTouchStart);
+        window.removeEventListener('touchmove', handleTouchMove);
+        window.removeEventListener('touchend', handleTouchEnd);
+      }
     };
   }, [hasPast, openPast, showPast]);
 
@@ -266,14 +279,14 @@ export default function Calendar() {
           : 'bg-gradient-to-r from-transparent via-zinc-400 to-transparent dark:via-zinc-600';
       const headingClass =
         variant === 'past'
-          ? 'text-xs md:text-sm font-semibold uppercase tracking-[0.45em] text-zinc-600 dark:text-zinc-400'
-          : 'text-sm md:text-base font-extrabold uppercase tracking-widest text-zinc-900 dark:text-white drop-shadow-none dark:drop-shadow-[0_0_1px_rgba(0,0,0,0.35)]';
+          ? 'text-xs md:text-sm font-semibold uppercase tracking-[0.45em] text-center text-zinc-600 dark:text-zinc-400'
+          : 'text-sm md:text-base font-extrabold uppercase tracking-widest text-center text-zinc-900 dark:text-white drop-shadow-none dark:drop-shadow-[0_0_1px_rgba(0,0,0,0.35)]';
 
       return (
         <section key={`${variant}-${g.key}`}>
           {isNewMonth && (
             <div className="mb-6">
-              <div className="flex items-center gap-3">
+              <div className="flex flex-wrap items-center justify-center gap-3 text-center">
                 <div className={`h-px flex-1 min-w-[32px] ${lineClass}`} aria-hidden="true" />
                 <div className={headingClass}>{headingText}</div>
                 <div className={`h-px flex-1 min-w-[32px] ${lineClass}`} aria-hidden="true" />
