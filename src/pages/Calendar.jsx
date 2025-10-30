@@ -230,7 +230,7 @@ export default function Calendar() {
       const startY = touchStartRef.current;
       if (startY == null) return;
       const currentY = event.touches?.[0]?.clientY ?? startY;
-      if (startY - currentY > 60) {
+      if (currentY - startY > 60) {
         touchStartRef.current = null;
         openPast();
       }
@@ -274,9 +274,9 @@ export default function Calendar() {
           {isNewMonth && (
             <div className="mb-6">
               <div className="flex items-center gap-3">
-                <div className={`h-px flex-1 ${lineClass}`} />
+                <div className={`h-px flex-1 min-w-[32px] ${lineClass}`} aria-hidden="true" />
                 <div className={headingClass}>{headingText}</div>
-                <div className={`h-px flex-1 ${lineClass}`} />
+                <div className={`h-px flex-1 min-w-[32px] ${lineClass}`} aria-hidden="true" />
               </div>
             </div>
           )}
@@ -380,7 +380,6 @@ export default function Calendar() {
               <div>
                 <p className="past-events-panel__title">Минулі події</p>
                 <p className="past-events-panel__subtitle">
-                  Події автоматично переходять сюди одразу після завершення дня.
                 </p>
               </div>
               <button type="button" onClick={closePast} className="past-events-panel__close">
