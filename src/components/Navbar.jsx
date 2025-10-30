@@ -41,7 +41,7 @@ export default function Navbar() {
                 to="/gifts"
                 aria-current={is('/gifts') ? 'page' : undefined}
               >
-                Gifts
+                Розіграші
               </Link>
               <Link
                 className={linkClasses(is('/admin'))}
