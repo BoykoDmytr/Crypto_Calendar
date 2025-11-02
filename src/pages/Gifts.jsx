@@ -52,7 +52,7 @@ export default function Gifts() {
         {/* Header */}
         <header className="space-y-3">
           <p className="text-lg text-gray-700 dark:text-slate-300">
-            Встигніть додати подію та виграти USDT до головного розіграшу 16 листопада.
+            Встигніть додати подію та виграти 100 USDT до головного розіграшу 16 листопада.
           </p>
         </header>
 
@@ -108,6 +108,9 @@ export default function Gifts() {
             <li>
               <span className="font-semibold text-cyan-600 dark:text-cyan-300">4.</span> У разі виграшу ми зв'яжемося з вами у вказаному Telegram
               16 листопада.
+            </li>
+            <li>
+              <span className="font-semibold text-cyan-600 dark:text-cyan-300">5.</span> Всього буде 5 переможців по 20 USDT.
             </li>
           </ol>
         </div>
