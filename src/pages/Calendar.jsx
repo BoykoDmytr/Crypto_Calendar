@@ -1,6 +1,6 @@
 // src/pages/Calendar.jsx
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import EventCard from '../components/EventCard';
 import dayjs from 'dayjs';
@@ -52,6 +52,20 @@ export default function Calendar() {
   const [showPast, setShowPast] = useState(false);
   const [now, setNow] = useState(dayjs());
   const touchStartRef = useRef(null);
+  const location = useLocation();
+  const navigate = useNavigate();
+  const [moderationNotice, setModerationNotice] = useState(
+    () => location.state?.showModerationNotice ?? false
+  );
+
+  useEffect(() => {
+    if (location.state?.showModerationNotice) {
+      setModerationNotice(true);
+      const nextState = { ...location.state };
+      delete nextState.showModerationNotice;
+      navigate(location.pathname, { replace: true, state: nextState });
+    }
+  }, [location, navigate]);
 
   // типи з БД (довідник подій)
   const [eventTypes, setEventTypes] = useState([]); // [{label, slug, is_tge, order_index?, sort_order?}]
@@ -420,6 +434,14 @@ export default function Calendar() {
           )
         )}
       </div>
+
+      {moderationNotice && (
+        <div className="px-3 sm:px-4">
+          <div className="mt-4 rounded-lg border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-800 shadow-sm">
+            ✅Івент було відправлено на модерацію
+          </div>
+        </div>
+      )}
 
       {/* ── КНОПКА TELEGRAM ВНИЗУ ─────────────────────────────────────────────── */}
       <div className="px-3 sm:px-4 pb-2 flex justify-center">

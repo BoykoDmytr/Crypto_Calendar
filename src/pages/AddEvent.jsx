@@ -3,10 +3,12 @@ import { useState } from 'react';
 import { supabase } from '../lib/supabase';
 import EventForm from '../components/EventForm';
 import Toast from '../components/Toast';
+import { useNavigate } from 'react-router-dom'
 
 export default function AddEvent() {
   const [loading, setLoading] = useState(false);
   const [toast, setToast] = useState('');
+  const navigate = useNavigate();
 
   // невелике прибирання: не відправляємо порожні/undefined поля
   const sanitize = (obj) =>
@@ -32,7 +34,9 @@ export default function AddEvent() {
       const { error } = await supabase.from('events_pending').insert(payload);
       if (error) throw error;
 
-      setToast('Надіслано! Заявка піде на модерацію.');
+     setToast('✅Івент було відправлено на модерацію');
+      await new Promise((resolve) => setTimeout(resolve, 1200));
+      navigate('/events', { state: { showModerationNotice: true } });
     } catch (err) {
       setToast('Помилка: ' + (err?.message || 'невідома'));
     } finally {
