@@ -1,5 +1,21 @@
 import { useEffect, useMemo, useState } from 'react';
 
+const participants = [
+  { name: '@palladium07', entries: '4х' },
+  { name: '@TonyMontana', entries: '2х' },
+  { name: '@neomaster3' },
+  { name: '@crypto_oleksiy' },
+  { name: '@Mhaelko' },
+  { name: '@Hayduchok_Ihor', entries: '3х' },
+  { name: '@deXyyy1', entries: '4х' },
+  { name: '@shved21' },
+  { name: '@prohor' },
+  { name: '@ANDRIY0910', entries: '2х' },
+  { name: '@ara_DokS', entries: '2х' },
+  { name: '@feeltheglowup' },
+  { name: '@Iliiyaaa1' },
+];
+
 const createTargetDate = () => {
   const now = new Date();
   const currentYear = now.getFullYear();
@@ -114,6 +130,27 @@ export default function Gifts() {
             </li>
           </ol>
         </div>
+
+          {/* Participants */}
+        <div className="mx-auto max-w-3xl rounded-3xl border border-cyan-400/40 bg-white/60 dark:bg-slate-900/60 p-8 text-left text-gray-800 dark:text-slate-100 shadow-[0_0_35px_rgba(34,211,238,0.35)] dark:shadow-[0_0_35px_rgba(34,211,238,0.55)] backdrop-blur">
+          <h2 className="mb-4 text-xl font-semibold text-gray-900 dark:text-white">Учасники розіграшу</h2>
+          <ul className="grid gap-3 sm:grid-cols-2">
+            {participants.map(({ name, entries }) => (
+              <li
+                key={name}
+                className="flex items-center justify-between rounded-2xl border border-cyan-400/30 bg-white/70 dark:bg-slate-950/50 px-5 py-3 text-base font-medium text-cyan-700 dark:text-cyan-200 shadow-[0_0_25px_rgba(34,211,238,0.25)]"
+              >
+                <span>{name}</span>
+                {entries ? (
+                  <span className="rounded-full bg-cyan-500/15 px-3 py-1 text-sm font-semibold uppercase tracking-wide text-cyan-700 dark:text-cyan-100">
+                    {entries}
+                  </span>
+                ) : null}
+              </li>
+            ))}
+          </ul>
+        </div>
+
       </div>
     </section>
   );
