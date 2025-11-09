@@ -60,3 +60,33 @@ Set the following environment variables (for example in a `.env.local` file) to 
 | `npm run build` | Create a production build. |
 | `npm run preview` | Preview the production build. |
 | `npm run lint` | Run ESLint. |
+| `npm run sync:telegram` | Parse Telegram channel posts and push them to `auto_events_pending`. |
+
+## Telegram automation
+
+The project ships with a small ingestion script that collects new posts from a set of public
+Telegram channels and stores structured events in the `auto_events_pending` table for moderation.
+It relies on the Telegram Bot API, so you have to create a bot, add it to each channel as an
+administrator (or at least give it permission to read posts), and keep the bot token handy.
+
+### Required environment variables
+
+Set the following variables before running `npm run sync:telegram`:
+
+| Variable | Required | Description |
+| --- | --- | --- |
+| `SUPABASE_URL` | **Yes** | Supabase project URL. |
+| `SUPABASE_SERVICE_ROLE_KEY` | **Yes** | Service role key used to insert rows into `auto_events_pending`. |
+| `TELEGRAM_BOT_TOKEN` | **Yes** | Bot token used to call `getUpdates`. The bot must be a member of every parsed channel. |
+| `TELEGRAM_STATE_FILE` | No | Path to a JSON file with the last processed update id (default `.telegram-updates.json`). |
+
+You can export the variables in your shell or rely on Node's `--env-file` flag, e.g.:
+
+```bash
+node --env-file=.env.local scripts/telegram-sync.js
+```
+
+Every execution fetches new `channel_post` updates, converts recognised posts into events, and
+skips entries that already exist in `auto_events_pending` (matching by title, start date, and link).
+If the script cannot parse a date, it stores the publication timestamp and leaves a note in the
+description so moderators can adjust the row manually via the admin panel.

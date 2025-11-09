@@ -286,6 +286,7 @@ export default function Admin() {
   const [pass, setPass] = useState('');
   const [ok, setOk] = useState(false);
 
+  const [autoPending, setAutoPending] = useState([]);
   const [pending, setPending] = useState([]);
   const [approved, setApproved] = useState([]);
   const [edits, setEdits] = useState([]);
@@ -311,7 +312,11 @@ export default function Admin() {
   }, [ok]);
 
   const refresh = async () => {
-    const [p, a, e, x, t] = await Promise.all([
+    const [auto, p, a, e, x, t] = await Promise.all([
+      supabase
+        .from('auto_events_pending')
+        .select('*')
+        .order('created_at', { ascending: true }),
       supabase.from('events_pending').select('*').order('created_at', { ascending: true }),
       supabase.from('events_approved').select('*').order('start_at', { ascending: true }),
       supabase
@@ -332,6 +337,7 @@ export default function Admin() {
         .order('label', { ascending: true }),
     ]);
 
+    if (!auto.error) setAutoPending(auto.data || []);
     if (!p.error) setPending(p.data || []);
     if (!a.error) setApproved(a.data || []);
     if (!e.error) setEdits(e.data || []);
@@ -364,7 +370,7 @@ export default function Admin() {
   };
 
   // ===== МОДЕРАЦІЯ ЗАЯВОК =====
-  const approve = async (ev) => {
+  const approve = async (ev, table = 'events_pending') => {
     const allowed = [
       'title','description','start_at','end_at','timezone','type','tge_exchanges','link','nickname','coins',
       'coin_name','coin_quantity','coin_price_link',
@@ -389,13 +395,13 @@ export default function Admin() {
     const { error } = await supabase.from('events_approved').insert(payload);
     if (error) return alert('Помилка: ' + error.message);
 
-    await supabase.from('events_pending').delete().eq('id', ev.id);
+    await supabase.from(table).delete().eq('id', ev.id);
     await refresh();
   };
 
-  const reject = async (ev) => {
+  const reject = async (ev, table = 'events_pending') => {
     if (!confirm('Відхилити і видалити цю заявку?')) return;
-    const { error } = await supabase.from('events_pending').delete().eq('id', ev.id);
+    const { error } = await supabase.from(table).delete().eq('id', ev.id);
     if (error) return alert('Помилка: ' + error.message);
     await refresh();
   };
@@ -662,6 +668,72 @@ const payload = {
         </button>
       </div>
 
+       {/* Автоматичні заявки */}
+      <section>
+        <h2 className="font-semibold mb-2">Автоматичні заявки</h2>
+        {autoPending.length === 0 && <p className="text-sm text-gray-600">Немає автоматично зібраних подій.</p>}
+        <div className="space-y-3">
+          {autoPending.map((ev) => {
+            const coins = extractCoinEntries(ev);
+            return (
+              <article key={ev.id} className="card p-4">
+                {editId === ev.id && editTable === 'auto_events_pending' ? (
+                  <EditingCard table="auto_events_pending" ev={ev} />
+                ) : (
+                  <>
+                    <div className="text-xs text-gray-500">
+                      {dayjs(ev.created_at).format('DD MMM HH:mm')}
+                    </div>
+                    <h3 className="font-semibold">{ev.title}</h3>
+                    {ev.description && (
+                      <p className="text-sm text-gray-600 mt-1 whitespace-pre-line">{ev.description}</p>
+                    )}
+                    <div className="text-sm mt-2 flex flex-wrap items-center gap-2">
+                      <TypeBadge type={ev.type} />
+                      <span className="event-when">🕒 {formatEventDate(ev)}</span>
+                      {ev.link && (
+                        <a className="underline" href={ev.link} target="_blank" rel="noreferrer">
+                          Лінк
+                        </a>
+                      )}
+                    </div>
+                    {coins.length > 0 && (
+                      <CoinList coins={coins} className="mt-2 text-xs text-gray-600" />
+                    )}
+
+                    <RowActions>
+                      <button className="btn" onClick={() => approve(ev, 'auto_events_pending')}>
+                        Схвалити
+                      </button>
+                      <button className="btn-secondary" onClick={() => reject(ev, 'auto_events_pending')}>
+                        Відхилити
+                      </button>
+                      <div className="flex gap-2">
+                        <button
+                          className="btn-secondary"
+                          onClick={() => {
+                            setEditId(ev.id);
+                            setEditTable('auto_events_pending');
+                          }}
+                        >
+                          Редагувати
+                        </button>
+                        <button
+                          className="btn-secondary"
+                          onClick={() => removeRow('auto_events_pending', ev.id)}
+                        >
+                          Видалити
+                        </button>
+                      </div>
+                    </RowActions>
+                  </>
+                )}
+              </article>
+            );
+          })}
+        </div>
+      </section>
+
       {/* Заявки на модерації */}
       <section>
         <h2 className="font-semibold mb-2">Заявки на модерації</h2>
@@ -680,7 +752,7 @@ const payload = {
                     </div>
                     <h3 className="font-semibold">{ev.title}</h3>
                     {ev.description && (
-                      <p className="text-sm text-gray-600 mt-1">{ev.description}</p>
+                      <p className="text-sm text-gray-600 mt-1 whitespace-pre-line">{ev.description}</p>
                     )}
                     <div className="text-sm mt-2 flex flex-wrap items-center gap-2">
                       <TypeBadge type={ev.type} />
