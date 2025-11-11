@@ -8,6 +8,7 @@ import { supabase } from '../lib/supabase';
 import EventForm from '../components/EventForm';
 import { formatQuantity as formatTokenQuantity } from '../hooks/useTokenPrice';
 import { extractCoinEntries, coinEntriesEqual } from '../utils/coins';
+import Toast from '../components/Toast';
 
 dayjs.extend(utc);
 dayjs.extend(timezone);
@@ -306,9 +307,31 @@ export default function Admin() {
 
   const [editId, setEditId] = useState(null);
   const [editTable, setEditTable] = useState(null);
+  const [toast, setToast] = useState('');
 
   useEffect(() => {
     if (ok) refresh();
+  }, [ok]);
+
+  useEffect(() => {
+    if (!ok) return undefined;
+
+    const channel = supabase
+      .channel('admin-events-pending')
+      .on(
+        'postgres_changes',
+        { event: 'INSERT', schema: 'public', table: 'events_pending' },
+        payload => {
+          const title = (payload.new?.title || '').trim();
+          setToast(title ? `Новий івент на підтвердження: ${title}` : 'Новий івент очікує підтвердження');
+          refresh();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      channel.unsubscribe();
+    };
   }, [ok]);
 
   const refresh = async () => {
@@ -660,79 +683,83 @@ const payload = {
   );
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <h1 className="text-xl font-semibold">Адмін-панель</h1>
-        <button className="btn-secondary px-3 py-2 rounded-xl" onClick={refresh}>
-          Оновити
-        </button>
-      </div>
+   <>
+      <Toast text={toast} onClose={() => setToast('')} />
+      <div className="space-y-6">
+        <div className="flex items-center justify-between">
+          <h1 className="text-xl font-semibold">Адмін-панель</h1>
+          <button className="btn-secondary px-3 py-2 rounded-xl" onClick={refresh}>
+            Оновити
+          </button>
+        </div>
 
        {/* Автоматичні заявки */}
-      <section>
-        <h2 className="font-semibold mb-2">Автоматичні заявки</h2>
-        {autoPending.length === 0 && <p className="text-sm text-gray-600">Немає автоматично зібраних подій.</p>}
-        <div className="space-y-3">
-          {autoPending.map((ev) => {
-            const coins = extractCoinEntries(ev);
-            return (
-              <article key={ev.id} className="card p-4">
-                {editId === ev.id && editTable === 'auto_events_pending' ? (
-                  <EditingCard table="auto_events_pending" ev={ev} />
-                ) : (
-                  <>
-                    <div className="text-xs text-gray-500">
-                      {dayjs(ev.created_at).format('DD MMM HH:mm')}
-                    </div>
-                    <h3 className="font-semibold">{ev.title}</h3>
-                    {ev.description && (
-                      <p className="text-sm text-gray-600 mt-1 whitespace-pre-line">{ev.description}</p>
-                    )}
-                    <div className="text-sm mt-2 flex flex-wrap items-center gap-2">
-                      <TypeBadge type={ev.type} />
-                      <span className="event-when">🕒 {formatEventDate(ev)}</span>
-                      {ev.link && (
-                        <a className="underline" href={ev.link} target="_blank" rel="noreferrer">
-                          Лінк
-                        </a>
+        <section>
+          <h2 className="font-semibold mb-2">Автоматичні заявки</h2>
+          {autoPending.length === 0 && (
+            <p className="text-sm text-gray-600">Немає автоматично зібраних подій.</p>
+          )}
+          <div className="space-y-3">
+            {autoPending.map((ev) => {
+              const coins = extractCoinEntries(ev);
+              return (
+                <article key={ev.id} className="card p-4">
+                  {editId === ev.id && editTable === 'auto_events_pending' ? (
+                    <EditingCard table="auto_events_pending" ev={ev} />
+                  ) : (
+                    <>
+                      <div className="text-xs text-gray-500">
+                        {dayjs(ev.created_at).format('DD MMM HH:mm')}
+                      </div>
+                      <h3 className="font-semibold">{ev.title}</h3>
+                      {ev.description && (
+                        <p className="text-sm text-gray-600 mt-1 whitespace-pre-line">{ev.description}</p>
                       )}
-                    </div>
-                    {coins.length > 0 && (
-                      <CoinList coins={coins} className="mt-2 text-xs text-gray-600" />
+                      <div className="text-sm mt-2 flex flex-wrap items-center gap-2">
+                        <TypeBadge type={ev.type} />
+                        <span className="event-when">🕒 {formatEventDate(ev)}</span>
+                        {ev.link && (
+                          <a className="underline" href={ev.link} target="_blank" rel="noreferrer">
+                            Лінк
+                          </a>
+                        )}
+                      </div>
+                      {coins.length > 0 && (
+                        <CoinList coins={coins} className="mt-2 text-xs text-gray-600" />
                     )}
 
                     <RowActions>
-                      <button className="btn" onClick={() => approve(ev, 'auto_events_pending')}>
-                        Схвалити
-                      </button>
-                      <button className="btn-secondary" onClick={() => reject(ev, 'auto_events_pending')}>
-                        Відхилити
-                      </button>
+                        <button className="btn" onClick={() => approve(ev, 'auto_events_pending')}>
+                          Схвалити
+                        </button>
+                        <button className="btn-secondary" onClick={() => reject(ev, 'auto_events_pending')}>
+                          Відхилити
+                        </button>
                       <div className="flex gap-2">
-                        <button
-                          className="btn-secondary"
-                          onClick={() => {
-                            setEditId(ev.id);
-                            setEditTable('auto_events_pending');
-                          }}
-                        >
-                          Редагувати
-                        </button>
-                        <button
-                          className="btn-secondary"
-                          onClick={() => removeRow('auto_events_pending', ev.id)}
-                        >
-                          Видалити
-                        </button>
-                      </div>
-                    </RowActions>
-                  </>
-                )}
-              </article>
-            );
-          })}
-        </div>
-      </section>
+                          <button
+                            className="btn-secondary"
+                            onClick={() => {
+                              setEditId(ev.id);
+                              setEditTable('auto_events_pending');
+                            }}
+                          >
+                            Редагувати
+                          </button>
+                          <button
+                            className="btn-secondary"
+                            onClick={() => removeRow('auto_events_pending', ev.id)}
+                          >
+                            Видалити
+                          </button>
+                        </div>
+                      </RowActions>
+                    </>
+                  )}
+                </article>
+              );
+            })}
+          </div>
+        </section>
 
       {/* Заявки на модерації */}
       <section>
@@ -1089,5 +1116,6 @@ const payload = {
         </p>
       </section>
     </div>
+    </>
   );
 }
