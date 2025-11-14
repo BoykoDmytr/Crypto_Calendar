@@ -46,10 +46,13 @@ function FilterScroller({ children }) {
   );
 }
 
+const PAST_EVENTS_BATCH_SIZE = 5;
+
 export default function Calendar() {
   const [allEvents, setAllEvents] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showPast, setShowPast] = useState(false);
+  const [visiblePastCount, setVisiblePastCount] = useState(PAST_EVENTS_BATCH_SIZE);
   const [now, setNow] = useState(dayjs());
   const touchStartRef = useRef(null);
   const location = useLocation();
@@ -201,11 +204,40 @@ export default function Calendar() {
     ? dayjs(pastGroups[pastGroups.length - 1].key).format('MMMM YYYY')
     : '';
 
+  const totalPastEvents = useMemo(
+    () => pastGroups.reduce((sum, group) => sum + group.items.length, 0),
+    [pastGroups]
+  );
+
+  const visiblePastGroups = useMemo(() => {
+    if (visiblePastCount >= totalPastEvents) return pastGroups;
+
+    const limited = [];
+    let remaining = visiblePastCount;
+
+    for (const group of pastGroups) {
+      if (remaining <= 0) break;
+      const takeCount = Math.min(remaining, group.items.length);
+      const items = group.items.slice(0, takeCount);
+      limited.push({ ...group, items });
+      remaining -= takeCount;
+    }
+
+    return limited;
+  }, [pastGroups, totalPastEvents, visiblePastCount]);
+
+  const shownPastCount = Math.min(visiblePastCount, totalPastEvents);
+  const canLoadMorePast = visiblePastCount < totalPastEvents;
+
   useEffect(() => {
     if (!hasPast && showPast) {
       setShowPast(false);
     }
   }, [hasPast, showPast]);
+
+  useEffect(() => {
+    setVisiblePastCount(PAST_EVENTS_BATCH_SIZE);
+  }, [pastGroups]);
 
   const openPast = useCallback(() => {
     setShowPast(true);
@@ -216,7 +248,12 @@ export default function Calendar() {
 
   const closePast = useCallback(() => {
     setShowPast(false);
+    setVisiblePastCount(PAST_EVENTS_BATCH_SIZE);
   }, []);
+
+  const handleLoadMorePast = useCallback(() => {
+    setVisiblePastCount((prev) => Math.min(prev + PAST_EVENTS_BATCH_SIZE, totalPastEvents));
+  }, [totalPastEvents]);
 
   useEffect(() => {
     if (!hasPast) return;
@@ -408,6 +445,7 @@ export default function Calendar() {
               <div>
                 <p className="past-events-panel__title">Минулі події</p>
                 <p className="past-events-panel__subtitle">
+                  Показано {shownPastCount} з {totalPastEvents} подій
                 </p>
               </div>
               <button type="button" onClick={closePast} className="past-events-panel__close">
@@ -416,8 +454,19 @@ export default function Calendar() {
             </div>
 
             <div className="space-y-6">
-              {renderSections(pastGroups, 'past')}
+              {renderSections(visiblePastGroups, 'past')}
             </div>
+            {canLoadMorePast && (
+              <div className="pt-4 flex justify-center">
+                <button
+                  type="button"
+                  onClick={handleLoadMorePast}
+                  className="btn h-9 px-4 text-sm"
+                >
+                  Показати більше
+                </button>
+              </div>
+            )}
           </div>
         </div>
       )}
