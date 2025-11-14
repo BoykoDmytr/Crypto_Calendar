@@ -660,7 +660,7 @@ html.dark .past-pull-hint__icon {
 }
 
 .past-events-panel {
-  --past-panel-max-height: 5px;
+  --past-panel-max-height: 0px;
   overflow: hidden;
   max-height: 0;
   opacity: 0;

@@ -56,7 +56,7 @@ export default function Calendar() {
   const [now, setNow] = useState(dayjs());
   const touchStartRef = useRef(null);
   const pastPanelRef = useRef(null);
-  const [pastPanelMaxHeight, setPastPanelMaxHeight] = useState(0);
+  const [pastPanelMaxHeight, setPastPanelMaxHeight] = useState(null);
   const location = useLocation();
   const navigate = useNavigate();
   const [moderationNotice, setModerationNotice] = useState(
@@ -269,9 +269,13 @@ export default function Calendar() {
     panel.style.maxHeight = 'none';
     const nextHeight = panel.scrollHeight;
     panel.style.maxHeight = previous;
-
+  
+     if (nextHeight <= 0) {
+      return;
+    }
+    
     setPastPanelMaxHeight((current) => {
-      if (Math.abs(current - nextHeight) < 1) {
+      if (current != null && Math.abs(current - nextHeight) < 1) {
         return current;
       }
       return nextHeight;
@@ -481,8 +485,11 @@ export default function Calendar() {
             ref={pastPanelRef}
             className={`past-events-panel ${showPast ? 'past-events-panel--open' : ''}`}
             style={
-              showPast
-                ? { '--past-panel-max-height': `${Math.max(pastPanelMaxHeight, 0)}px` }
+              showPast && pastPanelMaxHeight != null
+                ? {
+                    '--past-panel-max-height':
+                      pastPanelMaxHeight != null ? `${pastPanelMaxHeight}px` : '9999px',
+                  }
                 : undefined
             }
           >
