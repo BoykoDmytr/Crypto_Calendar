@@ -1,5 +1,5 @@
 // src/pages/Calendar.jsx
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import EventCard from '../components/EventCard';
@@ -55,6 +55,8 @@ export default function Calendar() {
   const [visiblePastCount, setVisiblePastCount] = useState(PAST_EVENTS_BATCH_SIZE);
   const [now, setNow] = useState(dayjs());
   const touchStartRef = useRef(null);
+  const pastPanelRef = useRef(null);
+  const [pastPanelMaxHeight, setPastPanelMaxHeight] = useState(0);
   const location = useLocation();
   const navigate = useNavigate();
   const [moderationNotice, setModerationNotice] = useState(
@@ -195,13 +197,16 @@ export default function Calendar() {
         upcoming.push(group);
       }
     }
+
+    past.reverse();
+
     return { pastGroups: past, upcomingGroups: upcoming };
   }, [groups, todayStartValue]);
 
   const hasPast = pastGroups.length > 0;
   const hasUpcoming = upcomingGroups.length > 0;
   const latestPastMonthLabel = hasPast
-    ? dayjs(pastGroups[pastGroups.length - 1].key).format('MMMM YYYY')
+    ? dayjs(pastGroups[0].key).format('MMMM YYYY')
     : '';
 
   const totalPastEvents = useMemo(
@@ -254,6 +259,38 @@ export default function Calendar() {
   const handleLoadMorePast = useCallback(() => {
     setVisiblePastCount((prev) => Math.min(prev + PAST_EVENTS_BATCH_SIZE, totalPastEvents));
   }, [totalPastEvents]);
+
+  const updatePastPanelMaxHeight = useCallback(() => {
+    if (!showPast) return;
+    const panel = pastPanelRef.current;
+    if (!panel) return;
+
+    const previous = panel.style.maxHeight;
+    panel.style.maxHeight = 'none';
+    const nextHeight = panel.scrollHeight;
+    panel.style.maxHeight = previous;
+
+    setPastPanelMaxHeight((current) => {
+      if (Math.abs(current - nextHeight) < 1) {
+        return current;
+      }
+      return nextHeight;
+    });
+  }, [showPast]);
+
+  useLayoutEffect(() => {
+    if (!showPast) return;
+    updatePastPanelMaxHeight();
+  }, [showPast, visiblePastGroups, updatePastPanelMaxHeight]);
+
+  useEffect(() => {
+    if (!showPast) return;
+    const handleResize = () => {
+      updatePastPanelMaxHeight();
+    };
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, [showPast, updatePastPanelMaxHeight]);
 
   useEffect(() => {
     if (!hasPast) return;
@@ -440,7 +477,15 @@ export default function Calendar() {
               <span className="past-pull-hint__icon" aria-hidden="true">↑</span>
             </button>
           )}
-          <div className={`past-events-panel ${showPast ? 'past-events-panel--open' : ''}`}>
+          <div
+            ref={pastPanelRef}
+            className={`past-events-panel ${showPast ? 'past-events-panel--open' : ''}`}
+            style={
+              showPast
+                ? { '--past-panel-max-height': `${Math.max(pastPanelMaxHeight, 0)}px` }
+                : undefined
+            }
+          >
             <div className="past-events-panel__header">
               <div>
                 <p className="past-events-panel__title">Минулі події</p>

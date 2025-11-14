@@ -660,6 +660,7 @@ html.dark .past-pull-hint__icon {
 }
 
 .past-events-panel {
+  --past-panel-max-height: 5px;
   overflow: hidden;
   max-height: 0;
   opacity: 0;
@@ -673,6 +674,7 @@ html.dark .past-pull-hint__icon {
 }
 .past-events-panel--open {
   max-height: 9999px;
+  max-height: var(--past-panel-max-height);
   opacity: 1;
   pointer-events: auto;
   margin-top: 1rem;
