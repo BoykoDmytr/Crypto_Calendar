@@ -18,6 +18,15 @@ const priceRegexes = [
   /\bprice\b[^0-9A-Za-z]*(?<price>[-0-9.,eE]+)\s*(?:USD|\$)/i,
 ];
 
+const mexcSellPriceRegexes = [
+  /"sellPrice"\s*[:=]\s*"?(?<price>[-0-9.,eE]+)/gi,
+  /"sell_price"\s*[:=]\s*"?(?<price>[-0-9.,eE]+)/gi,
+  /"askPrice"\s*[:=]\s*"?(?<price>[-0-9.,eE]+)/gi,
+  /"ask_price"\s*[:=]\s*"?(?<price>[-0-9.,eE]+)/gi,
+  /"price"\s*[:=]\s*"?(?<price>[-0-9.,eE]+)"?\s*,\s*"side"\s*[:=]\s*"?(?:sell|ask)"?/gi,
+  /"price"\s*[:=]\s*"?(?<price>[-0-9.,eE]+)"?\s*,\s*"type"\s*[:=]\s*"?(?:sell|ask)"?/gi,
+];
+
 const defaultSnapshot = {
   price: null,
   loading: false,
@@ -123,6 +132,27 @@ function parseTokenMeta(link) {
     return null;
   }
   return null;
+}
+
+function parseMexcPreMarketLink(link) {
+  try {
+    const url = new URL(link);
+    const hostname = url.hostname.toLowerCase();
+    if (!hostname.endsWith('mexc.com')) return null;
+
+    const segments = url.pathname.split('/').filter(Boolean);
+    if (!segments.length) return null;
+
+    const preMarketIndex = segments.findIndex((segment) => segment.toLowerCase() === 'pre-market');
+    if (preMarketIndex === -1 || preMarketIndex >= segments.length - 1) return null;
+
+    const slug = segments[preMarketIndex + 1];
+    if (!slug) return null;
+
+    return { slug };
+  } catch {
+    return null;
+  }
 }
 
 const dexScreenerNetworkMap = {
@@ -308,6 +338,99 @@ function parseTonapiJettonPrices({ getJson }) {
       return candidate;
     }
   }
+  return null;
+}
+
+function parseMexcPreMarketPrice({ text }) {
+  if (!text) return null;
+
+  const addCandidate = (() => {
+    let best = null;
+    return (value) => {
+      const num = sanitizeNumber(value);
+      if (num !== null && num > 0) {
+        best = best === null ? num : Math.min(best, num);
+      }
+      return best;
+    };
+  })();
+
+  let bestCandidate = null;
+
+  for (const regex of mexcSellPriceRegexes) {
+    regex.lastIndex = 0;
+    let match;
+    while ((match = regex.exec(text))) {
+      const price = match?.groups?.price ?? match?.[1];
+      const candidate = addCandidate(price);
+      if (candidate !== null && candidate !== undefined) {
+        bestCandidate = candidate;
+      }
+    }
+  }
+
+  if (bestCandidate !== null) {
+    return bestCandidate;
+  }
+
+  const plainMatch = text.match(/sellPrice[^0-9A-Za-z+-]*([-0-9.,eE]+)/i);
+  if (plainMatch?.[1]) {
+    const num = sanitizeNumber(plainMatch[1]);
+    if (num !== null && num > 0) {
+      return num;
+    }
+  }
+
+  if (typeof DOMParser !== 'undefined') {
+    try {
+      const parser = new DOMParser();
+      const doc = parser.parseFromString(text, 'text/html');
+      const selectorGroups = [
+        '[class*="sellPrice"]',
+        '[class*="askPrice"]',
+        '[data-column="sellPrice"]',
+        '[data-column="askPrice"]',
+        '[data-field="sellPrice"]',
+        '[data-field="askPrice"]',
+      ];
+
+      let bestFromDom = null;
+
+      for (const selector of selectorGroups) {
+        const elements = doc.querySelectorAll(selector);
+        elements.forEach((el) => {
+          const num = sanitizeNumber(el?.textContent ?? el?.getAttribute?.('value'));
+          if (num !== null && num > 0) {
+            bestFromDom = bestFromDom === null ? num : Math.min(bestFromDom, num);
+          }
+        });
+        if (bestFromDom !== null) {
+          return bestFromDom;
+        }
+      }
+    } catch {
+      // ignore DOM parsing issues
+    }
+  }
+
+  const htmlSellPriceRegexes = [
+    /<[^>]*class\s*=\s*"[^"]*order-book-table_sellPrice[^"]*"[^>]*>(?<price>[^<]+)/gi,
+    /<[^>]*class\s*=\s*'[^']*order-book-table_sellPrice[^']*'[^>]*>(?<price>[^<]+)/gi,
+    /<[^>]*class\s*=\s*"[^"]*sellPrice[^"]*"[^>]*>(?<price>[^<]+)/gi,
+    /<[^>]*class\s*=\s*'[^']*sellPrice[^']*'[^>]*>(?<price>[^<]+)/gi,
+  ];
+
+  for (const regex of htmlSellPriceRegexes) {
+    regex.lastIndex = 0;
+    let match;
+    while ((match = regex.exec(text))) {
+      const candidate = sanitizeNumber(match?.groups?.price ?? match?.[1]);
+      if (candidate !== null && candidate > 0) {
+        return candidate;
+      }
+    }
+  }
+
   return null;
 }
 
@@ -782,7 +905,19 @@ async function fetchTokenPrice(link, signal) {
       pushEndpoint(`https://debot.ai/api/token-price/${chainName}/${address}`);
     }
   }
-  pushEndpoint(link);
+  const mexcMeta = parseMexcPreMarketLink(link);
+  if (mexcMeta) {
+    pushEndpoint({
+      url: link,
+      label: 'MEXC pre-market сторінка',
+      parser: parseMexcPreMarketPrice,
+      headers: {
+        Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+      },
+    });
+  } else {
+    pushEndpoint(link);
+  }
 
   if (meta) {
     for (const entry of buildFallbackEndpoints(meta)) {
