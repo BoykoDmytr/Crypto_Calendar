@@ -341,7 +341,7 @@ function parseTonapiJettonPrices({ getJson }) {
   return null;
 }
 
-function parseMexcPreMarketPrice({ text }) {
+function parseMexcPreMarketPrice({ text, getJson }) {
   if (!text) return null;
 
   const addCandidate = (() => {
@@ -413,6 +413,158 @@ function parseMexcPreMarketPrice({ text }) {
     }
   }
 
+  const collectCandidatesFromJson = (root) => {
+    if (!root || typeof root !== 'object') return;
+
+    const visited = new WeakSet();
+    const sellKeywordRegex =
+      /sell|ask|asks|sellbook|askbook|sellorder|askorder|selllist|asklist|sellqueue|askqueue/i;
+    const priceKeywordRegex =
+      /price|quoteprice|orderprice|tradeprice|dealprice|bestprice|limitprice|sellprice|askprice|currentprice|latestprice|lastprice|startprice|listingprice|offerprice|bidprice|askrate|sellrate|rate|px/i;
+    const sellSideFields = [
+      'side',
+      'type',
+      'direction',
+      'orderType',
+      'orderSide',
+      'tradeType',
+      'tradeSide',
+      'flag',
+      'role',
+      'makerSide',
+      'takerSide',
+      'bizType',
+      'dealType',
+    ];
+
+    const hasSellHintValue = (value) => {
+      if (typeof value === 'string') {
+        const normalized = value.toLowerCase();
+        return (
+          normalized.includes('sell') ||
+          normalized.includes('ask') ||
+          /^s\d+$/.test(normalized) ||
+          /^a\d+$/.test(normalized)
+        );
+      }
+      return false;
+    };
+
+    const visit = (node, context) => {
+      if (!node || typeof node !== 'object') return;
+      if (visited.has(node)) return;
+      visited.add(node);
+
+      const sellHintFromContext = context?.sellHint || false;
+      const priceHintFromContext = context?.priceHint || false;
+
+      const nextContextForChild = (additional = {}) => ({
+        sellHint: sellHintFromContext || additional.sellHint || false,
+        priceHint: priceHintFromContext || additional.priceHint || false,
+      });
+
+      const processPrimitive = (value, hints) => {
+        const sellHint = sellHintFromContext || hints.sellHint;
+        if (!sellHint) return;
+        const num = sanitizeNumber(value);
+        if (num !== null && num > 0) {
+          const candidate = addCandidate(num);
+          if (candidate !== null && candidate !== undefined) {
+            bestCandidate = candidate;
+          }
+        }
+      };
+
+      if (Array.isArray(node)) {
+        for (const item of node) {
+          if (Array.isArray(item)) {
+            if (sellHintFromContext && item.length > 0) {
+              const num = sanitizeNumber(item[0]);
+              if (num !== null && num > 0) {
+                const candidate = addCandidate(num);
+                if (candidate !== null && candidate !== undefined) {
+                  bestCandidate = candidate;
+                }
+              }
+            }
+            visit(item, context);
+            continue;
+          }
+          if (typeof item === 'number' || typeof item === 'string') {
+            processPrimitive(item, { sellHint: sellHintFromContext, priceHint: priceHintFromContext });
+          } else {
+            visit(item, context);
+          }
+        }
+        return;
+      }
+
+      const nodeHasSellSide = sellSideFields.some((field) => hasSellHintValue(node[field]));
+
+      for (const [key, value] of Object.entries(node)) {
+        const lowerKey = key.toLowerCase();
+        const keyHasSellHint = sellKeywordRegex.test(lowerKey);
+        const keyHasPriceHint = priceKeywordRegex.test(lowerKey);
+        const combinedContext = nextContextForChild({
+          sellHint: nodeHasSellSide || keyHasSellHint,
+          priceHint: keyHasPriceHint,
+        });
+
+        if (typeof value === 'number' || typeof value === 'string') {
+          const shouldProcess =
+            (keyHasPriceHint && (combinedContext.sellHint || keyHasSellHint)) ||
+            (combinedContext.sellHint && priceHintFromContext && !keyHasPriceHint);
+          if (shouldProcess) {
+            processPrimitive(value, combinedContext);
+          }
+          continue;
+        }
+
+        if (Array.isArray(value)) {
+          if (combinedContext.sellHint) {
+            for (const item of value) {
+              if (Array.isArray(item) && item.length > 0) {
+                const num = sanitizeNumber(item[0]);
+                if (num !== null && num > 0) {
+                  const candidate = addCandidate(num);
+                  if (candidate !== null && candidate !== undefined) {
+                    bestCandidate = candidate;
+                  }
+                }
+              } else if (typeof item === 'number' || typeof item === 'string') {
+                processPrimitive(item, combinedContext);
+              }
+            }
+          }
+          visit(value, combinedContext);
+          continue;
+        }
+
+        visit(value, combinedContext);
+      }
+    };
+
+    visit(root, { sellHint: false, priceHint: false });
+  };
+
+  if (typeof getJson === 'function') {
+    const json = getJson();
+    if (json && typeof json === 'object') {
+      collectCandidatesFromJson(json);
+      if (bestCandidate !== null) {
+        return bestCandidate;
+      }
+    }
+  }
+
+  const jsonObjects = collectMexcJsonObjectsFromText(text);
+  for (const obj of jsonObjects) {
+    collectCandidatesFromJson(obj);
+    if (bestCandidate !== null) {
+      return bestCandidate;
+    }
+  }
+
   const htmlSellPriceRegexes = [
     /<[^>]*class\s*=\s*"[^"]*order-book-table_sellPrice[^"]*"[^>]*>(?<price>[^<]+)/gi,
     /<[^>]*class\s*=\s*'[^']*order-book-table_sellPrice[^']*'[^>]*>(?<price>[^<]+)/gi,
@@ -432,6 +584,54 @@ function parseMexcPreMarketPrice({ text }) {
   }
 
   return null;
+}
+
+function collectMexcJsonObjectsFromText(text) {
+  if (!text) return [];
+
+  const payloads = new Set();
+
+  const pushPayload = (payload) => {
+    if (!payload) return;
+    const trimmed = payload.trim();
+    if (!trimmed) return;
+    payloads.add(trimmed);
+  };
+
+  const scriptRegex = /<script[^>]*>(?<content>[\s\S]*?)<\/script>/gi;
+  let scriptMatch;
+  while ((scriptMatch = scriptRegex.exec(text))) {
+    const content = scriptMatch?.groups?.content ?? scriptMatch?.[1] ?? '';
+    if (!content) continue;
+
+    const trimmed = content.trim();
+    if (!trimmed) continue;
+
+    pushPayload(trimmed);
+
+    const jsonParseRegex = /JSON\.parse\(\s*"(?<json>(?:\\.|[^"\\])*)"\s*\)/gi;
+    let parseMatch;
+    while ((parseMatch = jsonParseRegex.exec(content))) {
+      const raw = parseMatch?.groups?.json ?? parseMatch?.[1];
+      if (!raw) continue;
+      try {
+        const decoded = JSON.parse(`"${raw}"`);
+        pushPayload(decoded);
+      } catch {
+        // ignore decoding issues
+      }
+    }
+  }
+
+  const objects = [];
+  for (const payload of payloads) {
+    const parsed = tryParseJsonPayload(payload);
+    if (parsed && typeof parsed === 'object') {
+      objects.push(parsed);
+    }
+  }
+
+  return objects;
 }
 
 function buildFallbackEndpoints(meta) {

@@ -1,19 +1,23 @@
 import { useEffect, useMemo, useState } from 'react';
 
 const participants = [
-  { name: '@palladium07', entries: '4х' },
+  { name: '@palladium07', entries: '5х' },
   { name: '@TonyMontana', entries: '2х' },
   { name: '@neomaster3' },
   { name: '@crypto_oleksiy' },
   { name: '@Mhaelko' },
   { name: '@Hayduchok_Ihor', entries: '3х' },
-  { name: '@deXyyy1', entries: '4х' },
   { name: '@shved21' },
   { name: '@prohor' },
-  { name: '@ANDRIY0910', entries: '2х' },
-  { name: '@ara_DokS', entries: '2х' },
-  { name: '@feeltheglowup' },
+  { name: '@ANDRIY0910', entries: '5х' },
+  { name: '@ara_DokS', entries: '3х' },
+  { name: '@feeltheglowup', entries: '2х'},
   { name: '@Iliiyaaa1' },
+  { name: '@deXyyy1', entries: '5x'},
+  { name: '@RayMAN889', entries: '4x'},
+  { name: '@Vitamin_kx', entries: '3x'},
+  { name: '@vlad280863' },
+  { name: '@Iliiyaaa1 ', entries: '3x'},
 ];
 
 const createTargetDate = () => {
