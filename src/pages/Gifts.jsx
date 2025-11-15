@@ -48,6 +48,14 @@ export default function Gifts() {
           <p className="mb-6 text-base text-gray-700 dark:text-slate-200">
             Ось п'ятірка переможців, які отримують по 20 USDT:
           </p>
+          <a
+            href="https://t.me/cryptohornetchat/60720"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="mb-6 inline-flex items-center justify-center rounded-full border border-cyan-400/50 bg-white/80 px-6 py-3 text-sm font-semibold uppercase tracking-wide text-cyan-700 shadow-[0_0_35px_rgba(34,211,238,0.35)] transition hover:-translate-y-0.5 hover:bg-cyan-50/80 dark:bg-black/40 dark:text-cyan-200"
+          >
+            Дивитися відео розіграшу
+          </a>
           <ul className="grid gap-4 sm:grid-cols-2">
             {winners.map((winner) => (
               <li
