@@ -12,7 +12,6 @@ const participants = [
   { name: '@ANDRIY0910', entries: '5х' },
   { name: '@ara_DokS', entries: '3х' },
   { name: '@feeltheglowup', entries: '2х'},
-  { name: '@Iliiyaaa1' },
   { name: '@deXyyy1', entries: '5x'},
   { name: '@RayMAN889', entries: '4x'},
   { name: '@Vitamin_kx', entries: '3x'},
