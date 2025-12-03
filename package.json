@@ -8,7 +8,8 @@
     "build": "vite build",
     "lint": "eslint .",
     "preview": "vite preview",
-    "sync:telegram": "node ./scripts/telegram-sync.js"
+    "sync:telegram": "node ./scripts/telegram-sync.js",
+    "price-reaction:run": "node ./scripts/price-reaction-job.js"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.81.0",

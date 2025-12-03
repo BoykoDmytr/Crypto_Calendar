@@ -38,6 +38,14 @@ export default function Navbar() {
               </Link>
 
               <Link
+                className={linkClasses(is('/stats'))}
+                to="/stats"
+                aria-current={is('/stats') ? 'page' : undefined}
+              >
+                Статистика
+              </Link>
+
+              <Link
                 className={linkClasses(is('/admin'))}
                 to="/admin"
                 aria-current={is('/admin') ? 'page' : undefined}
