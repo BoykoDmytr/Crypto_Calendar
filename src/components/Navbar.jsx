@@ -37,7 +37,7 @@ export default function Navbar() {
                 Івенти
               </Link>
               <Link
-                className={`${linkClasses(is('/gifts'))} nav-link--promo`}
+                className={linkClasses(is('/gifts'))}
                 to="/gifts"
                 aria-current={is('/gifts') ? 'page' : undefined}
                 aria-label="Розіграші — новий розіграш"
