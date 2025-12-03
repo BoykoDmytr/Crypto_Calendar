@@ -36,15 +36,7 @@ export default function Navbar() {
               >
                 Івенти
               </Link>
-              <Link
-                className={linkClasses(is('/gifts'))}
-                to="/gifts"
-                aria-current={is('/gifts') ? 'page' : undefined}
-                aria-label="Розіграші — новий розіграш"
-              >
-                <span>Розіграші</span>
-                <span className="nav-link__badge" aria-hidden="true">NEW</span>
-              </Link>
+
               <Link
                 className={linkClasses(is('/admin'))}
                 to="/admin"
