@@ -7,7 +7,13 @@ import EventTokenInfo from './EventTokenInfo';
 import { extractCoinEntries } from '../utils/coins';
 
 // Типи, де час НЕобов'язковий (щоб не показувати 00:00)
-const TIME_OPTIONAL = new Set(['Binance Alpha', 'OKX Alpha', 'Token Sales', 'Claim / Airdrop', 'Unlocks']);
+const TIME_OPTIONAL = new Set([
+  'Binance Alpha',
+  'OKX Alpha',
+  'Token Sales',
+  'Claim / Airdrop',
+  'Unlocks',
+]);
 
 export default function EventCard({ ev, isPast = false }) {
   const isTGE = ev?.type === 'Listing (TGE)';
@@ -17,9 +23,10 @@ export default function EventCard({ ev, isPast = false }) {
       ? nicknameRaw
       : `@${nicknameRaw}`
     : '';
+
   // Без конвертацій: показуємо як є (ми вже зберігаємо все в UTC ISO)
   const start = ev?.start_at ? dayjs(ev.start_at) : null;
-  const end   = ev?.end_at   ? dayjs(ev.end_at)   : null;
+  const end = ev?.end_at ? dayjs(ev.end_at) : null;
 
   const tokenEntries = useMemo(() => extractCoinEntries(ev), [ev]);
 
@@ -28,7 +35,6 @@ export default function EventCard({ ev, isPast = false }) {
   tge.sort((a, b) => timeStringToMinutes(a?.time) - timeStringToMinutes(b?.time));
 
   // ---------- Формуємо підпис дати/часу (БЕЗ року і БЕЗ таймзони) ----------
-    // ---------- Формуємо підпис дати/часу (БЕЗ року і БЕЗ таймзони) ----------
   let whenLabel = '';
 
   if (start) {
@@ -39,11 +45,11 @@ export default function EventCard({ ev, isPast = false }) {
     } else {
       // Чи є реальний час у start/end (не 00:00)
       const hasStartTime = !!start && (start.hour() !== 0 || start.minute() !== 0);
-      const hasEndTime   = !!end   && (end.hour()   !== 0 || end.minute()   !== 0);
+      const hasEndTime = !!end && (end.hour() !== 0 || end.minute() !== 0);
 
       if (end && !start.isSame(end, 'day')) {
         // Багатоденна: показуємо час біля дати лише якщо він є
-        const left  = start.format(hasStartTime ? 'DD MMM HH:mm' : 'DD MMM');
+        const left = start.format(hasStartTime ? 'DD MMM HH:mm' : 'DD MMM');
         const right = end.format(hasEndTime ? 'DD MMM HH:mm' : 'DD MMM');
         whenLabel = `${left} → ${right}`;
       } else {
@@ -58,13 +64,16 @@ export default function EventCard({ ev, isPast = false }) {
     }
   }
 
-
   // Ліва дата для колонки
-  const dayNum   = start ? start.format('DD') : '';
+  const dayNum = start ? start.format('DD') : '';
   const weekday3 = start ? start.format('ddd') : '';
 
   return (
-    <article className={`card event-card relative overflow-hidden ${isPast ? 'event-card--past' : ''}`}>
+    <article
+      className={`card event-card relative overflow-hidden ${
+        isPast ? 'event-card--past' : ''
+      }`}
+    >
       {/* Кнопка-олівець у правому верхньому куті */}
       <Link
         to={`/suggest/${ev.id}`}
@@ -100,13 +109,15 @@ export default function EventCard({ ev, isPast = false }) {
         <div className="flex-1 pr-12">
           <h3 className="event-title">{ev.title}</h3>
 
-          {ev.description && (
-            <p className="event-desc mt-1">{ev.description}</p>
-          )}
+          {ev.description && <p className="event-desc mt-1">{ev.description}</p>}
 
           <div className="mt-2 flex flex-wrap items-center gap-2 text-sm">
             {/* тип */}
-            <span className={`badge-type ${/* у темній темі жовтий бейдж для будь-якого типу */ ''} ${'badge-type--yellow'}`}>
+            <span
+              className={`badge-type ${
+                /* у темній темі жовтий бейдж для будь-якого типу */ ''
+              } ${'badge-type--yellow'}`}
+            >
               {ev.type}
             </span>
 
@@ -114,9 +125,7 @@ export default function EventCard({ ev, isPast = false }) {
             {whenLabel && (
               <span className="flex items-center gap-1 event-when">
                 <span>🕒</span>
-                <span>
-                  {whenLabel}
-                </span>
+                <span>{whenLabel}</span>
               </span>
             )}
 
@@ -137,21 +146,16 @@ export default function EventCard({ ev, isPast = false }) {
           {tge.length > 0 && (
             <div className="mt-3 flex flex-wrap gap-2">
               {tge.map((x, i) => (
-                <span
-                  key={`${x?.name || 'ex'}-${i}`}
-                  className="exchange-chip"
-                >
-                  {x?.name}{x?.time ? ` • ${x.time}` : ''}
+                <span key={`${x?.name || 'ex'}-${i}`} className="exchange-chip">
+                  {x?.name}
+                  {x?.time ? ` • ${x.time}` : ''}
                 </span>
               ))}
             </div>
           )}
-          {tokenEntries.length > 0 && (
-  <EventTokenInfo
-    coins={tokenEntries}
-    eventId={event.id}     // <-- оце додати
-  />
-)}
+
+          {/* токени + лайв-ціна (Debot/MEXC) */}
+          {tokenEntries.length > 0 && <EventTokenInfo coins={tokenEntries} />}
 
           {nickname && (
             <div className="mt-3 text-sm text-gray-500 dark:text-gray-400 flex justify-end">

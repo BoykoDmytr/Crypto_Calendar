@@ -1,7 +1,6 @@
 // src/components/EventTokenInfo.jsx
-import { useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useTokenPrice, formatQuantity } from '../hooks/useTokenPrice';
-import { useEventPriceReaction } from '../hooks/useEventPriceReaction';
 
 function formatCurrency(value) {
   if (value === null || value === undefined) return null;
@@ -14,27 +13,119 @@ function formatCurrency(value) {
   return new Intl.NumberFormat('en-US', opts).format(num);
 }
 
-function TokenRow({ coin, eventId }) {
+// Витягуємо BTCUSDT із лінка типу https://www.mexc.com/exchange/BTC_USDT
+function extractMexcSymbolFromLink(link) {
+  if (!link || typeof link !== 'string') return null;
+  const trimmed = link.trim().toUpperCase();
+
+  if (!/^https?:\/\//i.test(trimmed)) return null;
+  const m = trimmed.match(/\/EXCHANGE\/([A-Z0-9]+)_([A-Z0-9]+)/i);
+  if (!m) return null;
+
+  const base = m[1].toUpperCase();
+  const quote = m[2].toUpperCase();
+  return `${base}${quote}`; // BTCUSDT
+}
+
+function TokenRow({ coin }) {
   const name = (coin?.name || '').trim();
   const hasQuantity = Object.prototype.hasOwnProperty.call(coin || {}, 'quantity');
   const quantityValue = hasQuantity ? coin.quantity : null;
+
   const link = typeof coin?.price_link === 'string' ? coin.price_link.trim() : '';
+  const isMexc = /mexc\.com/i.test(link);
+  const mexcSymbol = isMexc ? extractMexcSymbolFromLink(link) : null;
 
-  // 1) t0_price з event_price_reaction
+  // 🔹 Debot — усе, що НЕ mexc
   const {
-    price: reactionPrice,
-    isLoading: reactionLoading,
-  } = useEventPriceReaction(eventId);
+    price: debotPrice,
+    loading: debotLoading,
+    error: debotError,
+  } = useTokenPrice(!isMexc ? link : null);
 
-  // 2) лайв-ціна як запасний варіант
-  const {
-    price: livePrice,
-    loading: liveLoading,
-    error: liveError,
-  } = useTokenPrice(link);
+  // 🔹 MEXC — локальний стейт
+  const [mexcPrice, setMexcPrice] = useState(null);
+  const [mexcLoading, setMexcLoading] = useState(false);
+  const [mexcError, setMexcError] = useState(null);
 
-  const basePrice = reactionPrice ?? livePrice;
-  const loading = reactionLoading || liveLoading;
+  useEffect(() => {
+    if (!isMexc || !mexcSymbol) {
+      setMexcPrice(null);
+      setMexcError(null);
+      setMexcLoading(false);
+      return;
+    }
+
+    let cancelled = false;
+    let timerId;
+
+    async function fetchPrice() {
+      if (cancelled) return;
+
+      try {
+        setMexcLoading(true);
+        setMexcError(null);
+
+        const url = `https://api.mexc.com/api/v3/ticker/price?symbol=${encodeURIComponent(
+          mexcSymbol
+        )}`;
+
+        console.debug('[MEXC] fetch', { url, mexcSymbol, name });
+
+        const res = await fetch(url);
+        if (!res.ok) {
+          const body = await res.text().catch(() => '');
+          if (!cancelled) {
+            console.error('[MEXC] non-200', res.status, body.slice(0, 200));
+            setMexcError(
+              new Error(`MEXC status ${res.status}: ${body.slice(0, 200)}`)
+            );
+            setMexcPrice(null);
+          }
+          return;
+        }
+
+        const data = await res.json();
+        const raw = data.price ?? data.lastPrice;
+        const num = Number(raw);
+
+        if (!cancelled) {
+          if (Number.isFinite(num)) {
+            setMexcPrice(num);
+          } else {
+            console.error('[MEXC] invalid price', data);
+            setMexcPrice(null);
+            setMexcError(new Error('Invalid MEXC price'));
+          }
+        }
+      } catch (e) {
+        if (!cancelled) {
+          console.error('[MEXC] fetch error', e);
+          setMexcError(e);
+          setMexcPrice(null);
+        }
+      } finally {
+        if (!cancelled) {
+          setMexcLoading(false);
+        }
+      }
+    }
+
+    // перший запит
+    fetchPrice();
+    // оновлюємо раз на хвилину
+    timerId = setInterval(fetchPrice, 60_000);
+
+    return () => {
+      cancelled = true;
+      if (timerId) clearInterval(timerId);
+    };
+  }, [isMexc, mexcSymbol, name]);
+
+  // 🔹 Вибір джерела ціни
+  const price = isMexc ? mexcPrice : debotPrice;
+  const loading = isMexc ? mexcLoading : debotLoading;
+  const error = isMexc ? mexcError : debotError;
 
   const quantityLabel = useMemo(
     () => (hasQuantity ? formatQuantity(quantityValue) : null),
@@ -43,15 +134,31 @@ function TokenRow({ coin, eventId }) {
 
   const total = useMemo(() => {
     if (!hasQuantity) return null;
-    if (basePrice === null || basePrice === undefined) return null;
-    if (!Number.isFinite(basePrice)) return null;
-    if (!Number.isFinite(quantityValue)) return null;
-    return basePrice * quantityValue;
-  }, [hasQuantity, basePrice, quantityValue]);
+    if (!Number.isFinite(price)) return null;
+
+    const q = Number(quantityValue);
+    if (!Number.isFinite(q)) return null;
+
+    return price * q;
+  }, [hasQuantity, price, quantityValue]);
 
   const totalLabel = useMemo(() => formatCurrency(total), [total]);
+  const showPriceInfo = hasQuantity && Boolean(link);
 
-  const showPriceInfo = Boolean(link) && hasQuantity;
+  // DEBUG: що реально приходить у рядок
+  console.debug('[EventTokenInfo:TokenRow]', {
+    name,
+    link,
+    isMexc,
+    mexcSymbol,
+    hasQuantity,
+    quantityValue,
+    price,
+    total,
+    totalLabel,
+    loading,
+    error,
+  });
 
   return (
     <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-sm sm:text-base">
@@ -69,17 +176,17 @@ function TokenRow({ coin, eventId }) {
           <span className="token-panel__label">
             <span className="token-panel__value">{totalLabel}</span>
           </span>
+        ) : error ? (
+          <span className="token-panel__error">Очікуємо ціну</span>
         ) : (
-          <span className="token-panel__error">
-            {liveError ? 'Очікуємо ціну' : 'Очікуємо ціну'}
-          </span>
+          <span className="token-panel__muted">Очікуємо ціну…</span>
         )
       )}
     </div>
   );
 }
 
-export default function EventTokenInfo({ coins = [], eventId }) {
+export default function EventTokenInfo({ coins = [] }) {
   const entries = Array.isArray(coins)
     ? coins.filter(
         (coin) =>
@@ -94,11 +201,7 @@ export default function EventTokenInfo({ coins = [], eventId }) {
   return (
     <div className="mt-3 space-y-2">
       {entries.map((coin, index) => (
-        <TokenRow
-          key={`${coin?.name || 'coin'}-${index}`}
-          coin={coin}
-          eventId={eventId}
-        />
+        <TokenRow key={`${coin?.name || 'coin'}-${index}`} coin={coin} />
       ))}
     </div>
   );

@@ -67,36 +67,100 @@ class MexcClient {
   }
 
   async getPriceAt(pair, timestampUtc) {
-    const startTime = dayjs.utc(timestampUtc).valueOf();
+    const center = dayjs.utc(timestampUtc).valueOf();
+    // вікно +- 1 хвилина навколо моменту івенту
+    const startTime = center - 60_000;
+    const endTime = center + 60_000;
 
     try {
       const url = new URL('/api/v3/klines', this.baseUrl);
-      url.searchParams.set('symbol', pair);      // наприклад BTCUSDT
+      url.searchParams.set('symbol', pair);        // BTCUSDT
       url.searchParams.set('interval', '1m');
-      url.searchParams.set('startTime', startTime);
-      url.searchParams.set('limit', 1);
+      url.searchParams.set('startTime', String(startTime));
+      url.searchParams.set('endTime', String(endTime));
+      url.searchParams.set('limit', '1');
 
       const res = await fetch(url);
       if (!res.ok) {
-        log(`MEXC responded with status ${res.status}`, { pair, timestampUtc });
-        return null;
+        const text = await res.text().catch(() => '');
+        log(`MEXC klines status ${res.status}`, {
+          pair,
+          timestampUtc,
+          body: text?.slice(0, 200),
+        });
+        // запасний варіант — просто остання ціна
+        return this.getSpotTickerPrice(pair);
       }
 
       const data = await res.json();
       if (Array.isArray(data) && data.length > 0) {
-        const kline = data[0];       // [openTime, open, high, low, close, ...]
+        const kline = data[0]; // [openTime, open, high, low, close, ...]
         const openPrice = Array.isArray(kline) ? kline[1] : null;
         const num = Number(openPrice);
-        return Number.isFinite(num) ? num : null;
+        if (Number.isFinite(num)) return num;
       }
 
-      return null;
+      // якщо kline порожній — пробуємо ще раз через ticker
+      return this.getSpotTickerPrice(pair);
     } catch (error) {
-      log('Failed to fetch price from MEXC', { error: error.message, pair, timestampUtc });
+      log('Failed to fetch price from MEXC klines', {
+        error: error.message,
+        pair,
+        timestampUtc,
+      });
+      return this.getSpotTickerPrice(pair);
+    }
+  }
+
+  async getSpotTickerPrice(pair) {
+    try {
+      const url = new URL('/api/v3/ticker/price', this.baseUrl);
+      url.searchParams.set('symbol', pair);
+
+      const res = await fetch(url);
+      if (!res.ok) {
+        const text = await res.text().catch(() => '');
+        log(`MEXC ticker price status ${res.status}`, {
+          pair,
+          body: text?.slice(0, 200),
+        });
+        return null;
+      }
+
+      const data = await res.json();
+      const raw = data.price ?? data.lastPrice;
+      const num = Number(raw);
+      return Number.isFinite(num) ? num : null;
+    } catch (error) {
+      log('Failed to fetch price from MEXC ticker', {
+        error: error.message,
+        pair,
+      });
       return null;
     }
   }
 }
+
+function safeParseCoins(raw) {
+  if (!raw) return [];
+  if (Array.isArray(raw)) return raw;
+
+  if (typeof raw === 'string') {
+    try {
+      const parsed = JSON.parse(raw);
+      return Array.isArray(parsed) ? parsed : [];
+    } catch (error) {
+      log('Failed to parse coins JSON', {
+        snippet: raw.slice(0, 120),
+        error: error.message,
+      });
+      return [];
+    }
+  }
+
+  return [];
+}
+
 
 function extractPairFromLink(raw) {
   if (!raw) return null;
@@ -132,23 +196,8 @@ function extractPairFromLink(raw) {
 
 
 function pickMarket(event) {
-  const exchanges = Array.isArray(event.tge_exchanges) ? event.tge_exchanges : [];
-
-  // Якщо в tge_exchanges вже збережена пара — використовуємо її
-  const entry =
-    exchanges.find(
-      (item) =>
-        item &&
-        typeof item.pair === 'string' &&
-        item.pair.toUpperCase().includes('USDT')
-    ) || exchanges[0];
-
-  if (entry && entry.pair) {
-    return { pair: entry.pair.toUpperCase(), exchange: entry.exchange || null };
-  }
-
-  // Інакше дивимося на поля з форми події
-  const coins = Array.isArray(event.coins) ? event.coins : [];
+  // 1) Спочатку пробуємо витягти пару з coins / coin_price_link / link
+  const coins = safeParseCoins(event.coins);
   const primaryCoin = coins[0] || null;
 
   const linkCandidate =
@@ -160,12 +209,36 @@ function pickMarket(event) {
   const pairFromLink = extractPairFromLink(linkCandidate);
 
   if (pairFromLink) {
-    return { pair: pairFromLink, exchange: null };
+    return {
+      pair: pairFromLink,
+      // Можеш за бажанням використати exchange для відладки
+      exchange: linkCandidate.includes('mexc.com') ? 'MEXC' : null,
+    };
   }
 
-  // якщо нічого не розпізнали — скіпаємо
+  // 2) Якщо в лінках нічого не знайшли – фолбек на tge_exchanges
+  const exchanges = Array.isArray(event.tge_exchanges)
+    ? event.tge_exchanges
+    : [];
+
+  const entry = exchanges.find(
+    (item) =>
+      item &&
+      typeof item.pair === 'string' &&
+      item.pair.trim().length > 0
+  );
+
+  if (entry) {
+    return {
+      pair: entry.pair.toUpperCase(),
+      exchange: entry.exchange || null,
+    };
+  }
+
+  // 3) Взагалі нічого не знайшли – скіпаємо івент
   return null;
 }
+
 
 
 
@@ -246,6 +319,15 @@ async function upsertReaction({ supabase, debot, mexc, event, existing }) {
 
   const preference = resolvePricePreference(event);
 
+  // 🔽 ОЦЕ МИ ДОДАЛИ
+  log('Processing event for price reaction', {
+    eventId: event.id,
+    title: event.title,
+    pair: market.pair,
+    preference,
+  });
+  // 🔼 ДО СЮДИ
+
   async function getPrice(pair, isoTimestamp) {
     if (preference === 'mexc') {
       const fromMexc = await mexc.getPriceAt(pair, isoTimestamp);
@@ -316,6 +398,7 @@ async function upsertReaction({ supabase, debot, mexc, event, existing }) {
     log('Failed to update price reaction', { error: error.message, eventId: event.id });
   }
 }
+
 
 
 async function main() {
