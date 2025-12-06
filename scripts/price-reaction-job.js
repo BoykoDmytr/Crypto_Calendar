@@ -8,8 +8,8 @@ import utc from 'dayjs/plugin/utc.js';
 dayjs.extend(utc);
 
 const KYIV_TZ = 'Europe/Kyiv';
-const TOURNAMENT_SLUGS = new Set(['binance_tournament']);
-const TOURNAMENT_TYPES = new Set(['Binance Tournaments']);
+const TOURNAMENT_SLUGS = new Set(['binance_tournament', 'ts_bybit']);
+const TOURNAMENT_TYPES = new Set(['Binance Tournaments', 'TS Bybit'])
 
 function log(message, extra = {}) {
   const ts = new Date().toISOString();
@@ -87,7 +87,7 @@ async function fetchEvents(supabase) {
   const now = new Date().toISOString();
   const orFilter = [
     ...Array.from(TOURNAMENT_SLUGS).map((slug) => `event_type_slug.eq.${slug}`),
-    ...Array.from(TOURNAMENT_TYPES).map((value) => `type.eq.${value.replace(/ /g, '%20')}`),
+    ...Array.from(TOURNAMENT_TYPES).map((value) => `type.eq."${value}"`),
   ].join(',');
 
   const { data, error } = await supabase

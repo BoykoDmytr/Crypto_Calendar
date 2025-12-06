@@ -1,7 +1,7 @@
 import { supabase } from './supabase';
 
-const TOURNAMENT_SLUGS = ['binance_tournament'];
-const TOURNAMENT_TYPES = ['Binance Tournaments'];
+const TOURNAMENT_SLUGS = ['binance_tournament', 'ts_bybit'];
+const TOURNAMENT_TYPES = ['Binance Tournaments', 'TS Bybit'];
 
 export async function fetchCompletedTournaments() {
   const now = new Date().toISOString();

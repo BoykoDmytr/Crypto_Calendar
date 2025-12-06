@@ -42,8 +42,43 @@ function formatPrice(price) {
   return Number(price);
 }
 
+function deriveTrend(prices) {
+  if (prices.length < 2) return 'unknown';
+  const first = prices[0];
+  const last = prices[prices.length - 1];
+  if (last > first) return 'up';
+  if (last < first) return 'down';
+  return 'flat';
+}
+
+function chartColor(trend) {
+  if (trend === 'up') return '#22c55e';
+  if (trend === 'down') return '#ef4444';
+  if (trend === 'flat') return '#f59e0b';
+  return '#9ca3af';
+}
+
+function buildSparkline(prices, width = 180, height = 48) {
+  if (prices.length < 2) return '';
+  const min = Math.min(...prices);
+  const max = Math.max(...prices);
+  const range = max - min || 1;
+  const step = width / (prices.length - 1);
+  const points = prices.map((price, index) => {
+    const x = index * step;
+    const y = height - ((price - min) / range) * height;
+    return `${x},${y}`;
+  });
+  return points.join(' ');
+}
+
 export default function PriceReactionCard({ item }) {
   const { title, startAt, type, priceReaction, coinName, timezone, pair } = item;
+  const pricePoints = priceReaction
+    .filter((entry) => entry.price !== null && entry.price !== undefined)
+    .map((entry) => Number(entry.price));
+  const trend = deriveTrend(pricePoints);
+  const sparkline = buildSparkline(pricePoints);
 
   return (
     <article className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3 shadow-sm dark:border-white/10">
@@ -56,11 +91,40 @@ export default function PriceReactionCard({ item }) {
       <h3 className="font-semibold text-base sm:text-lg leading-snug line-clamp-2">{title}</h3>
       <p className="text-sm text-gray-500 dark:text-gray-400">{formatDate(startAt, timezone)}{coinName ? ` · ${coinName}` : ''}</p>
 
-      <div className="mt-3 rounded-xl border border-white/10 bg-white/5 dark:bg-white/5">
-        <div className="px-4 py-3 border-b border-white/5 flex justify-between text-xs text-gray-500 dark:text-gray-400">
+      <div className="mt-3 rounded-xl border border-white/10 bg-white/5 dark:bg-white/5 divide-y divide-white/5">
+        <div className="px-4 py-3 flex items-center justify-between text-xs text-gray-500 dark:text-gray-400">
           <span>Price Reaction</span>
-          <span>UTC base</span>
+          <span className="flex items-center gap-2">
+            <span>UTC base</span>
+            <span
+              className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-semibold"
+              style={{
+                backgroundColor: `${chartColor(trend)}20`,
+                color: chartColor(trend),
+              }}
+            >
+              {trend === 'up' && '▲'}
+              {trend === 'flat' && '▬'}
+              {trend === 'down' && '▼'}
+              {trend === 'unknown' && '•'}
+              <span className="hidden sm:inline">Trend</span>
+            </span>
+          </span>
         </div>
+        {sparkline && (
+          <div className="px-4 py-3">
+            <svg viewBox="0 0 180 48" className="w-full h-12">
+              <polyline
+                fill="none"
+                stroke={chartColor(trend)}
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                points={sparkline}
+              />
+            </svg>
+          </div>
+        )}
         <div className="divide-y divide-white/5">
           {priceReaction.map((entry) => (
             <div key={entry.label} className="flex items-center justify-between px-4 py-2 text-sm">
