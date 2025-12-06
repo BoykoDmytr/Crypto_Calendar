@@ -146,7 +146,13 @@ export default function EventCard({ ev, isPast = false }) {
               ))}
             </div>
           )}
-          {tokenEntries.length > 0 && <EventTokenInfo coins={tokenEntries} />}
+          {tokenEntries.length > 0 && (
+  <EventTokenInfo
+    coins={tokenEntries}
+    eventId={event.id}     // <-- оце додати
+  />
+)}
+
           {nickname && (
             <div className="mt-3 text-sm text-gray-500 dark:text-gray-400 flex justify-end">
               <span>{nickname}</span>

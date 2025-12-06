@@ -612,12 +612,12 @@ export default function EventForm({ onSubmit, loading, initial = {} }) {
                     />
                   </div>
                   <div>
-                    <label className="label">Посилання на ціну (Debot)</label>
+                    <label className="label">Посилання на ціну (Debot/MEXC)</label>
                     <input
                       className="input"
                       value={coin?.price_link || ''}
                       onChange={(e) => updateCoin(index, 'price_link', e.target.value)}
-                      placeholder="https://debot.ai/token/..."
+                      placeholder="https://debot.ai/token/... або https://www.mexc.com/exchange/COIN_USDT"
                     />
                   </div>
                 </div>
@@ -634,8 +634,8 @@ export default function EventForm({ onSubmit, loading, initial = {} }) {
               + Додати монету
             </button>
             <p className="text-xs text-gray-500">
-              Вкажіть монету, її кількість і посилання на Debot — ми автоматично підтягнемо USD-ціну й оновлюватимемо її
-              щохвилини.
+               Вкажіть монету, її кількість і посилання на Debot або MEXC — ми автоматично підтягнемо USD-ціну й
+              оновлюватимемо її щохвилини. Якщо посилання містить <code>mexc.com</code>, ціна братиметься з MEXC; якщо <code>debot.ai</code> — з Debot.
             </p>
           </div>
         )}

@@ -48,6 +48,42 @@ export async function fetchCompletedTournaments() {
 const DEBOT_BASE_URL = import.meta.env.VITE_DEBOT_BASE_URL;
 const DEBOT_API_KEY = import.meta.env.VITE_DEBOT_API_KEY;
 const DEBOT_PRICE_PATH = import.meta.env.VITE_DEBOT_PRICE_PATH || '/v1/price';
+// MEXC public API base URL. Uses VITE_MEXC_BASE_URL if defined, otherwise defaults to official endpoint.
+const MEXC_BASE_URL = import.meta.env.VITE_MEXC_BASE_URL || 'https://api.mexc.com';
+
+/**
+ * Fetch price of a pair from MEXC at a given UTC timestamp.
+ * It queries the 1-minute kline and returns the opening price of the candle.
+ *
+ * @param {string} pair Symbol of the trading pair, e.g. "BTCUSDT".
+ * @param {string} timestampUtc ISO timestamp in UTC.
+ * @returns {Promise<number|null>} Price if available, otherwise null.
+ */
+async function fetchMexcPriceAt(pair, timestampUtc) {
+  try {
+    const startTime = dayjs.utc(timestampUtc).valueOf();
+    const url = new URL('/api/v3/klines', MEXC_BASE_URL);
+    url.searchParams.set('symbol', pair);
+    url.searchParams.set('interval', '1m');
+    url.searchParams.set('startTime', startTime);
+    url.searchParams.set('limit', 1);
+    const res = await fetch(url);
+    if (!res.ok) {
+      return null;
+    }
+    const data = await res.json();
+    if (Array.isArray(data) && data.length > 0) {
+      const kline = data[0];
+      const openPrice = Array.isArray(kline) ? kline[1] : null;
+      const priceNum = Number(openPrice);
+      return Number.isFinite(priceNum) ? priceNum : null;
+    }
+    return null;
+  } catch (error) {
+    console.error('MEXC price lookup failed', error);
+    return null;
+  }
+}
 
 function pickMarket(event) {
   const exchanges = Array.isArray(event.tge_exchanges) ? event.tge_exchanges : [];
@@ -75,23 +111,33 @@ function calcPercent(basePrice, nextPrice) {
 }
 
 async function fetchPriceAt(pair, timestampUtc) {
-  if (!DEBOT_BASE_URL) return null;
-  try {
-    const url = new URL(DEBOT_PRICE_PATH, DEBOT_BASE_URL);
-    url.searchParams.set('pair', pair);
-    url.searchParams.set('timestamp', dayjs.utc(timestampUtc).toISOString());
-    const res = await fetch(url, {
-      headers: DEBOT_API_KEY ? { Authorization: `Bearer ${DEBOT_API_KEY}` } : undefined,
-    });
-    if (!res.ok) return null;
-    const payload = await res.json();
-    if (typeof payload.price === 'number') return payload.price;
-    if (payload.data && typeof payload.data.price === 'number') return payload.data.price;
-    return null;
-  } catch (error) {
-    console.error('DEBOT price lookup failed', error);
-    return null;
+  // try DEBOT first
+  let price = null;
+  if (DEBOT_BASE_URL) {
+    try {
+      const url = new URL(DEBOT_PRICE_PATH, DEBOT_BASE_URL);
+      url.searchParams.set('pair', pair);
+      url.searchParams.set('timestamp', dayjs.utc(timestampUtc).toISOString());
+      const res = await fetch(url, {
+        headers: DEBOT_API_KEY ? { Authorization: `Bearer ${DEBOT_API_KEY}` } : undefined,
+      });
+      if (res.ok) {
+        const payload = await res.json();
+        if (typeof payload.price === 'number') {
+          price = payload.price;
+        } else if (payload.data && typeof payload.data.price === 'number') {
+          price = payload.data.price;
+        }
+      }
+    } catch (error) {
+      console.error('DEBOT price lookup failed', error);
+    }
   }
+  // fallback to MEXC if no price from Debot
+  if (price === null || price === undefined) {
+    return fetchMexcPriceAt(pair, timestampUtc);
+  }
+  return price;
 }
 
 export async function triggerPriceReactionJob() {

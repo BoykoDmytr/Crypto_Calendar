@@ -9,13 +9,14 @@
     "lint": "eslint .",
     "preview": "vite preview",
     "sync:telegram": "node ./scripts/telegram-sync.js",
-    "price-reaction:run": "node ./scripts/price-reaction-job.js"
+    "price:reaction": "node -r dotenv/config scripts/price-reaction-job.js"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.81.0",
     "@vercel/analytics": "^1.5.0",
     "@vercel/speed-insights": "^1.2.0",
     "dayjs": "^1.11.18",
+    "dotenv": "^17.2.3",
     "react": "^19.1.1",
     "react-dom": "^19.1.1",
     "react-router-dom": "^7.9.3"
