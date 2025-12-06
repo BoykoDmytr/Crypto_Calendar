@@ -37,6 +37,7 @@ export default function Navbar() {
                 Івенти
               </Link>
 
+              {/*
               <Link
                 className={linkClasses(is('/stats'))}
                 to="/stats"
@@ -44,6 +45,7 @@ export default function Navbar() {
               >
                 Статистика
               </Link>
+              */}
 
               <Link
                 className={linkClasses(is('/admin'))}
