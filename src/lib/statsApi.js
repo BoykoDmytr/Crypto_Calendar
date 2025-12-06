@@ -12,8 +12,10 @@ export async function fetchCompletedTournaments() {
 
   const { data, error } = await supabase
     .from('event_price_reaction')
-    .select('*, events_approved!inner(id, title, start_at, type, event_type_slug, coin_name, timezone)')
-    .lte('events_approved.start_at', now)
+    .select(
+      '*, events_approved!event_price_reaction_event_id_fkey(id, title, start_at, type, event_type_slug, coin_name, timezone)'
+    )
+    .lte('t0_time', now)
     .or(orFilter, { foreignTable: 'events_approved' })
     .order('t0_time', { ascending: false });
 
