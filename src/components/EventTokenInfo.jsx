@@ -6,10 +6,12 @@ function formatCurrency(value) {
   if (value === null || value === undefined) return null;
   const num = Number(value);
   if (!Number.isFinite(num)) return null;
+
   const opts =
     num < 1
       ? { style: 'currency', currency: 'USD', maximumFractionDigits: 6 }
       : { style: 'currency', currency: 'USD', maximumFractionDigits: 2 };
+
   return new Intl.NumberFormat('en-US', opts).format(num);
 }
 
@@ -36,7 +38,7 @@ function TokenRow({ coin }) {
   const isMexc = /mexc\.com/i.test(link);
   const mexcSymbol = isMexc ? extractMexcSymbolFromLink(link) : null;
 
-  // 🔹 Debot — усе, що НЕ mexc
+  // 🔹 Debot — усе, що НЕ MEXC
   const {
     price: debotPrice,
     loading: debotLoading,
@@ -66,11 +68,24 @@ function TokenRow({ coin }) {
         setMexcLoading(true);
         setMexcError(null);
 
-        const url = `https://api.mexc.com/api/v3/ticker/price?symbol=${encodeURIComponent(
+        // Базовий URL MEXC
+        const baseUrl = 'https://api.mexc.com/api/v3/ticker/price';
+        // Додаємо параметр з міткою часу, щоб уникати кешу
+        const originalUrl = `${baseUrl}?symbol=${encodeURIComponent(
           mexcSymbol
+        )}&_=${Date.now()}`;
+
+        // Через CORS-проксі allorigins (інакше браузер блокує запит)
+        const url = `https://api.allorigins.win/raw?url=${encodeURIComponent(
+          originalUrl
         )}`;
 
-        console.debug('[MEXC] fetch', { url, mexcSymbol, name });
+        console.debug('[MEXC] fetch via proxy', {
+          originalUrl,
+          proxyUrl: url,
+          mexcSymbol,
+          name,
+        });
 
         const res = await fetch(url);
         if (!res.ok) {
@@ -169,8 +184,8 @@ function TokenRow({ coin }) {
         {name && <span className="token-panel__name">{name}</span>}
       </div>
 
-      {showPriceInfo && (
-        loading ? (
+      {showPriceInfo &&
+        (loading ? (
           <span className="token-panel__muted">Оновлюємо ціну…</span>
         ) : totalLabel ? (
           <span className="token-panel__label">
@@ -180,8 +195,7 @@ function TokenRow({ coin }) {
           <span className="token-panel__error">Очікуємо ціну</span>
         ) : (
           <span className="token-panel__muted">Очікуємо ціну…</span>
-        )
-      )}
+        ))}
     </div>
   );
 }

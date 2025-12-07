@@ -44,11 +44,15 @@ export function useMexcLivePrice(source) {
         setLoading(true);
         setError(null);
 
-        const url = `https://api.mexc.com/api/v3/ticker/price?symbol=${encodeURIComponent(
+        const baseUrl = 'https://api.mexc.com/api/v3/ticker/price';
+        const originalUrl = `${baseUrl}?symbol=${encodeURIComponent(
           symbol
+        )}&_=${Date.now()}`;
+        const url = `https://api.allorigins.win/raw?url=${encodeURIComponent(
+          originalUrl
         )}`;
 
-        console.debug('[MEXC] fetch', url);
+        console.debug('[MEXC] fetch via proxy', { originalUrl, proxyUrl: url });
 
         const res = await fetch(url);
         if (!res.ok) {
@@ -89,8 +93,8 @@ export function useMexcLivePrice(source) {
       }
     }
 
-    fetchPrice();                        // перший запит
-    timerId = setInterval(fetchPrice, 60_000); // далі раз/хв
+    fetchPrice();                         // перший запит
+    timerId = setInterval(fetchPrice, 60_000); // далі раз на хвилину
 
     return () => {
       cancelled = true;
