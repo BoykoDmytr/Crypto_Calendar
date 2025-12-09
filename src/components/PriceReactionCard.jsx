@@ -124,6 +124,16 @@ function calcOverallChange(base, next) {
   return ((n - b) / b) * 100;
 }
 
+function formatDeltaLabel(value) {
+  if (value === null || value === undefined) return '';
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) return '';
+  const rounded = Number(numeric.toFixed(2));
+  const normalized = Object.is(rounded, -0) ? 0 : rounded;
+  const sign = normalized > 0 ? '+' : '';
+  return `${sign}${normalized.toFixed(2)}%`;
+}
+
 export default function PriceReactionCard({ item }) {
   const { title, startAt, type, priceReaction, coinName, timezone, pair } = item;
   // Extract numeric price points for the sparkline
@@ -135,6 +145,37 @@ export default function PriceReactionCard({ item }) {
   const overallChange =
     pricePoints.length >= 2 ? calcOverallChange(pricePoints[0], pricePoints[pricePoints.length - 1]) : null;
 
+
+  const deltaLabels = pricePoints
+    .slice(0, -1)
+    .map((base, idx) => {
+      const next = pricePoints[idx + 1];
+      const change = calcOverallChange(base, next);
+      const label = formatDeltaLabel(change);
+      if (!label) return null;
+
+      const pointA = points[idx];
+      const pointB = points[idx + 1];
+      const dx = (pointB?.x ?? 0) - (pointA?.x ?? 0);
+      const dy = (pointB?.y ?? 0) - (pointA?.y ?? 0);
+      const length = Math.hypot(dx, dy) || 1;
+      const normX = dx / length;
+      const normY = dy / length;
+      const perpX = -normY;
+      const perpY = normX;
+      const offset = 10;
+      const x = (pointB?.x ?? 0) - normX * 4 + perpX * (change >= 0 ? -offset : offset);
+      const y = (pointB?.y ?? 0) - normY * 4 + perpY * (change >= 0 ? -offset : offset);
+      const color = chartColor(change > 0 ? 'up' : change < 0 ? 'down' : 'flat');
+
+      return {
+        label,
+        x,
+        y,
+        color,
+      };
+    })
+    .filter(Boolean);
   const sparkWidth = 240;
   const sparkHeight = 64;
 
@@ -209,6 +250,38 @@ export default function PriceReactionCard({ item }) {
                   points={seg.points}
                 />
               ))}
+              {deltaLabels.map((delta, idx) => {
+                const textWidth = Math.max(38, delta.label.length * 6 + 12);
+                const textHeight = 18;
+                const clampedX = Math.min(Math.max(delta.x - textWidth / 2, 4), sparkWidth - textWidth - 4);
+                const clampedY = Math.min(Math.max(delta.y - textHeight / 2, 2), sparkHeight - textHeight - 2);
+
+                return (
+                  <g key={idx}>
+                    <rect
+                      x={clampedX}
+                      y={clampedY}
+                      width={textWidth}
+                      height={textHeight}
+                      rx="8"
+                      ry="8"
+                      fill={`${delta.color}1f`}
+                      stroke={delta.color}
+                      strokeWidth="1"
+                    />
+                    <text
+                      x={clampedX + textWidth / 2}
+                      y={clampedY + textHeight / 2 + 3}
+                      textAnchor="middle"
+                      fill={delta.color}
+                      fontSize="10"
+                      fontWeight="700"
+                    >
+                      {delta.label}
+                    </text>
+                  </g>
+                );
+              })}
               {points.map((pt, idx) => (
                 <g key={idx}>
                   <circle cx={pt.x} cy={pt.y} r="3.5" fill="#0b0d13" stroke="#1f2937" strokeWidth="1.5" />
