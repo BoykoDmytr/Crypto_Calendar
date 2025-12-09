@@ -121,30 +121,40 @@ export default function Stats() {
 
   return (
     <div className="space-y-6">
-      <header className="space-y-3">
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-          <div>
-            <h1 className="text-2xl font-bold">Статистика</h1>
-            <p className="text-sm text-gray-600 dark:text-gray-400 max-w-md">
+      <header className="relative overflow-hidden rounded-2xl border border-white/5 bg-gradient-to-r from-[#121624] via-[#0e1220] to-[#0b101a] p-5 shadow-xl">
+        <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_20%_20%,#22d3ee12,transparent_35%),radial-gradient(circle_at_80%_0,#22c55e14,transparent_30%)]" aria-hidden />
+        <div className="relative flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+          <div className="space-y-2 max-w-2xl">
+            <div className="flex flex-wrap items-center gap-2 text-xs uppercase tracking-wide text-emerald-300/80 font-semibold">
+              <span className="rounded-full bg-emerald-500/10 border border-emerald-500/20 px-2 py-1">Live tracker</span>
+              <span className="rounded-full bg-white/5 border border-white/10 px-2 py-1 text-gray-300">T0 · +5 · +15 хв</span>
+            </div>
+            <h1 className="text-2xl font-bold text-white">Статистика</h1>
+            <p className="text-sm text-gray-300">
               Автоматичний трекінг Binance Tournaments та TS Bybit у моменти T0, +5 та +15 хвилин. Додані
               івенти з цих категорій зʼявляються тут автоматично.
             </p>
+            <div className="flex flex-wrap gap-2 text-xs text-gray-400">
+              <span className="rounded-full bg-white/5 px-2 py-1 border border-white/10">Автооновлення щохвилини</span>
+              <span className="rounded-full bg-white/5 px-2 py-1 border border-white/10">Слухаємо нові івенти</span>
+            </div>
           </div>
           <button
             type="button"
             onClick={runJob}
             disabled={running}
-            className="inline-flex items-center justify-center rounded-md bg-emerald-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-emerald-500 disabled:opacity-60"
+            className="relative inline-flex items-center gap-2 rounded-xl border border-emerald-400/30 bg-emerald-500/15 px-4 py-2 text-sm font-semibold text-emerald-100 shadow-[0_10px_30px_-12px_rgba(16,185,129,0.7)] transition hover:border-emerald-300/60 hover:bg-emerald-500/25 disabled:opacity-60"
           >
+            <span className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-emerald-400/20 text-emerald-200 text-sm">↺</span>
             {running ? 'Запускаємо…' : 'Оновити статистику'}
           </button>
         </div>
         {jobInfo && (
-          <p className="text-sm text-emerald-600 dark:text-emerald-300">
+           <p className="relative mt-3 text-sm text-emerald-200">
             {jobInfo}
           </p>
         )}
-        {jobError && <p className="text-sm text-red-500">{jobError}</p>}
+        {jobError && <p className="relative mt-3 text-sm text-red-400">{jobError}</p>}
       </header>
 
       {loading && <p className="text-sm text-gray-600">Завантаження…</p>}
