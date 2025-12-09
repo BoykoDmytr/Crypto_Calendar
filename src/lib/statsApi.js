@@ -2,6 +2,7 @@
 import { supabase } from './supabase';
 import dayjs from 'dayjs';
 import utc from 'dayjs/plugin/utc';
+import { fetchMexcTickerPrice as fetchMexcTickerPriceShared } from '../utils/fetchMexcTicker';
 
 dayjs.extend(utc);
 
@@ -69,8 +70,6 @@ const DEBOT_BASE_URL = import.meta.env.VITE_DEBOT_BASE_URL || null;
 const DEBOT_API_KEY = import.meta.env.VITE_DEBOT_API_KEY || null;
 const DEBOT_PRICE_PATH = import.meta.env.VITE_DEBOT_PRICE_PATH || '/v1/price';
 
-const MEXC_BASE_URL = import.meta.env.VITE_MEXC_BASE_URL || 'https://api.mexc.com';
-
 /**
  * Нормалізуємо символ для MEXC:
  *  - "LTC_USDT" → "LTCUSDT"
@@ -89,33 +88,11 @@ function normalizeMexcSymbol(raw) {
  * Поточна ціна з тікера MEXC.
  */
 async function fetchMexcTickerPrice(apiPair) {
-  try {
     if (!apiPair) return null;
 
-    const tickerUrl = new URL('/api/v3/ticker/price', MEXC_BASE_URL);
-    tickerUrl.searchParams.set('symbol', apiPair);
-    tickerUrl.searchParams.set('_', Date.now().toString());
-
-    const proxyUrl = `https://api.allorigins.win/raw?url=${encodeURIComponent(
-      tickerUrl.toString()
-    )}`;
-
-    const res = await fetch(proxyUrl);
-    if (!res.ok) {
-      const txt = await res.text().catch(() => '');
-      console.error('[MEXC] ticker error', apiPair, res.status, txt.slice(0, 200));
-      return null;
-    }
-
-    const data = await res.json();
-    const raw = data.price ?? data.lastPrice;
-    const num = Number(raw);
-    if (!Number.isFinite(num)) {
-      console.error('[MEXC] ticker invalid price', apiPair, data);
-      return null;
-    }
-
-    return num;
+    try {
+    const { price } = await fetchMexcTickerPriceShared(apiPair, { timeoutMs: 8_000 });
+    return price;
   } catch (error) {
     console.error('[MEXC] ticker failed', apiPair, error);
     return null;

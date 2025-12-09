@@ -1,5 +1,6 @@
 // src/hooks/useMexcLivePrice.js
 import { useEffect, useMemo, useState } from 'react';
+import { fetchMexcTickerPrice, buildMexcTickerUrl } from '../utils/fetchMexcTicker';
 
 // source: або повний mexc-лінк, або symbol типу "BTCUSDT"
 function normalizeMexcSymbol(source) {
@@ -44,41 +45,13 @@ export function useMexcLivePrice(source) {
         setLoading(true);
         setError(null);
 
-        const baseUrl = 'https://api.mexc.com/api/v3/ticker/price';
-        const originalUrl = `${baseUrl}?symbol=${encodeURIComponent(
-          symbol
-        )}&_=${Date.now()}`;
-        const url = `https://api.allorigins.win/raw?url=${encodeURIComponent(
-          originalUrl
-        )}`;
+        const urlCandidates = buildMexcTickerUrl(symbol);
+        const { price } = await fetchMexcTickerPrice(symbol);
 
-        console.debug('[MEXC] fetch via proxy', { originalUrl, proxyUrl: url });
-
-        const res = await fetch(url);
-        if (!res.ok) {
-          const body = await res.text().catch(() => '');
-          if (!cancelled) {
-            console.error('[MEXC] non-200', res.status, body.slice(0, 200));
-            setError(
-              new Error(`MEXC status ${res.status}: ${body.slice(0, 200)}`)
-            );
-            setPrice(null);
-          }
-          return;
-        }
-
-        const data = await res.json();
-        const raw = data.price ?? data.lastPrice;
-        const num = Number(raw);
+        console.debug('[MEXC] fetched ticker', { ...urlCandidates, symbol, price });
 
         if (!cancelled) {
-          if (Number.isFinite(num)) {
-            setPrice(num);
-          } else {
-            console.error('[MEXC] invalid price', data);
-            setPrice(null);
-            setError(new Error('Invalid price from MEXC'));
-          }
+          setPrice(price);
         }
       } catch (e) {
         if (!cancelled) {

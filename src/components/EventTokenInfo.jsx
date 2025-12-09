@@ -1,6 +1,7 @@
 // src/components/EventTokenInfo.jsx
 import { useEffect, useMemo, useState } from 'react';
 import { useTokenPrice, formatQuantity } from '../hooks/useTokenPrice';
+import { fetchMexcTickerPrice, buildMexcTickerUrl } from '../utils/fetchMexcTicker';
 
 function formatCurrency(value) {
   if (value === null || value === undefined) return null;
@@ -68,50 +69,18 @@ function TokenRow({ coin }) {
         setMexcLoading(true);
         setMexcError(null);
 
-        // Базовий URL MEXC
-        const baseUrl = 'https://api.mexc.com/api/v3/ticker/price';
-        // Додаємо параметр з міткою часу, щоб уникати кешу
-        const originalUrl = `${baseUrl}?symbol=${encodeURIComponent(
-          mexcSymbol
-        )}&_=${Date.now()}`;
+        const urlCandidates = buildMexcTickerUrl(mexcSymbol);
+        const { price } = await fetchMexcTickerPrice(mexcSymbol);
 
-        // Через CORS-проксі allorigins (інакше браузер блокує запит)
-        const url = `https://api.allorigins.win/raw?url=${encodeURIComponent(
-          originalUrl
-        )}`;
-
-        console.debug('[MEXC] fetch via proxy', {
-          originalUrl,
-          proxyUrl: url,
+        console.debug('[MEXC] fetched ticker', {
+          ...urlCandidates,
           mexcSymbol,
           name,
+          price,
         });
 
-        const res = await fetch(url);
-        if (!res.ok) {
-          const body = await res.text().catch(() => '');
-          if (!cancelled) {
-            console.error('[MEXC] non-200', res.status, body.slice(0, 200));
-            setMexcError(
-              new Error(`MEXC status ${res.status}: ${body.slice(0, 200)}`)
-            );
-            setMexcPrice(null);
-          }
-          return;
-        }
-
-        const data = await res.json();
-        const raw = data.price ?? data.lastPrice;
-        const num = Number(raw);
-
         if (!cancelled) {
-          if (Number.isFinite(num)) {
-            setMexcPrice(num);
-          } else {
-            console.error('[MEXC] invalid price', data);
-            setMexcPrice(null);
-            setMexcError(new Error('Invalid MEXC price'));
-          }
+          setMexcPrice(price);
         }
       } catch (e) {
         if (!cancelled) {
