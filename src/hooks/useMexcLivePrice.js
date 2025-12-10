@@ -9,13 +9,21 @@ function normalizeMexcSymbol(source) {
 
   // URL
   if (/^https?:\/\//i.test(trimmed)) {
-    const m = trimmed.match(/\/exchange\/([A-Z0-9]+)_([A-Z0-9]+)/i);
-    if (!m) return null;
-    return `${m[1].toUpperCase()}${m[2].toUpperCase()}`; // BTCUSDT
+    const spotMatch = trimmed.match(/\/exchange\/([A-Z0-9]+)_([A-Z0-9]+)/i);
+    if (spotMatch) {
+      return { symbol: `${spotMatch[1].toUpperCase()}${spotMatch[2].toUpperCase()}`, market: 'spot' };
+    }
+
+    const futuresMatch = trimmed.match(/\/futures\/([A-Z0-9]+)_([A-Z0-9]+)/i);
+    if (futuresMatch) {
+      return { symbol: `${futuresMatch[1].toUpperCase()}_${futuresMatch[2].toUpperCase()}`, market: 'futures' };
+    }
+
+    return null;
   }
 
   // вже symbol
-  if (/^[A-Z0-9]{5,20}$/.test(trimmed)) return trimmed;
+  if (/^[A-Z0-9]{5,20}$/.test(trimmed)) return { symbol: trimmed, market: 'spot' };
 
   return null;
 }
@@ -25,10 +33,10 @@ export function useMexcLivePrice(source) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
 
-  const symbol = useMemo(() => normalizeMexcSymbol(source), [source]);
+  const normalized = useMemo(() => normalizeMexcSymbol(source), [source]);
 
   useEffect(() => {
-    if (!symbol) {
+    if (!normalized?.symbol) {
       setPrice(null);
       setError(null);
       setLoading(false);
@@ -45,10 +53,15 @@ export function useMexcLivePrice(source) {
         setLoading(true);
         setError(null);
 
-        const urlCandidates = buildMexcTickerUrl(symbol);
-        const { price } = await fetchMexcTickerPrice(symbol);
+        const urlCandidates = buildMexcTickerUrl(normalized.symbol, { market: normalized.market });
+        const { price } = await fetchMexcTickerPrice(normalized.symbol, { market: normalized.market });
 
-        console.debug('[MEXC] fetched ticker', { ...urlCandidates, symbol, price });
+         console.debug('[MEXC] fetched ticker', {
+          ...urlCandidates,
+          symbol: normalized.symbol,
+          market: normalized.market,
+          price,
+        });
 
         if (!cancelled) {
           setPrice(price);
@@ -73,7 +86,7 @@ export function useMexcLivePrice(source) {
       cancelled = true;
       if (timerId) clearInterval(timerId);
     };
-  }, [symbol]);
+  }, [normalized]);
 
-  return { price, loading, error, symbol };
+  return { price, loading, error, symbol: normalized?.symbol };
 }

@@ -1,7 +1,8 @@
 // src/utils/fetchMexcTicker.js
 
 const DEFAULT_TIMEOUT_MS = 10_000;
-const BASE_URL = 'https://api.mexc.com/api/v3/ticker/price';
+const SPOT_BASE_URL = 'https://api.mexc.com/api/v3/ticker/price';
+const FUTURES_BASE_URL = 'https://contract.mexc.com/api/v1/contract/ticker';
 
 function createAbortController(timeoutMs) {
   const controller = new AbortController();
@@ -23,8 +24,9 @@ async function fetchWithTimeout(url, timeoutMs) {
   }
 }
 
-function buildCandidates(symbol) {
-  const originalUrl = `${BASE_URL}?symbol=${encodeURIComponent(symbol)}&_=${Date.now()}`;
+function buildCandidates(symbol, { market }) {
+  const baseUrl = market === 'futures' ? FUTURES_BASE_URL : SPOT_BASE_URL;
+  const originalUrl = `${baseUrl}?symbol=${encodeURIComponent(symbol)}&_=${Date.now()}`;
 
   // CORS-friendly proxies first, then direct fetch
   return [
@@ -48,16 +50,34 @@ function buildCandidates(symbol) {
 }
 
 function parsePrice(data) {
-  const raw = data?.price ?? data?.lastPrice;
-  const num = Number(raw);
-  return Number.isFinite(num) ? num : null;
+  const candidates = [
+    data?.price,
+    data?.lastPrice,
+    data?.fairPrice,
+    data?.data?.price,
+    data?.data?.lastPrice,
+    data?.data?.fairPrice,
+    Array.isArray(data?.data) ? data?.data?.[0]?.price : null,
+    Array.isArray(data?.data) ? data?.data?.[0]?.lastPrice : null,
+    Array.isArray(data?.data) ? data?.data?.[0]?.fairPrice : null,
+  ];
+
+  for (const candidate of candidates) {
+    const num = Number(candidate);
+    if (Number.isFinite(num)) return num;
+  }
+
+  return null;
 }
 
 /**
  * Отримати ціну MEXC для символу типу "BTCUSDT" з таймаутом та фолбеком.
  */
-export async function fetchMexcTickerPrice(symbol, { timeoutMs = DEFAULT_TIMEOUT_MS } = {}) {
-  const candidates = buildCandidates(symbol);
+export async function fetchMexcTickerPrice(
+  symbol,
+  { timeoutMs = DEFAULT_TIMEOUT_MS, market = 'spot' } = {}
+) {
+  const candidates = buildCandidates(symbol, { market });
   let lastError = null;
 
   for (const candidate of candidates) {
@@ -92,8 +112,8 @@ export async function fetchMexcTickerPrice(symbol, { timeoutMs = DEFAULT_TIMEOUT
   throw lastError ?? new Error('Failed to fetch MEXC price');
 }
 
-export function buildMexcTickerUrl(symbol) {
-  const candidates = buildCandidates(symbol);
+export function buildMexcTickerUrl(symbol, { market = 'spot' } = {}) {
+  const candidates = buildCandidates(symbol, { market });
   return {
     corsproxy: candidates.find((c) => c.label === 'corsproxy.io')?.url,
     original: candidates.find((c) => c.label === 'direct')?.url,

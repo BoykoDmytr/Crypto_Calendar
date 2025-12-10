@@ -22,12 +22,21 @@ function extractMexcSymbolFromLink(link) {
   const trimmed = link.trim().toUpperCase();
 
   if (!/^https?:\/\//i.test(trimmed)) return null;
-  const m = trimmed.match(/\/EXCHANGE\/([A-Z0-9]+)_([A-Z0-9]+)/i);
-  if (!m) return null;
+  const spotMatch = trimmed.match(/\/EXCHANGE\/([A-Z0-9]+)_([A-Z0-9]+)/i);
+  if (spotMatch) {
+    const base = spotMatch[1].toUpperCase();
+    const quote = spotMatch[2].toUpperCase();
+    return { symbol: `${base}${quote}`, market: 'spot' }; // BTCUSDT
+  }
 
-  const base = m[1].toUpperCase();
-  const quote = m[2].toUpperCase();
-  return `${base}${quote}`; // BTCUSDT
+  const futuresMatch = trimmed.match(/\/FUTURES\/([A-Z0-9]+)_([A-Z0-9]+)/i);
+  if (futuresMatch) {
+    const base = futuresMatch[1].toUpperCase();
+    const quote = futuresMatch[2].toUpperCase();
+    return { symbol: `${base}_${quote}`, market: 'futures' }; // BTC_USDT
+  }
+
+  return null;
 }
 
 function TokenRow({ coin }) {
@@ -37,7 +46,7 @@ function TokenRow({ coin }) {
 
   const link = typeof coin?.price_link === 'string' ? coin.price_link.trim() : '';
   const isMexc = /mexc\.com/i.test(link);
-  const mexcSymbol = isMexc ? extractMexcSymbolFromLink(link) : null;
+  const mexcMeta = isMexc ? extractMexcSymbolFromLink(link) : null;
 
   // 🔹 Debot — усе, що НЕ MEXC
   const {
@@ -52,7 +61,7 @@ function TokenRow({ coin }) {
   const [mexcError, setMexcError] = useState(null);
 
   useEffect(() => {
-    if (!isMexc || !mexcSymbol) {
+    if (!isMexc || !mexcMeta?.symbol) {
       setMexcPrice(null);
       setMexcError(null);
       setMexcLoading(false);
@@ -69,12 +78,13 @@ function TokenRow({ coin }) {
         setMexcLoading(true);
         setMexcError(null);
 
-        const urlCandidates = buildMexcTickerUrl(mexcSymbol);
-        const { price } = await fetchMexcTickerPrice(mexcSymbol);
+        const urlCandidates = buildMexcTickerUrl(mexcMeta.symbol, { market: mexcMeta.market });
+        const { price } = await fetchMexcTickerPrice(mexcMeta.symbol, { market: mexcMeta.market });
 
         console.debug('[MEXC] fetched ticker', {
-          ...urlCandidates,
-          mexcSymbol,
+            ...urlCandidates,
+          mexcSymbol: mexcMeta.symbol,
+          market: mexcMeta.market,
           name,
           price,
         });
@@ -104,7 +114,7 @@ function TokenRow({ coin }) {
       cancelled = true;
       if (timerId) clearInterval(timerId);
     };
-  }, [isMexc, mexcSymbol, name]);
+  }, [isMexc, mexcMeta?.symbol, mexcMeta?.market, name]);
 
   // 🔹 Вибір джерела ціни
   const price = isMexc ? mexcPrice : debotPrice;
@@ -134,7 +144,7 @@ function TokenRow({ coin }) {
     name,
     link,
     isMexc,
-    mexcSymbol,
+    mexcSymbol: mexcMeta?.symbol,
     hasQuantity,
     quantityValue,
     price,
