@@ -3,7 +3,7 @@ import PriceReactionCard from '../components/PriceReactionCard';
 import { fetchCompletedTournaments, triggerPriceReactionJob } from '../lib/statsApi';
 import { supabase } from '../lib/supabase';
 
-// Event types that should be auto‑added to the statistics page.  When
+// Event types that should be auto-added to the statistics page.  When
 // events with these slugs or names are inserted into the events_approved
 // table, the page will automatically trigger the price reaction job to
 // capture their price points.
@@ -108,8 +108,8 @@ export default function Stats() {
       const summary = await triggerPriceReactionJob();
       setJobInfo(
         `Скан завершено: опрацьовано ${summary.processed}, нових ${summary.inserted}, ` +
-        `оновлено ${summary.updated}, пропущено ${summary.skipped}.` +
-        (summary.errors ? ` Помилки: ${summary.errors}.` : ''),
+          `оновлено ${summary.updated}, пропущено ${summary.skipped}.` +
+          (summary.errors ? ` Помилки: ${summary.errors}.` : ''),
       );
       await loadItems();
     } catch (err) {
@@ -121,40 +121,53 @@ export default function Stats() {
 
   return (
     <div className="space-y-6">
-      <header className="relative overflow-hidden rounded-2xl border border-white/5 bg-gradient-to-r from-[#121624] via-[#0e1220] to-[#0b101a] p-5 shadow-xl">
-        <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_20%_20%,#22d3ee12,transparent_35%),radial-gradient(circle_at_80%_0,#22c55e14,transparent_30%)]" aria-hidden />
+      <header className="relative overflow-hidden rounded-2xl border border-gray-200 bg-gradient-to-r from-white via-slate-50 to-emerald-50 p-5 shadow-xl text-slate-900 dark:border-white/5 dark:bg-gradient-to-r dark:from-[#121624] dark:via-[#0e1220] dark:to-[#0b101a] dark:text-white">
+        <div
+          className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_20%_20%,#22d3ee18,transparent_35%),radial-gradient(circle_at_80%_0,#22c55e12,transparent_30%)] dark:bg-[radial-gradient(circle_at_20%_20%,#22d3ee12,transparent_35%),radial-gradient(circle_at_80%_0,#22c55e14,transparent_30%)]"
+          aria-hidden
+        />
         <div className="relative flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div className="space-y-2 max-w-2xl">
-            <div className="flex flex-wrap items-center gap-2 text-xs uppercase tracking-wide text-emerald-300/80 font-semibold">
-              <span className="rounded-full bg-emerald-500/10 border border-emerald-500/20 px-2 py-1">Live tracker</span>
-              <span className="rounded-full bg-white/5 border border-white/10 px-2 py-1 text-gray-300">T0 · +5 · +15 хв</span>
+            <div className="flex flex-wrap items-center gap-2 text-xs uppercase tracking-wide font-semibold text-emerald-700 dark:text-emerald-300/80">
+              <span className="rounded-full bg-emerald-100 text-emerald-800 border border-emerald-200 px-2 py-1 shadow-sm dark:bg-emerald-500/10 dark:text-emerald-200 dark:border-emerald-500/20">
+                Live tracker
+              </span>
+              <span className="rounded-full bg-white border border-gray-200 px-2 py-1 text-gray-700 shadow-sm dark:bg-white/5 dark:border-white/10 dark:text-gray-300">
+                T0 · +5 · +15 хв
+              </span>
             </div>
-            <h1 className="text-2xl font-bold text-white">Статистика</h1>
-            <p className="text-sm text-gray-300">
+            <h1 className="text-2xl font-bold">Статистика</h1>
+            <p className="text-sm text-slate-700 dark:text-gray-300">
               Автоматичний трекінг Binance Tournaments та TS Bybit у моменти T0, +5 та +15 хвилин. Додані
               івенти з цих категорій зʼявляються тут автоматично.
             </p>
-            <div className="flex flex-wrap gap-2 text-xs text-gray-400">
-              <span className="rounded-full bg-white/5 px-2 py-1 border border-white/10">Автооновлення щохвилини</span>
-              <span className="rounded-full bg-white/5 px-2 py-1 border border-white/10">Слухаємо нові івенти</span>
+            <div className="flex flex-wrap gap-2 text-xs text-slate-600 dark:text-gray-400">
+              <span className="rounded-full bg-white px-2 py-1 border border-gray-200 shadow-sm dark:bg-white/5 dark:border-white/10">
+                Автооновлення щохвилини
+              </span>
+              <span className="rounded-full bg-white px-2 py-1 border border-gray-200 shadow-sm dark:bg-white/5 dark:border-white/10">
+                Слухаємо нові івенти
+              </span>
             </div>
           </div>
           <button
             type="button"
             onClick={runJob}
             disabled={running}
-            className="relative inline-flex items-center gap-2 rounded-xl border border-emerald-400/30 bg-emerald-500/15 px-4 py-2 text-sm font-semibold text-emerald-100 shadow-[0_10px_30px_-12px_rgba(16,185,129,0.7)] transition hover:border-emerald-300/60 hover:bg-emerald-500/25 disabled:opacity-60"
+            className="relative inline-flex items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-100 px-4 py-2 text-sm font-semibold text-emerald-900 shadow-sm transition hover:border-emerald-300 hover:bg-emerald-200 disabled:opacity-60 dark:border-emerald-400/30 dark:bg-emerald-500/15 dark:text-emerald-100 dark:shadow-[0_10px_30px_-12px_rgba(16,185,129,0.7)] dark:hover:border-emerald-300/60 dark:hover:bg-emerald-500/25"
           >
-            <span className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-emerald-400/20 text-emerald-200 text-sm">↺</span>
+            <span className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-emerald-200 text-emerald-800 text-sm dark:bg-emerald-400/20 dark:text-emerald-200">
+              ↺
+            </span>
             {running ? 'Запускаємо…' : 'Оновити статистику'}
           </button>
         </div>
         {jobInfo && (
-           <p className="relative mt-3 text-sm text-emerald-200">
+          <p className="relative mt-3 text-sm text-emerald-700 dark:text-emerald-200">
             {jobInfo}
           </p>
         )}
-        {jobError && <p className="relative mt-3 text-sm text-red-400">{jobError}</p>}
+        {jobError && <p className="relative mt-3 text-sm text-red-600 dark:text-red-400">{jobError}</p>}
       </header>
 
       {loading && <p className="text-sm text-gray-600">Завантаження…</p>}

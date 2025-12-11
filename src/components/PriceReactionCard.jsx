@@ -180,36 +180,38 @@ export default function PriceReactionCard({ item }) {
   const sparkHeight = 64;
 
   return (
-    <article className="relative overflow-hidden rounded-2xl border border-white/5 bg-gradient-to-br from-[#171a22] via-[#0f1119] to-[#0b0d13] px-4 py-4 shadow-lg">
-      <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top,#2dd4bf0d,transparent_45%)]" aria-hidden />
+    <article className="relative overflow-hidden rounded-2xl border border-gray-200 bg-gradient-to-br from-white via-slate-50 to-emerald-50 px-4 py-4 shadow-lg text-slate-900 dark:border-white/5 dark:bg-gradient-to-br dark:from-[#171a22] dark:via-[#0f1119] dark:to-[#0b0d13] dark:text-white">
+      <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top,#22c55e12,transparent_45%)] dark:bg-[radial-gradient(circle_at_top,#2dd4bf0d,transparent_45%)]" aria-hidden />
       {/* Header badges: completion and type */}
       <div className="flex flex-wrap items-center gap-2 text-[11px] font-semibold mb-3">
-        <span className="rounded-full bg-emerald-500/15 text-emerald-200 px-2.5 py-1 border border-emerald-500/20">
+        <span className="rounded-full bg-emerald-50 text-emerald-700 px-2.5 py-1 border border-emerald-200 shadow-sm dark:bg-emerald-500/15 dark:text-emerald-200 dark:border-emerald-500/20">
           Completed
         </span>
-        <span className="rounded-full bg-white/5 text-gray-200 px-2.5 py-1 border border-white/10">
-          {type || 'Binance Tournaments'}
+        <span className="rounded-full bg-white text-gray-700 px-2.5 py-1 border border-gray-200 shadow-sm dark:bg-white/5 dark:text-gray-200 dark:border-white/10">          {type || 'Binance Tournaments'}
         </span>
-        {pair && <span className="truncate text-gray-400 max-w-full sm:max-w-none">{pair}</span>}
+        {pair && <span className="truncate text-slate-600 max-w-full sm:max-w-none dark:text-gray-400">{pair}</span>}
       </div>
 
       {/* Title and subheading */}
       <div className="flex flex-col gap-1 mb-3">
-        <h3 className="font-semibold text-base sm:text-lg leading-snug text-white line-clamp-2 break-words">{title}</h3>
-        <div className="flex flex-wrap items-center gap-2 text-xs sm:text-sm text-gray-400">
-          <span className="rounded-full bg-white/5 border border-white/10 px-2 py-0.5 text-[11px] uppercase tracking-wide">UTC</span>
+         <h3 className="font-semibold text-base sm:text-lg leading-snug line-clamp-2 break-words">
+          {title}
+        </h3>
+        <div className="flex flex-wrap items-center gap-2 text-xs sm:text-sm text-slate-600 dark:text-gray-400">
+          <span className="rounded-full bg-white border border-gray-200 px-2 py-0.5 text-[11px] uppercase tracking-wide shadow-sm dark:bg-white/5 dark:border-white/10">
+            UTC
+          </span>
           <span className="whitespace-nowrap">{formatDate(startAt, timezone)}</span>
-          {coinName && <span className="text-gray-300">· {coinName}</span>}
+          {coinName && <span className="text-slate-700 dark:text-gray-300">· {coinName}</span>}
         </div>
       </div>
 
       {/* Body: trend indicator, sparkline, and table */}
       <div className="rounded-xl border border-white/5 bg-white/10 backdrop-blur-sm divide-y divide-white/5 overflow-hidden">
         {/* Header row with trend label */}
-        <div className="px-4 py-3 flex flex-wrap items-center justify-between gap-2 text-xs text-gray-400">
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="uppercase tracking-wide text-[11px] text-gray-500">Price reaction</span>
-            <span className="rounded-full bg-white/5 px-2 py-0.5 border border-white/10 text-[11px]">T0 → T+15m</span>
+          <div className="px-4 py-3 flex flex-wrap items-center justify-between gap-2 text-xs text-slate-600 dark:text-gray-400">          <div className="flex flex-wrap items-center gap-2">
+            <span className="uppercase tracking-wide text-[11px] text-slate-500 dark:text-gray-500">Price reaction</span>
+            <span className="rounded-full bg-slate-100 px-2 py-0.5 border border-gray-200 text-[11px] shadow-sm dark:bg-white/5 dark:border-white/10">T0 → T+15m</span>
           </div>
           {overallChange !== null && (
             <span
@@ -228,7 +230,7 @@ export default function PriceReactionCard({ item }) {
         </div>
         {/* Sparkline with color‑coded segments */}
         {coloredSegments.length > 0 && (
-          <div className="px-4 py-4 bg-black/10">{
+          <div className="px-4 py-4 bg-gray-50 dark:bg-black/10">{
             /* background grid */
           }
             <svg viewBox={`0 0 ${sparkWidth} ${sparkHeight}`} className="w-full h-16">
@@ -284,28 +286,27 @@ export default function PriceReactionCard({ item }) {
               })}
               {points.map((pt, idx) => (
                 <g key={idx}>
-                  <circle cx={pt.x} cy={pt.y} r="3.5" fill="#0b0d13" stroke="#1f2937" strokeWidth="1.5" />
-                  <circle cx={pt.x} cy={pt.y} r="2.5" fill="#c4c9ff" />
+                   <circle cx={pt.x} cy={pt.y} r="3.5" fill="#f8fafc" stroke="#e2e8f0" strokeWidth="1.5" className="dark:fill-[#0b0d13] dark:stroke-[#1f2937]" />
+                  <circle cx={pt.x} cy={pt.y} r="2.5" fill="#16a34a" className="dark:fill-[#c4c9ff]" />
                 </g>
               ))}
             </svg>
           </div>
         )}
         {/* Price rows */}
-        <div className="divide-y divide-white/5 bg-black/20">
+        <div className="divide-y divide-gray-100 bg-gray-50 dark:divide-white/5 dark:bg-black/20">
           {priceReaction.map((entry) => (
             <div
               key={entry.label}
-              className="grid grid-cols-[72px,1fr] sm:grid-cols-[72px,1fr,90px] items-start gap-2 sm:gap-3 px-4 py-3 text-xs sm:text-sm text-gray-200"
-            >
+              className="grid grid-cols-[72px,1fr] sm:grid-cols-[72px,1fr,90px] items-start gap-2 sm:gap-3 px-4 py-3 text-xs sm:text-sm text-slate-800 dark:text-gray-200"            >
               <div className="flex items-center gap-2">
-                <span className="w-16 rounded-full bg-white/5 px-2 py-1 text-center text-[11px] uppercase tracking-wide text-gray-300 border border-white/10">
+                <span className="w-16 rounded-full bg-white px-2 py-1 text-center text-[11px] uppercase tracking-wide text-slate-600 border border-gray-200 shadow-sm dark:bg-white/5 dark:text-gray-300 dark:border-white/10">
                   {entry.label}
                 </span>
               </div>
                <div className="flex flex-wrap items-center gap-2 sm:gap-3">
-                <span className="w-14 font-mono text-[11px] sm:text-xs text-gray-400">{formatTime(entry.time, timezone)}</span>
-                <span className="text-white font-semibold break-words">{formatPrice(entry.price)}</span>
+                <span className="w-14 font-mono text-[11px] sm:text-xs text-slate-500 dark:text-gray-400">{formatTime(entry.time, timezone)}</span>
+                <span className="text-slate-900 dark:text-white font-semibold break-words">{formatPrice(entry.price)}</span>
                 <span className={`sm:hidden ml-auto font-semibold ${percentClass(entry.percent)}`}>
                   {formatPercent(entry.percent)}
                 </span>
