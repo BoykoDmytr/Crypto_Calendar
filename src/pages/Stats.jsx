@@ -7,8 +7,8 @@ import { supabase } from '../lib/supabase';
 // events with these slugs or names are inserted into the events_approved
 // table, the page will automatically trigger the price reaction job to
 // capture their price points.
-const AUTO_TYPES = ['Binance Tournaments', 'TS Bybit'];
-const AUTO_SLUGS = ['binance_tournament', 'ts_bybit'];
+const AUTO_TYPES = ['Binance Tournaments', 'TS Bybit', 'Booster'];
+const AUTO_SLUGS = ['binance_tournament', 'ts_bybit', 'booster'];
 
 /**
  * Statistics page.  Displays completed Binance Tournaments and TS Bybit
@@ -173,7 +173,7 @@ export default function Stats() {
       {loading && <p className="text-sm text-gray-600">Завантаження…</p>}
       {error && <p className="text-sm text-red-500">{error}</p>}
       {!loading && !items.length && !error && (
-        <p className="text-sm text-gray-600">Поки що немає завершених турнірів.</p>
+        <p className="text-sm text-gray-600">Поки що немає завершених івентів.</p>
       )}
       <div className="grid gap-4">
         {items.map((item) => (

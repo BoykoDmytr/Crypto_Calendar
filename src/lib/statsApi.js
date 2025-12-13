@@ -7,8 +7,8 @@ import { fetchMexcTickerPrice as fetchMexcTickerPriceShared } from '../utils/fet
 dayjs.extend(utc);
 
 // Які івенти вважаємо турнірами
-const TOURNAMENT_SLUGS = ['binance_tournament', 'ts_bybit'];
-const TOURNAMENT_TYPES = ['Binance Tournaments', 'TS Bybit'];
+const TOURNAMENT_SLUGS = ['binance_tournament', 'ts_bybit', 'booster'];
+const TOURNAMENT_TYPES = ['Binance Tournaments', 'TS Bybit', 'Booster'];
 
 /**
  * Завантажити всі завершені турніри з event_price_reaction +
