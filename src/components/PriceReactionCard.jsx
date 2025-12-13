@@ -143,23 +143,19 @@ export default function PriceReactionCard({ item }) {
     .filter((entry) => entry.price !== null && entry.price !== undefined)
     .map((entry) => Number(entry.price));
   const trend = deriveTrend(pricePoints);
-  const sparkWidth = 240;
-  const sparkHeight = 112;
-  const sparkPaddingY = 30;
-  const { segments: coloredSegments, points } = buildColoredSegments(
-    pricePoints,
-    sparkWidth,
-    sparkHeight,
-    sparkPaddingY,
-  );
+  const sparkWidth = 260;
+  const sparkHeight = 120;
+  const sparkPaddingY = 26;
+  const { segments: coloredSegments, points } = buildColoredSegments(pricePoints, sparkWidth, sparkHeight, sparkPaddingY);
   const overallChange =
     pricePoints.length >= 2 ? calcOverallChange(pricePoints[0], pricePoints[pricePoints.length - 1]) : null;
+  const basePrice = pricePoints[0];
 
   const timelineLabels = priceReaction.map((entry) => entry.label || '').filter(Boolean);
   const tickCount = Math.max(timelineLabels.length - 1, 1);
   const tickSpacing = sparkWidth / tickCount;
 
-  const horizontalGuides = [0.25, 0.5, 0.75];
+  const horizontalGuides = [0.33, 0.66];
 
 
   const deltaLabels = pricePoints
@@ -193,45 +189,44 @@ export default function PriceReactionCard({ item }) {
     })
     .filter(Boolean);
 
+
+  const lastPoint = points[points.length - 1];
+  const changeLabelX = lastPoint ? Math.min(Math.max(lastPoint.x - 32, 6), sparkWidth - 64) : 0;
+  const changeLabelY = lastPoint ? Math.min(Math.max(lastPoint.y - 36, 6), sparkHeight - 28) : 6;
+
   return (
-    <article className="relative overflow-hidden rounded-2xl border border-gray-200 bg-gradient-to-br from-white via-slate-50 to-emerald-50 px-4 py-4 shadow-lg text-slate-900 dark:border-white/5 dark:bg-gradient-to-br dark:from-[#171a22] dark:via-[#0f1119] dark:to-[#0b0d13] dark:text-white">
-      <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top,#22c55e12,transparent_45%)] dark:bg-[radial-gradient(circle_at_top,#2dd4bf0d,transparent_45%)]" aria-hidden />
-      {/* Header badges: completion and type */}
-      <div className="flex flex-wrap items-center gap-2 text-[11px] font-semibold mb-3">
-        <span className="rounded-full bg-emerald-50 text-emerald-700 px-2.5 py-1 border border-emerald-200 shadow-sm dark:bg-emerald-500/15 dark:text-emerald-200 dark:border-emerald-500/20">
-          Completed
-        </span>
-        <span className="rounded-full bg-white text-gray-700 px-2.5 py-1 border border-gray-200 shadow-sm dark:bg-white/5 dark:text-gray-200 dark:border-white/10">          {type || 'Binance Tournaments'}
-        </span>
-        {pair && <span className="truncate text-slate-600 max-w-full sm:max-w-none dark:text-gray-400">{pair}</span>}
+    <article className="relative overflow-hidden rounded-3xl border border-slate-800 bg-gradient-to-br from-[#0b0f1a] via-[#0f172a] to-[#0b111f] px-4 py-5 text-white shadow-2xl">
+      <div
+        className="pointer-events-none absolute inset-0 opacity-60 bg-[radial-gradient(circle_at_20%_10%,rgba(34,197,94,0.14),transparent_35%),radial-gradient(circle_at_80%_0,rgba(14,165,233,0.12),transparent_30%)]"
+        aria-hidden
+      />
+      <div className="relative flex flex-wrap items-center gap-2 text-[11px] font-semibold mb-3">
+        <span className="rounded-full bg-emerald-500/15 text-emerald-200 px-2.5 py-1 border border-emerald-500/30">Completed</span>
+        <span className="rounded-full bg-white/5 text-gray-200 px-2.5 py-1 border border-white/10">{type || 'Binance Tournaments'}</span>
+        {pair && <span className="truncate text-gray-300 max-w-full sm:max-w-none">{pair}</span>}
       </div>
 
-      {/* Title and subheading */}
-      <div className="flex flex-col gap-1 mb-3">
-         <h3 className="font-semibold text-base sm:text-lg leading-snug line-clamp-2 break-words">
-          {title}
-        </h3>
-        <div className="flex flex-wrap items-center gap-2 text-xs sm:text-sm text-slate-600 dark:text-gray-400">
-          <span className="rounded-full bg-white border border-gray-200 px-2 py-0.5 text-[11px] uppercase tracking-wide shadow-sm dark:bg-white/5 dark:border-white/10">
-            UTC
-          </span>
+      <div className="relative flex flex-col gap-1 mb-4">
+        <h3 className="font-semibold text-lg leading-snug line-clamp-2 break-words">{title}</h3>
+        <div className="flex flex-wrap items-center gap-2 text-xs text-gray-400">
+          <span className="rounded-full bg-white/5 border border-white/10 px-2 py-0.5 text-[11px] uppercase tracking-wide">UTC</span>
           <span className="whitespace-nowrap">{formatDate(startAt, timezone)}</span>
-          {coinName && <span className="text-slate-700 dark:text-gray-300">· {coinName}</span>}
+          {coinName && <span className="text-gray-300">· {coinName}</span>}
         </div>
       </div>
 
-      {/* Body: trend indicator, sparkline, and table */}
-      <div className="rounded-xl border border-white/5 bg-white/10 backdrop-blur-sm divide-y divide-white/5 overflow-hidden">
-        {/* Header row with trend label */}
-          <div className="px-4 py-3 flex flex-wrap items-center justify-between gap-2 text-xs text-slate-600 dark:text-gray-400">          <div className="flex flex-wrap items-center gap-2">
-            <span className="uppercase tracking-wide text-[11px] text-slate-500 dark:text-gray-500">Price reaction</span>
-            <span className="rounded-full bg-slate-100 px-2 py-0.5 border border-gray-200 text-[11px] shadow-sm dark:bg-white/5 dark:border-white/10">T0 → T+15m</span>
+      <div className="relative rounded-2xl border border-white/5 bg-white/5 backdrop-blur-sm overflow-hidden">
+        <div className="flex items-center justify-between px-4 py-3 text-xs text-gray-300">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="uppercase tracking-wide text-[11px] text-gray-400">Price reaction</span>
+            <span className="rounded-full bg-white/5 px-2 py-0.5 border border-white/10 text-[11px] shadow-sm">T0 → T+15m</span>
+            {basePrice !== undefined && <span className="text-gray-400">base: {formatPrice(basePrice)} USDT</span>}
           </div>
           {overallChange !== null && (
             <span
-              className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] sm:text-[11px] font-semibold"
+              className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-semibold shadow-sm"
               style={{
-                backgroundColor: `${chartColor(trend)}20`,
+                backgroundColor: `${chartColor(trend)}26`,
                 color: chartColor(trend),
               }}
             >
@@ -242,59 +237,32 @@ export default function PriceReactionCard({ item }) {
             </span>
             )}
         </div>
-        {/* Sparkline with color‑coded segments */}
-        <div className="px-4 py-4 bg-gray-50 dark:bg-black/10">
+        <div className="px-4 pb-4 pt-2 bg-gradient-to-b from-white/5 via-white/[0.02] to-transparent">
           <div className="relative">
-            <svg viewBox={`0 0 ${sparkWidth} ${sparkHeight}`} className="w-full h-32">
+            <svg viewBox={`0 0 ${sparkWidth} ${sparkHeight}`} className="w-full h-36">
               <defs>
-                <linearGradient id="sparklineGradient" x1="0%" x2="0%" y1="0%" y2="100%">
-                  <stop offset="0%" stopColor="#ffffff" stopOpacity="0.08" />
-                  <stop offset="100%" stopColor="#ffffff" stopOpacity="0" />
+                <linearGradient id="sparklineFill" x1="0%" x2="0%" y1="0%" y2="100%">
+                  <stop offset="0%" stopColor="#22c55e" stopOpacity="0.16" />
+                  <stop offset="100%" stopColor="#0b0f1a" stopOpacity="0" />
                 </linearGradient>
               </defs>
-              <rect x="0" y="0" width="100%" height="100%" fill="url(#sparklineGradient)" rx="10" />
+              <rect x="0" y="0" width="100%" height="100%" rx="12" fill="url(#sparklineFill)" opacity="0.35" />
               {horizontalGuides.map((ratio) => {
                 const y = sparkPaddingY + ratio * (sparkHeight - sparkPaddingY * 2);
-                return (
-                  <line
-                    key={`h-${ratio}`}
-                    x1="0"
-                    x2={sparkWidth}
-                    y1={y}
-                    y2={y}
-                    stroke="#e5e7eb"
-                    strokeWidth="1"
-                    strokeDasharray="4 6"
-                    className="dark:stroke-white/10"
-                  />
-                );
+                return <line key={`h-${ratio}`} x1="8" x2={sparkWidth - 8} y1={y} y2={y} stroke="#ffffff22" strokeWidth="1" strokeDasharray="6 10" />;
               })}
               {Array.from({ length: tickCount + 1 }).map((_, idx) => {
                 const x = Math.min(idx * tickSpacing, sparkWidth);
-                return (
-                  <line
-                    key={`v-${idx}`}
-                    x1={x}
-                    x2={x}
-                    y1={8}
-                    y2={sparkHeight - 8}
-                    stroke="#e5e7eb"
-                    strokeWidth="1"
-                    strokeDasharray="4 6"
-                    className="dark:stroke-white/10"
-                  />
-                );
+                return <line key={`v-${idx}`} x1={x} x2={x} y1={12} y2={sparkHeight - 12} stroke="#ffffff14" strokeWidth="1" />;
               })}
               {coloredSegments.map((seg, idx) => (
-                <polyline
-                  key={idx}
-                  fill="none"
-                  stroke={seg.color}
-                  strokeWidth="2.5"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  points={seg.points}
-                />
+                <polyline key={idx} fill="none" stroke={seg.color} strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" points={seg.points} />
+              ))}
+              {points.map((pt, idx) => (
+                <g key={idx}>
+                  <circle cx={pt.x} cy={pt.y} r="4.25" fill="#0b0f1a" stroke="#0ea5e9" strokeWidth="1.5" />
+                  <circle cx={pt.x} cy={pt.y} r="2.25" fill="#22c55e" />
+                </g>
               ))}
               {deltaLabels.map((delta, idx) => {
                 const textWidth = Math.max(38, delta.label.length * 6 + 12);
@@ -304,52 +272,24 @@ export default function PriceReactionCard({ item }) {
 
                 return (
                   <g key={idx}>
-                    <rect
-                      x={clampedX}
-                      y={clampedY}
-                      width={textWidth}
-                      height={textHeight}
-                      rx="8"
-                      ry="8"
-                      fill={`${delta.color}1f`}
-                      stroke={delta.color}
-                      strokeWidth="1"
-                    />
-                    <text
-                      x={clampedX + textWidth / 2}
-                      y={clampedY + textHeight / 2 + 3}
-                      textAnchor="middle"
-                      fill={delta.color}
-                      fontSize="10"
-                      fontWeight="700"
-                    >
+                    <rect x={clampedX} y={clampedY} width={textWidth} height={textHeight} rx="8" ry="8" fill={`${delta.color}1f`} stroke={delta.color} strokeWidth="1" />
+                    <text x={clampedX + textWidth / 2} y={clampedY + textHeight / 2 + 3} textAnchor="middle" fill={delta.color} fontSize="10" fontWeight="700">
                       {delta.label}
                     </text>
                   </g>
                 );
               })}
-              {points.map((pt, idx) => (
-                <g key={idx}>
-                  <circle
-                    cx={pt.x}
-                    cy={pt.y}
-                    r="3.5"
-                    fill="#f8fafc"
-                    stroke="#e2e8f0"
-                    strokeWidth="1.5"
-                    className="dark:fill-[#0b0d13] dark:stroke-[#1f2937]"
-                  />
-                  <circle cx={pt.x} cy={pt.y} r="2.5" fill="#16a34a" className="dark:fill-[#c4c9ff]" />
+              {overallChange !== null && lastPoint && (
+                <g transform={`translate(${changeLabelX},${changeLabelY})`}>
+
                 </g>
-              ))}
+              )}
             </svg>
+
             {timelineLabels.length > 0 && (
-              <div className="mt-2 grid" style={{ gridTemplateColumns: `repeat(${timelineLabels.length}, minmax(0, 1fr))` }}>
+              <div className="mt-2 grid text-[11px] text-gray-400" style={{ gridTemplateColumns: `repeat(${timelineLabels.length}, minmax(0, 1fr))` }}>
                 {timelineLabels.map((label) => (
-                  <span
-                    key={label}
-                    className="text-[11px] text-slate-500 text-center font-semibold tracking-wide dark:text-gray-400"
-                  >
+                  <span key={label} className="text-center font-semibold tracking-wide">
                     {label}
                   </span>
                 ))}
@@ -357,20 +297,21 @@ export default function PriceReactionCard({ item }) {
             )}
           </div>
          </div>
-        {/* Price rows */}
-        <div className="divide-y divide-gray-100 bg-gray-50 dark:divide-white/5 dark:bg-black/20">
+
+        <div className="divide-y divide-white/5 bg-[#0d1425]/70">
           {priceReaction.map((entry) => (
             <div
               key={entry.label}
-              className="grid grid-cols-[72px,1fr] sm:grid-cols-[72px,1fr,90px] items-start gap-2 sm:gap-3 px-4 py-3 text-xs sm:text-sm text-slate-800 dark:text-gray-200"            >
+              className="grid grid-cols-[70px,1fr] sm:grid-cols-[70px,1fr,90px] items-center gap-3 px-4 py-3 text-xs sm:text-sm text-gray-100"
+            >
               <div className="flex items-center gap-2">
-                <span className="w-16 rounded-full bg-white px-2 py-1 text-center text-[11px] uppercase tracking-wide text-slate-600 border border-gray-200 shadow-sm dark:bg-white/5 dark:text-gray-300 dark:border-white/10">
+                <span className="w-16 rounded-full bg-white/5 px-2 py-1 text-center text-[11px] uppercase tracking-wide text-gray-200 border border-white/10">
                   {entry.label}
                 </span>
               </div>
-               <div className="flex flex-wrap items-center gap-2 sm:gap-3">
-                <span className="w-14 font-mono text-[11px] sm:text-xs text-slate-500 dark:text-gray-400">{formatTime(entry.time, timezone)}</span>
-                <span className="text-slate-900 dark:text-white font-semibold break-words">{formatPrice(entry.price)}</span>
+               <div className="flex flex-wrap items-center gap-3">
+                <span className="w-14 font-mono text-[11px] sm:text-xs text-gray-400">{formatTime(entry.time, timezone)}</span>
+                <span className="text-white font-semibold break-words">{formatPrice(entry.price)}</span>
                 <span className={`sm:hidden ml-auto font-semibold ${percentClass(entry.percent)}`}>
                   {formatPercent(entry.percent)}
                 </span>
