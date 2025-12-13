@@ -155,6 +155,12 @@ export default function PriceReactionCard({ item }) {
   const overallChange =
     pricePoints.length >= 2 ? calcOverallChange(pricePoints[0], pricePoints[pricePoints.length - 1]) : null;
 
+  const timelineLabels = priceReaction.map((entry) => entry.label || '').filter(Boolean);
+  const tickCount = Math.max(timelineLabels.length - 1, 1);
+  const tickSpacing = sparkWidth / tickCount;
+
+  const horizontalGuides = [0.25, 0.5, 0.75];
+
 
   const deltaLabels = pricePoints
     .slice(0, -1)
@@ -237,18 +243,48 @@ export default function PriceReactionCard({ item }) {
             )}
         </div>
         {/* Sparkline with color‑coded segments */}
-        {coloredSegments.length > 0 && (
-          <div className="px-4 py-4 bg-gray-50 dark:bg-black/10">{
-            /* background grid */
-          }
-            <svg viewBox={`0 0 ${sparkWidth} ${sparkHeight}`} className="w-full h-28">
+        <div className="px-4 py-4 bg-gray-50 dark:bg-black/10">
+          <div className="relative">
+            <svg viewBox={`0 0 ${sparkWidth} ${sparkHeight}`} className="w-full h-32">
               <defs>
                 <linearGradient id="sparklineGradient" x1="0%" x2="0%" y1="0%" y2="100%">
                   <stop offset="0%" stopColor="#ffffff" stopOpacity="0.08" />
                   <stop offset="100%" stopColor="#ffffff" stopOpacity="0" />
                 </linearGradient>
               </defs>
-              <rect x="0" y="0" width="100%" height="100%" fill="url(#sparklineGradient)" rx="8" />
+              <rect x="0" y="0" width="100%" height="100%" fill="url(#sparklineGradient)" rx="10" />
+              {horizontalGuides.map((ratio) => {
+                const y = sparkPaddingY + ratio * (sparkHeight - sparkPaddingY * 2);
+                return (
+                  <line
+                    key={`h-${ratio}`}
+                    x1="0"
+                    x2={sparkWidth}
+                    y1={y}
+                    y2={y}
+                    stroke="#e5e7eb"
+                    strokeWidth="1"
+                    strokeDasharray="4 6"
+                    className="dark:stroke-white/10"
+                  />
+                );
+              })}
+              {Array.from({ length: tickCount + 1 }).map((_, idx) => {
+                const x = Math.min(idx * tickSpacing, sparkWidth);
+                return (
+                  <line
+                    key={`v-${idx}`}
+                    x1={x}
+                    x2={x}
+                    y1={8}
+                    y2={sparkHeight - 8}
+                    stroke="#e5e7eb"
+                    strokeWidth="1"
+                    strokeDasharray="4 6"
+                    className="dark:stroke-white/10"
+                  />
+                );
+              })}
               {coloredSegments.map((seg, idx) => (
                 <polyline
                   key={idx}
@@ -294,13 +330,33 @@ export default function PriceReactionCard({ item }) {
               })}
               {points.map((pt, idx) => (
                 <g key={idx}>
-                   <circle cx={pt.x} cy={pt.y} r="3.5" fill="#f8fafc" stroke="#e2e8f0" strokeWidth="1.5" className="dark:fill-[#0b0d13] dark:stroke-[#1f2937]" />
+                  <circle
+                    cx={pt.x}
+                    cy={pt.y}
+                    r="3.5"
+                    fill="#f8fafc"
+                    stroke="#e2e8f0"
+                    strokeWidth="1.5"
+                    className="dark:fill-[#0b0d13] dark:stroke-[#1f2937]"
+                  />
                   <circle cx={pt.x} cy={pt.y} r="2.5" fill="#16a34a" className="dark:fill-[#c4c9ff]" />
                 </g>
               ))}
             </svg>
+            {timelineLabels.length > 0 && (
+              <div className="mt-2 grid" style={{ gridTemplateColumns: `repeat(${timelineLabels.length}, minmax(0, 1fr))` }}>
+                {timelineLabels.map((label) => (
+                  <span
+                    key={label}
+                    className="text-[11px] text-slate-500 text-center font-semibold tracking-wide dark:text-gray-400"
+                  >
+                    {label}
+                  </span>
+                ))}
+              </div>
+            )}
           </div>
-        )}
+         </div>
         {/* Price rows */}
         <div className="divide-y divide-gray-100 bg-gray-50 dark:divide-white/5 dark:bg-black/20">
           {priceReaction.map((entry) => (
