@@ -195,38 +195,37 @@ export default function PriceReactionCard({ item }) {
   const changeLabelY = lastPoint ? Math.min(Math.max(lastPoint.y - 36, 6), sparkHeight - 28) : 6;
 
   return (
-    <article className="relative overflow-hidden rounded-3xl border border-slate-800 bg-gradient-to-br from-[#0b0f1a] via-[#0f172a] to-[#0b111f] px-4 py-5 text-white shadow-2xl">
+    <article className="relative overflow-hidden rounded-3xl border border-gray-200 bg-white/90 px-4 py-5 text-slate-900 shadow-xl backdrop-blur-sm dark:border-slate-800 dark:bg-gradient-to-br dark:from-[#0b0f1a] dark:via-[#0f172a] dark:to-[#0b111f] dark:text-white">
       <div
-        className="pointer-events-none absolute inset-0 opacity-60 bg-[radial-gradient(circle_at_20%_10%,rgba(34,197,94,0.14),transparent_35%),radial-gradient(circle_at_80%_0,rgba(14,165,233,0.12),transparent_30%)]"
+        className="pointer-events-none absolute inset-0 opacity-70 bg-[radial-gradient(circle_at_20%_10%,rgba(34,197,94,0.12),transparent_35%),radial-gradient(circle_at_80%_0,rgba(14,165,233,0.1),transparent_30%)]"
         aria-hidden
       />
       <div className="relative flex flex-wrap items-center gap-2 text-[11px] font-semibold mb-3">
-        <span className="rounded-full bg-emerald-500/15 text-emerald-200 px-2.5 py-1 border border-emerald-500/30">Completed</span>
-        <span className="rounded-full bg-white/5 text-gray-200 px-2.5 py-1 border border-white/10">{type || 'Binance Tournaments'}</span>
-        {pair && <span className="truncate text-gray-300 max-w-full sm:max-w-none">{pair}</span>}
+        <span className="rounded-full bg-emerald-100 text-emerald-800 px-2.5 py-1 border border-emerald-200 shadow-sm dark:bg-emerald-500/15 dark:text-emerald-200 dark:border-emerald-500/30">Completed</span>
+        <span className="rounded-full bg-gray-100 text-gray-700 px-2.5 py-1 border border-gray-200 shadow-sm dark:bg-white/5 dark:text-gray-200 dark:border-white/10">{type || 'Binance Tournaments'}</span>
+        {pair && <span className="truncate text-gray-600 max-w-full sm:max-w-none dark:text-gray-300">{pair}</span>}
       </div>
 
       <div className="relative flex flex-col gap-1 mb-4">
         <h3 className="font-semibold text-lg leading-snug line-clamp-2 break-words">{title}</h3>
-        <div className="flex flex-wrap items-center gap-2 text-xs text-gray-400">
-          <span className="rounded-full bg-white/5 border border-white/10 px-2 py-0.5 text-[11px] uppercase tracking-wide">UTC</span>
+        <div className="flex flex-wrap items-center gap-2 text-xs text-gray-500 dark:text-gray-400">
+          <span className="rounded-full bg-gray-100 border border-gray-200 px-2 py-0.5 text-[11px] uppercase tracking-wide dark:bg-white/5 dark:border-white/10">UTC</span>
           <span className="whitespace-nowrap">{formatDate(startAt, timezone)}</span>
-          {coinName && <span className="text-gray-300">· {coinName}</span>}
+          {coinName && <span className="text-gray-500 dark:text-gray-300">· {coinName}</span>}
         </div>
       </div>
 
-      <div className="relative rounded-2xl border border-white/5 bg-white/5 backdrop-blur-sm overflow-hidden">
-        <div className="flex items-center justify-between px-4 py-3 text-xs text-gray-300">
+      <div className="relative rounded-2xl border border-gray-100 bg-gradient-to-b from-gray-50 via-white to-white shadow-sm backdrop-blur-sm overflow-hidden dark:border-white/5 dark:from-white/10 dark:via-white/5 dark:to-white/0">
+        <div className="flex items-center justify-between px-4 py-3 text-xs text-gray-600 dark:text-gray-300">
           <div className="flex flex-wrap items-center gap-2">
-            <span className="uppercase tracking-wide text-[11px] text-gray-400">Price reaction</span>
-            <span className="rounded-full bg-white/5 px-2 py-0.5 border border-white/10 text-[11px] shadow-sm">T0 → T+15m</span>
-            {basePrice !== undefined && <span className="text-gray-400">base: {formatPrice(basePrice)} USDT</span>}
+            <span className="uppercase tracking-wide text-[11px] text-gray-500 dark:text-gray-400">Price reaction</span>
+            <span className="rounded-full bg-white px-2 py-0.5 border border-gray-200 text-gray-700 text-[11px] shadow-sm dark:bg-white/5 dark:border-white/10 dark:text-gray-200">T0 → T+15m</span>
+            {basePrice !== undefined && <span className="text-gray-500 dark:text-gray-400">base: {formatPrice(basePrice)} USDT</span>}
           </div>
           {overallChange !== null && (
             <span
-              className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-semibold shadow-sm"
+              className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-semibold shadow-sm bg-white text-slate-800 border border-gray-200 dark:bg-white/10 dark:border-white/10"
               style={{
-                backgroundColor: `${chartColor(trend)}26`,
                 color: chartColor(trend),
               }}
             >
@@ -237,31 +236,31 @@ export default function PriceReactionCard({ item }) {
             </span>
             )}
         </div>
-        <div className="px-4 pb-4 pt-2 bg-gradient-to-b from-white/5 via-white/[0.02] to-transparent">
+        <div className="px-4 pb-4 pt-2 bg-gradient-to-b from-white via-gray-50 to-transparent dark:from-white/10 dark:via-white/5">
           <div className="relative">
             <svg viewBox={`0 0 ${sparkWidth} ${sparkHeight}`} className="w-full h-36">
               <defs>
                 <linearGradient id="sparklineFill" x1="0%" x2="0%" y1="0%" y2="100%">
-                  <stop offset="0%" stopColor="#22c55e" stopOpacity="0.16" />
-                  <stop offset="100%" stopColor="#0b0f1a" stopOpacity="0" />
+                  <stop offset="0%" stopColor="#22c55e" stopOpacity="0.18" />
+                  <stop offset="100%" stopColor="#ffffff" stopOpacity="0" />
                 </linearGradient>
               </defs>
-              <rect x="0" y="0" width="100%" height="100%" rx="12" fill="url(#sparklineFill)" opacity="0.35" />
+              <rect x="0" y="0" width="100%" height="100%" rx="12" fill="url(#sparklineFill)" opacity="0.5" />
               {horizontalGuides.map((ratio) => {
                 const y = sparkPaddingY + ratio * (sparkHeight - sparkPaddingY * 2);
-                return <line key={`h-${ratio}`} x1="8" x2={sparkWidth - 8} y1={y} y2={y} stroke="#ffffff22" strokeWidth="1" strokeDasharray="6 10" />;
+                return <line key={`h-${ratio}`} x1="8" x2={sparkWidth - 8} y1={y} y2={y} stroke="currentColor" className="stroke-gray-200 dark:stroke-white/15" strokeWidth="1" strokeDasharray="6 10" />;
               })}
               {Array.from({ length: tickCount + 1 }).map((_, idx) => {
                 const x = Math.min(idx * tickSpacing, sparkWidth);
-                return <line key={`v-${idx}`} x1={x} x2={x} y1={12} y2={sparkHeight - 12} stroke="#ffffff14" strokeWidth="1" />;
+                return <line key={`v-${idx}`} x1={x} x2={x} y1={12} y2={sparkHeight - 12} stroke="currentColor" className="stroke-gray-100 dark:stroke-white/10" strokeWidth="1" />;
               })}
               {coloredSegments.map((seg, idx) => (
                 <polyline key={idx} fill="none" stroke={seg.color} strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" points={seg.points} />
               ))}
               {points.map((pt, idx) => (
                 <g key={idx}>
-                  <circle cx={pt.x} cy={pt.y} r="4.25" fill="#0b0f1a" stroke="#0ea5e9" strokeWidth="1.5" />
-                  <circle cx={pt.x} cy={pt.y} r="2.25" fill="#22c55e" />
+                  <circle cx={pt.x} cy={pt.y} r="4.25" stroke="#0ea5e9" strokeWidth="1.5" className="fill-white dark:fill-[#0b0f1a]" />
+                  <circle cx={pt.x} cy={pt.y} r="2.25" className="fill-emerald-500" />
                 </g>
               ))}
               {deltaLabels.map((delta, idx) => {
@@ -287,7 +286,7 @@ export default function PriceReactionCard({ item }) {
             </svg>
 
             {timelineLabels.length > 0 && (
-              <div className="mt-2 grid text-[11px] text-gray-400" style={{ gridTemplateColumns: `repeat(${timelineLabels.length}, minmax(0, 1fr))` }}>
+              <div className="mt-2 grid text-[11px] text-gray-500 dark:text-gray-400" style={{ gridTemplateColumns: `repeat(${timelineLabels.length}, minmax(0, 1fr))` }}>
                 {timelineLabels.map((label) => (
                   <span key={label} className="text-center font-semibold tracking-wide">
                     {label}
@@ -298,20 +297,20 @@ export default function PriceReactionCard({ item }) {
           </div>
          </div>
 
-        <div className="divide-y divide-white/5 bg-[#0d1425]/70">
+        <div className="divide-y divide-gray-100 bg-white/80 text-slate-900 dark:divide-white/5 dark:bg-[#0d1425]/70 dark:text-white">
           {priceReaction.map((entry) => (
             <div
               key={entry.label}
-              className="grid grid-cols-[70px,1fr] sm:grid-cols-[70px,1fr,90px] items-center gap-3 px-4 py-3 text-xs sm:text-sm text-gray-100"
+              className="grid grid-cols-[70px,1fr] sm:grid-cols-[70px,1fr,90px] items-center gap-3 px-4 py-3 text-xs sm:text-sm"
             >
               <div className="flex items-center gap-2">
-                <span className="w-16 rounded-full bg-white/5 px-2 py-1 text-center text-[11px] uppercase tracking-wide text-gray-200 border border-white/10">
+                <span className="w-16 rounded-full bg-gray-100 px-2 py-1 text-center text-[11px] uppercase tracking-wide text-gray-600 border border-gray-200 dark:bg-white/5 dark:border-white/10 dark:text-gray-200">
                   {entry.label}
                 </span>
               </div>
                <div className="flex flex-wrap items-center gap-3">
-                <span className="w-14 font-mono text-[11px] sm:text-xs text-gray-400">{formatTime(entry.time, timezone)}</span>
-                <span className="text-white font-semibold break-words">{formatPrice(entry.price)}</span>
+                <span className="w-14 font-mono text-[11px] sm:text-xs text-gray-500 dark:text-gray-400">{formatTime(entry.time, timezone)}</span>
+                <span className="text-slate-900 dark:text-white font-semibold break-words">{formatPrice(entry.price)}</span>
                 <span className={`sm:hidden ml-auto font-semibold ${percentClass(entry.percent)}`}>
                   {formatPercent(entry.percent)}
                 </span>
