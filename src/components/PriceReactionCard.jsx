@@ -90,17 +90,19 @@ function chartColor(trend) {
  * @param {number} height   Height of the SVG canvas.
  * @returns {Array<{points: string, color: string}>}
  */
-function buildColoredSegments(prices, width = 240, height = 64) {
+function buildColoredSegments(prices, width = 240, height = 64, paddingY = 12) {
   const segments = [];
   const points = [];
   if (prices.length < 2) return { segments, points };
   const min = Math.min(...prices);
   const max = Math.max(...prices);
   const range = max - min || 1;
+  const innerHeight = Math.max(height - paddingY * 2, 1);
   const step = width / (prices.length - 1);
   const coords = prices.map((price, idx) => {
     const x = idx * step;
-    const y = height - ((price - min) / range) * height;
+    const normalized = (price - min) / range;
+    const y = paddingY + (1 - normalized) * innerHeight;
     return { x, y };
   });
   for (let i = 0; i < coords.length - 1; i++) {
@@ -141,7 +143,15 @@ export default function PriceReactionCard({ item }) {
     .filter((entry) => entry.price !== null && entry.price !== undefined)
     .map((entry) => Number(entry.price));
   const trend = deriveTrend(pricePoints);
-  const { segments: coloredSegments, points } = buildColoredSegments(pricePoints);
+  const sparkWidth = 240;
+  const sparkHeight = 112;
+  const sparkPaddingY = 30;
+  const { segments: coloredSegments, points } = buildColoredSegments(
+    pricePoints,
+    sparkWidth,
+    sparkHeight,
+    sparkPaddingY,
+  );
   const overallChange =
     pricePoints.length >= 2 ? calcOverallChange(pricePoints[0], pricePoints[pricePoints.length - 1]) : null;
 
@@ -163,7 +173,7 @@ export default function PriceReactionCard({ item }) {
       const normY = dy / length;
       const perpX = -normY;
       const perpY = normX;
-      const offset = 10;
+      const offset = change >= 0 ? 12 : 16;
       const x = (pointB?.x ?? 0) - normX * 4 + perpX * (change >= 0 ? -offset : offset);
       const y = (pointB?.y ?? 0) - normY * 4 + perpY * (change >= 0 ? -offset : offset);
       const color = chartColor(change > 0 ? 'up' : change < 0 ? 'down' : 'flat');
@@ -176,8 +186,6 @@ export default function PriceReactionCard({ item }) {
       };
     })
     .filter(Boolean);
-  const sparkWidth = 240;
-  const sparkHeight = 64;
 
   return (
     <article className="relative overflow-hidden rounded-2xl border border-gray-200 bg-gradient-to-br from-white via-slate-50 to-emerald-50 px-4 py-4 shadow-lg text-slate-900 dark:border-white/5 dark:bg-gradient-to-br dark:from-[#171a22] dark:via-[#0f1119] dark:to-[#0b0d13] dark:text-white">
@@ -233,7 +241,7 @@ export default function PriceReactionCard({ item }) {
           <div className="px-4 py-4 bg-gray-50 dark:bg-black/10">{
             /* background grid */
           }
-            <svg viewBox={`0 0 ${sparkWidth} ${sparkHeight}`} className="w-full h-16">
+            <svg viewBox={`0 0 ${sparkWidth} ${sparkHeight}`} className="w-full h-28">
               <defs>
                 <linearGradient id="sparklineGradient" x1="0%" x2="0%" y1="0%" y2="100%">
                   <stop offset="0%" stopColor="#ffffff" stopOpacity="0.08" />

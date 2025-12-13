@@ -313,11 +313,11 @@ export async function triggerPriceReactionJob() {
           }
         }
 
-        if (shouldCapture(nowUtc, t15Time) && payload.t0_price != null) {
+        if (shouldCapture(nowUtc, t15Time) && payload.t_plus_5_price != null) {
           const price15 = await fetchCurrentPrice(market);
           if (price15 != null) {
             payload.t_plus_15_price = price15;
-            payload.t_plus_15_percent = calcPercent(payload.t0_price, price15);
+            payload.t_plus_15_percent = calcPercent(payload.t_plus_5_price, price15);
           }
         }
 
@@ -357,18 +357,19 @@ export async function triggerPriceReactionJob() {
           patch.t_plus_5_percent = calcPercent(basePrice, price5);
         }
       }
+      const base15Price = patch.t_plus_5_price ?? existing.t_plus_5_price;
 
       // T+15
       if (
         existing.t_plus_15_price == null &&
         shouldCapture(nowUtc, t15Time) &&
-        basePrice != null
+        base15Price != null
       ) {
         const price15 = await fetchCurrentPrice(market);
         if (price15 != null) {
           patch.t_plus_15_price = price15;
           patch.t_plus_15_time = existing.t_plus_15_time || t15Time.toISOString();
-          patch.t_plus_15_percent = calcPercent(basePrice, price15);
+          patch.t_plus_15_percent = calcPercent(base15Price, price15);
         }
       }
 
