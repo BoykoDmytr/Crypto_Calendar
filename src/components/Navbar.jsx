@@ -46,7 +46,7 @@ export default function Navbar() {
                 Статистика
               </Link>
               */}
-
+              {/*
               <Link
                 className={linkClasses(is('/admin'))}
                 to="/admin"
@@ -54,6 +54,7 @@ export default function Navbar() {
               >
                 Адмін
               </Link>
+              */}
             </nav>
           </div>
           <ThemeToggle />
