@@ -106,6 +106,7 @@ async function fetchMexcTickerPrice(apiPair) {
  *  - pair:    "LTC_USDT" (людський варіант, зберігаємо в БД/показуємо)
  *  - apiPair: "LTCUSDT" (для MEXC)
  *  - exchange: назва біржі з tge_exchanges, якщо є
+ *  - market:  "futures" або "spot" для правильного запиту API
  */
 function pickMarket(event) {
   const exchanges = Array.isArray(event.tge_exchanges) ? event.tge_exchanges : [];
@@ -117,11 +118,13 @@ function pickMarket(event) {
     ) || exchanges[0];
 
   if (entry && entry.pair) {
+    // за замовчуванням припускаємо spot для TGE бірж
     const apiPair = normalizeMexcSymbol(entry.pair);
     return {
       pair: entry.pair,
       apiPair,
       exchange: entry.exchange || null,
+      market: 'spot',
     };
   }
 
@@ -132,10 +135,13 @@ function pickMarket(event) {
     const m = cleaned.match(/[A-Z0-9]{2,}[_/]*USDT/i);
     const displayPair = m ? m[0] : cleaned;
     const apiPair = normalizeMexcSymbol(displayPair);
+    // визначаємо ринок: якщо в URL є "futures", вважаємо що це ф’ючерсний ринок
+    const isFutures = /futures/i.test(cleaned);
     return {
       pair: displayPair,
       apiPair,
       exchange: /mexc/i.test(cleaned) ? 'MEXC' : null,
+      market: isFutures ? 'futures' : 'spot',
     };
   }
 
@@ -148,7 +154,7 @@ function pickMarket(event) {
  *   2) якщо біржа MEXC або не вказана — пробуємо MEXC ticker.
  */
 async function fetchCurrentPrice(market) {
-  const { pair, apiPair, exchange } = market;
+  const { pair, apiPair, exchange, market: marketType } = market;
   let price = null;
 
   // 1) Debot (якщо налаштований)
@@ -184,7 +190,9 @@ async function fetchCurrentPrice(market) {
 
   // 2) MEXC ticker (якщо Debot не спрацював і є apiPair)
   if (price === null && apiPair && (!exchange || /mexc/i.test(exchange))) {
-    price = await fetchMexcTickerPrice(apiPair);
+    // передаємо тип ринку до функції MEXC тикера: futures чи spot
+    const options = marketType ? { market: marketType } : {};
+    price = await fetchMexcTickerPrice(apiPair, options);
   }
 
   return price;
