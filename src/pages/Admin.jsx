@@ -291,6 +291,7 @@ export default function Admin() {
   const [pending, setPending] = useState([]);
   const [approved, setApproved] = useState([]);
   const [edits, setEdits] = useState([]);
+  const [stats, setStats] = useState([]);
 
   // довідник бірж
   const [exchanges, setExchanges] = useState([]);
@@ -335,7 +336,7 @@ export default function Admin() {
   }, [ok]);
 
   const refresh = async () => {
-    const [auto, p, a, e, x, t] = await Promise.all([
+    const [auto, p, a, e, x, t, s] = await Promise.all([
       supabase
         .from('auto_events_pending')
         .select('*')
@@ -358,6 +359,12 @@ export default function Admin() {
         .select('*')
         .order('order_index', { ascending: true })
         .order('label', { ascending: true }),
+      supabase
+        .from('event_price_reaction')
+        .select(
+          'id,event_id,pair,exchange,t0_time,events_approved(id,title,start_at,timezone,type)'
+        )
+        .order('t0_time', { ascending: false }),
     ]);
 
     if (!auto.error) setAutoPending(auto.data || []);
@@ -366,6 +373,7 @@ export default function Admin() {
     if (!e.error) setEdits(e.data || []);
     if (!x.error) setExchanges(x.data || []);
     if (!t.error) setTypes(t.data || []);
+    if (!s.error) setStats(s.data || []);
   };
 
   // ====== Переміщення типів (order_index) ======
@@ -462,6 +470,12 @@ export default function Admin() {
     await refresh();
   };
 
+  const removeStatsRow = async (id) => {
+    if (!confirm('Видалити графік зі статистики? Подія залишиться у календарі.')) return;
+    const { error } = await supabase.from('event_price_reaction').delete().eq('id', id);
+    if (error) return alert('Помилка: ' + error.message);
+    await refresh();
+  };
   // ===== ПРАВКИ =====
   const approveEdit = async (edit) => {
     const allowed = [
@@ -990,6 +1004,48 @@ const payload = {
                     </RowActions>
                   </>
                 )}
+              </article>
+            );
+          })}
+        </div>
+      </section>
+      
+      {/* Статистика */}
+      <section>
+        <h2 className="font-semibold mb-2">Статистика (графіки)</h2>
+        <p className="text-sm text-gray-600 mb-3">
+          Видалення прибирає графік лише зі сторінки статистики та не видаляє саму подію.
+        </p>
+        {stats.length === 0 && <p className="text-sm text-gray-600">Поки що немає графіків.</p>}
+        <div className="space-y-3">
+          {stats.map((row) => {
+            const event = row.events_approved || {};
+            return (
+              <article key={row.id} className="card p-4">
+                <div className="font-semibold">
+                  {event.title || `Подія #${row.event_id}`}
+                </div>
+                <div className="text-sm mt-1 flex flex-wrap items-center gap-2">
+                  {event.start_at && <span className="event-when">{formatEventDate(event)}</span>}
+                  {event.type && <TypeBadge type={event.type} />}
+                  {row.pair && <span className="text-xs text-gray-500">Пара: {row.pair}</span>}
+                  {row.exchange && (
+                    <span className="text-xs text-gray-500">Біржа: {row.exchange}</span>
+                  )}
+                </div>
+                {row.t0_time && (
+                  <div className="text-xs text-gray-500 mt-2">
+                    T0: {dayjs(row.t0_time).format('DD MMM HH:mm')}
+                  </div>
+                )}
+                <RowActions>
+                  <button
+                    className="btn-secondary"
+                    onClick={() => removeStatsRow(row.id)}
+                  >
+                    Видалити зі статистики
+                  </button>
+                </RowActions>
               </article>
             );
           })}
