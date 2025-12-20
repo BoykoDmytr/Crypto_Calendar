@@ -22,21 +22,6 @@ export default function Navbar() {
               className="flex items-center gap-2 text-sm min-w-max sm:min-w-0 pr-2 sm:pr-0"
               aria-label="Site sections"
             >
-              <Link
-                className={linkClasses(is('/'))}
-                to="/"
-                aria-current={is('/') ? 'page' : undefined}
-              >
-                Календар
-              </Link>
-              <Link
-                className={linkClasses(is('/events'))}
-                to="/events"
-                aria-current={is('/events') ? 'page' : undefined}
-              >
-                Івенти
-              </Link>
-
               {/*
               <Link
                 className={linkClasses(is('/stats'))}
@@ -55,6 +40,20 @@ export default function Navbar() {
                 Адмін
               </Link>
               */}
+              <Link
+                className={linkClasses(is('/'))}
+                to="/"
+                aria-current={is('/') ? 'page' : undefined}
+              >
+                Календар
+              </Link>
+              <Link
+                className={linkClasses(is('/events'))}
+                to="/events"
+                aria-current={is('/events') ? 'page' : undefined}
+              >
+                Івенти
+              </Link>
             </nav>
           </div>
           <ThemeToggle />
