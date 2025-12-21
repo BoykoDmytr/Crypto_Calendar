@@ -336,7 +336,7 @@ export default function Admin() {
   }, [ok]);
 
   const refresh = async () => {
-    const [auto, p, a, e, x, t, s] = await Promise.all([
+    const [auto, p, a, e, x, t, s, excluded] = await Promise.all([
       supabase
         .from('auto_events_pending')
         .select('*')
@@ -365,6 +365,7 @@ export default function Admin() {
           'id,event_id,pair,exchange,t0_time,events_approved(id,title,start_at,timezone,type)'
         )
         .order('t0_time', { ascending: false }),
+      supabase.from('event_price_reaction_exclusions').select('event_id'),
     ]);
 
     if (!auto.error) setAutoPending(auto.data || []);
@@ -373,7 +374,10 @@ export default function Admin() {
     if (!e.error) setEdits(e.data || []);
     if (!x.error) setExchanges(x.data || []);
     if (!t.error) setTypes(t.data || []);
-    if (!s.error) setStats(s.data || []);
+    if (!s.error) {
+      const excludedIds = new Set((excluded?.data || []).map((row) => row.event_id));
+      setStats((s.data || []).filter((row) => !excludedIds.has(row.event_id)));
+    }
   };
 
   // ====== Переміщення типів (order_index) ======
