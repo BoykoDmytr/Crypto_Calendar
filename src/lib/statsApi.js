@@ -6,9 +6,60 @@ import { fetchMexcTickerPrice as fetchMexcTickerPriceShared } from '../utils/fet
 
 dayjs.extend(utc);
 
-// Які івенти вважаємо турнірами
-const TOURNAMENT_SLUGS = ['binance_tournament', 'ts_bybit', 'booster'];
-const TOURNAMENT_TYPES = ['Binance Tournaments', 'TS Bybit', 'Booster'];
+// Які івенти вважаємо турнірами за замовчуванням (якщо немає налаштованих типів).
+const DEFAULT_TOURNAMENT_SLUGS = ['binance_tournament', 'ts_bybit', 'booster'];
+const DEFAULT_TOURNAMENT_TYPES = ['Binance Tournaments', 'TS Bybit', 'Booster'];
+
+export async function fetchStatsTypeFilters() {
+  try {
+    const { data, error } = await supabase
+      .from('event_types')
+      .select('slug,name,label,track_in_stats,active')
+      .eq('track_in_stats', true)
+      .eq('active', true);
+
+    if (error) throw error;
+
+    const slugs = new Set();
+    const typeNames = new Set();
+
+    (data || []).forEach((row) => {
+      if (row.slug) slugs.add(row.slug);
+      if (row.name) typeNames.add(row.name);
+      if (row.label) typeNames.add(row.label);
+    });
+
+    if (!slugs.size && !typeNames.size) {
+      return {
+        slugs: DEFAULT_TOURNAMENT_SLUGS,
+        typeNames: DEFAULT_TOURNAMENT_TYPES,
+        source: 'default',
+      };
+    }
+
+    return {
+      slugs: Array.from(slugs),
+      typeNames: Array.from(typeNames),
+      source: 'db',
+    };
+  } catch (error) {
+    console.error('Не вдалося завантажити типи для статистики', error);
+    return {
+      slugs: DEFAULT_TOURNAMENT_SLUGS,
+      typeNames: DEFAULT_TOURNAMENT_TYPES,
+      source: 'default',
+    };
+  }
+}
+
+async function buildStatsFilter() {
+  const { slugs, typeNames } = await fetchStatsTypeFilters();
+  const filterParts = [
+    ...slugs.map((slug) => `event_type_slug.eq.${slug}`),
+    ...typeNames.map((name) => `type.eq."${name}"`),
+  ];
+  return filterParts.join(',');
+}
 
 /**
  * Завантажити всі завершені турніри з event_price_reaction +
@@ -21,10 +72,7 @@ export async function fetchCompletedTournaments() {
     .select('event_id');
   const excludedIds = new Set((excluded || []).map((row) => row.event_id));
 
-  const orFilter = [
-    ...TOURNAMENT_SLUGS.map((slug) => `event_type_slug.eq.${slug}`),
-    ...TOURNAMENT_TYPES.map((name) => `type.eq."${name}"`),
-  ].join(',');
+  const orFilter = await buildStatsFilter();
 
   const { data, error } = await supabase
     .from('event_price_reaction')
@@ -239,10 +287,8 @@ export async function triggerPriceReactionJob() {
     .select('event_id');
   const excludedIds = new Set((excluded || []).map((row) => row.event_id));
 
-  const orFilter = [
-    ...TOURNAMENT_SLUGS.map((slug) => `event_type_slug.eq.${slug}`),
-    ...TOURNAMENT_TYPES.map((value) => `type.eq."${value}"`),
-  ].join(',');
+  const orFilter = await buildStatsFilter();
+
 
   // Беремо всі івенти, які вже стартували
   const { data: events, error: eventsError } = await supabase

@@ -212,14 +212,17 @@ function ExchangeRow({ ex, onSave, onDelete }) {
 /* ===== Компонент рядка довідника типів ===== */
 function TypeRow({ t, onSave, onDelete, moveType, isFirst, isLast }) {
   const [row, setRow] = useState(t);
-  useEffect(() => setRow(t), [t.id, t.label, t.slug, t.active, t.is_tge]);
+  useEffect(
+    () => setRow(t),
+    [t.id, t.label, t.slug, t.active, t.is_tge, t.track_in_stats]
+  );
 
   // автогенерація slug, якщо користувач міняє label і slug порожній або збігається із старим
   const slugify = (s) =>
     s.toLowerCase().trim().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
 
   return (
-    <div className="grid grid-cols-1 sm:grid-cols-[1fr,220px,110px,auto] gap-2 items-center p-2 rounded-xl border border-gray-200">
+    <div className="grid grid-cols-1 sm:grid-cols-[1fr,220px,150px,auto] gap-2 items-center p-2 rounded-xl border border-gray-200">
       <input
         className="input"
         value={row.label}
@@ -241,7 +244,7 @@ function TypeRow({ t, onSave, onDelete, moveType, isFirst, isLast }) {
         placeholder="slug (binance-alpha)"
       />
 
-      <div className="flex items-center gap-4">
+      <div className="flex items-center flex-wrap gap-4">
         <label className="inline-flex items-center gap-2">
           <input
             type="checkbox"
@@ -257,6 +260,14 @@ function TypeRow({ t, onSave, onDelete, moveType, isFirst, isLast }) {
             onChange={(e) => setRow((r) => ({ ...r, is_tge: e.target.checked }))}
           />
           <span className="text-sm">TGE</span>
+        </label>
+        <label className="inline-flex items-center gap-2">
+          <input
+            type="checkbox"
+            checked={!!row.track_in_stats}
+            onChange={(e) => setRow((r) => ({ ...r, track_in_stats: e.target.checked }))}
+          />
+          <span className="text-sm">Статистика</span>
         </label>
       </div>
 
@@ -304,6 +315,7 @@ export default function Admin() {
     slug: '',
     is_tge: false,
     active: true,
+    track_in_stats: false,
   });
 
   const [editId, setEditId] = useState(null);
@@ -597,13 +609,21 @@ const payload = {
       slug,
       is_tge: !!newType.is_tge,
       active: !!newType.active,
+      track_in_stats: !!newType.track_in_stats,
       order_index: Number(newType.order_index || 0),
     };
 
   const { error } = await supabase.from('event_types').insert(payload);
     if (error) return alert('Помилка: ' + error.message);
 
-  setNewType({ label: '', slug: '', is_tge: false, active: true, order_index: 0 });
+  setNewType({
+    label: '',
+    slug: '',
+    is_tge: false,
+    active: true,
+    track_in_stats: false,
+    order_index: 0,
+  });
     await refresh();
   };
 
@@ -625,6 +645,7 @@ const payload = {
       slug,
       is_tge: !!row.is_tge,
       active: !!row.active,
+      track_in_stats: !!row.track_in_stats,
       order_index: Number(row.order_index || 0),
     };
     const { error } = await supabase.from('event_types').update(payload).eq('id', row.id);
@@ -1157,7 +1178,7 @@ const payload = {
               onChange={(e) => setNewType((s) => ({ ...s, slug: e.target.value }))}
             />
             <div className="flex items-center justify-between gap-4">
-              <div className="flex items-center gap-4">
+              <div className="flex items-center flex-wrap gap-4">
                 <label className="inline-flex items-center gap-2">
                   <input
                     type="checkbox"
@@ -1173,6 +1194,14 @@ const payload = {
                     onChange={(e) => setNewType((s) => ({ ...s, is_tge: e.target.checked }))}
                   />
                   <span className="text-sm">TGE</span>
+                </label>
+                <label className="inline-flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    checked={newType.track_in_stats}
+                    onChange={(e) => setNewType((s) => ({ ...s, track_in_stats: e.target.checked }))}
+                  />
+                  <span className="text-sm">Статистика</span>
                 </label>
               </div>
               <button className="btn" onClick={addType}>

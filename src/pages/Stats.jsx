@@ -1,14 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import PriceReactionCard from '../components/PriceReactionCard';
-import { fetchCompletedTournaments, triggerPriceReactionJob } from '../lib/statsApi';
+import {
+  fetchCompletedTournaments,
+  fetchStatsTypeFilters,
+  triggerPriceReactionJob,
+} from '../lib/statsApi';
 import { supabase } from '../lib/supabase';
 
-// Event types that should be auto-added to the statistics page.  When
-// events with these slugs or names are inserted into the events_approved
-// table, the page will automatically trigger the price reaction job to
-// capture their price points.
-const AUTO_TYPES = ['Binance Tournaments', 'TS Bybit', 'Booster'];
-const AUTO_SLUGS = ['binance_tournament', 'ts_bybit', 'booster'];
 // ───────────────────────────────── Filter scroller (стрілки) ─────────────────────────────────
 function FilterScroller({ children }) {
   const ref = useRef(null);
@@ -62,6 +60,7 @@ export default function Stats() {
   const [jobInfo, setJobInfo] = useState('');
   const [jobError, setJobError] = useState(null);
   const [typeFilter, setTypeFilter] = useState('All');
+  const statsFiltersRef = useRef({ slugs: [], typeNames: [] });
 
   const typeOptions = useMemo(() => {
     const types = new Set();
@@ -80,7 +79,11 @@ export default function Stats() {
   // Helper to load the list of completed tournaments.
   const loadItems = async () => {
     try {
-      const data = await fetchCompletedTournaments();
+      const [filters, data] = await Promise.all([
+        fetchStatsTypeFilters(),
+        fetchCompletedTournaments(),
+      ]);
+      statsFiltersRef.current = filters;
       setItems(data);
     } catch (err) {
       setError(err.message || 'Не вдалося завантажити статистику');
@@ -94,8 +97,14 @@ export default function Stats() {
     let mounted = true;
     (async () => {
       try {
-        const data = await fetchCompletedTournaments();
-        if (mounted) setItems(data);
+        const [filters, data] = await Promise.all([
+          fetchStatsTypeFilters(),
+          fetchCompletedTournaments(),
+        ]);
+        if (mounted) {
+          statsFiltersRef.current = filters;
+          setItems(data);
+        }
       } catch (err) {
         setError(err.message || 'Не вдалося завантажити статистику');
       } finally {
@@ -128,9 +137,10 @@ export default function Stats() {
         { event: 'INSERT', schema: 'public', table: 'events_approved' },
         async (payload) => {
           const newEvent = payload.new;
+          const { slugs = [], typeNames = [] } = statsFiltersRef.current || {};
           if (
-            (newEvent.event_type_slug && AUTO_SLUGS.includes(newEvent.event_type_slug)) ||
-            (newEvent.type && AUTO_TYPES.includes(newEvent.type))
+            (newEvent.event_type_slug && slugs.includes(newEvent.event_type_slug)) ||
+            (newEvent.type && typeNames.includes(newEvent.type))
           ) {
             try {
               await triggerPriceReactionJob();
