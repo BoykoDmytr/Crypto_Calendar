@@ -31,6 +31,14 @@ CREATE TABLE public.event_edits_pending (
   CONSTRAINT event_edits_pending_pkey PRIMARY KEY (id),
   CONSTRAINT event_edits_pending_event_id_fkey FOREIGN KEY (event_id) REFERENCES public.events_approved(id)
 );
+CREATE TABLE public.event_price_reaction_exclusions (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  event_id uuid NOT NULL,
+  created_at timestamp with time zone NOT NULL DEFAULT now(),
+  CONSTRAINT event_price_reaction_exclusions_pkey PRIMARY KEY (id),
+  CONSTRAINT event_price_reaction_exclusions_event_id_key UNIQUE (event_id),
+  CONSTRAINT event_price_reaction_exclusions_event_id_fkey FOREIGN KEY (event_id) REFERENCES public.events_approved(id)
+);
 CREATE TABLE public.event_types (
   id uuid NOT NULL DEFAULT gen_random_uuid(),
   name text NOT NULL,

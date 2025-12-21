@@ -16,6 +16,10 @@ const TOURNAMENT_TYPES = ['Binance Tournaments', 'TS Bybit', 'Booster'];
  */
 export async function fetchCompletedTournaments() {
   const now = new Date().toISOString();
+  const { data: excluded } = await supabase
+    .from('event_price_reaction_exclusions')
+    .select('event_id');
+  const excludedIds = new Set((excluded || []).map((row) => row.event_id));
 
   const orFilter = [
     ...TOURNAMENT_SLUGS.map((slug) => `event_type_slug.eq.${slug}`),
@@ -33,7 +37,9 @@ export async function fetchCompletedTournaments() {
 
   if (error) throw error;
 
-  return (data || []).map((row) => {
+  return (data || [])
+    .filter((row) => !excludedIds.has(row.event_id))
+    .map((row) => {
     const event = row.events_approved || {};
     return {
       eventId: row.event_id,
@@ -228,6 +234,10 @@ function calcPercent(basePrice, nextPrice) {
  */
 export async function triggerPriceReactionJob() {
   const nowUtc = dayjs.utc();
+  const { data: excluded } = await supabase
+    .from('event_price_reaction_exclusions')
+    .select('event_id');
+  const excludedIds = new Set((excluded || []).map((row) => row.event_id));
 
   const orFilter = [
     ...TOURNAMENT_SLUGS.map((slug) => `event_type_slug.eq.${slug}`),
@@ -271,6 +281,10 @@ export async function triggerPriceReactionJob() {
 
   for (const event of events || []) {
     summary.processed += 1;
+    if (excludedIds.has(event.id)) {
+      summary.skipped += 1;
+      continue;
+    }
 
     const market = pickMarket(event);
     if (!market) {

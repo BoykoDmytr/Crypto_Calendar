@@ -470,9 +470,14 @@ export default function Admin() {
     await refresh();
   };
 
-  const removeStatsRow = async (id) => {
+  const removeStatsRow = async (row) => {
     if (!confirm('Видалити графік зі статистики? Подія залишиться у календарі.')) return;
-    const { error } = await supabase.from('event_price_reaction').delete().eq('id', id);
+    if (!row?.event_id) return alert('Не вдалося визначити подію для видалення.');
+    const { error: excludeError } = await supabase
+      .from('event_price_reaction_exclusions')
+      .upsert({ event_id: row.event_id }, { onConflict: 'event_id' });
+    if (excludeError) return alert('Помилка: ' + excludeError.message);
+    const { error } = await supabase.from('event_price_reaction').delete().eq('id', row.id);
     if (error) return alert('Помилка: ' + error.message);
     await refresh();
   };
@@ -1041,7 +1046,7 @@ const payload = {
                 <RowActions>
                   <button
                     className="btn-secondary"
-                    onClick={() => removeStatsRow(row.id)}
+                    onClick={() => removeStatsRow(row)}
                   >
                     Видалити зі статистики
                   </button>
