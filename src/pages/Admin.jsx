@@ -488,6 +488,25 @@ export default function Admin() {
 
   const removeRow = async (table, id) => {
     if (!confirm('Видалити запис?')) return;
+    if (table === 'events_approved') {
+      const { error: exclusionsError } = await supabase
+        .from('event_price_reaction_exclusions')
+        .delete()
+        .eq('event_id', id);
+      if (exclusionsError) return alert('Помилка: ' + exclusionsError.message);
+
+      const { error: reactionError } = await supabase
+        .from('event_price_reaction')
+        .delete()
+        .eq('event_id', id);
+      if (reactionError) return alert('Помилка: ' + reactionError.message);
+
+      const { error: editsError } = await supabase
+        .from('event_edits_pending')
+        .delete()
+        .eq('event_id', id);
+      if (editsError) return alert('Помилка: ' + editsError.message);
+    }
     const { error } = await supabase.from(table).delete().eq('id', id);
     if (error) return alert('Помилка: ' + error.message);
     await refresh();
