@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import PriceReactionCard from '../components/PriceReactionCard';
 import { fetchCompletedTournaments, triggerPriceReactionJob } from '../lib/statsApi';
 import { supabase } from '../lib/supabase';
@@ -9,26 +9,42 @@ import { supabase } from '../lib/supabase';
 // capture their price points.
 const AUTO_TYPES = ['Binance Tournaments', 'TS Bybit', 'Booster'];
 const AUTO_SLUGS = ['binance_tournament', 'ts_bybit', 'booster'];
-const SORT_OPTIONS = [
-  { value: 'date_desc', label: 'Дата: новіші' },
-  { value: 'date_asc', label: 'Дата: старіші' },
-  { value: 'title_asc', label: 'Назва: A → Z' },
-  { value: 'title_desc', label: 'Назва: Z → A' },
-  { value: 'change_desc', label: 'Зміна: зростання' },
-  { value: 'change_asc', label: 'Зміна: падіння' },
-];
+// ───────────────────────────────── Filter scroller (стрілки) ─────────────────────────────────
+function FilterScroller({ children }) {
+  const ref = useRef(null);
+  const by = (px) => ref.current?.scrollBy({ left: px, behavior: 'smooth' });
 
-function getOverallChange(item) {
-  const prices = item.priceReaction
-    .map((entry) => entry.price)
-    .filter((price) => price !== null && price !== undefined)
-    .map((price) => Number(price))
-    .filter((price) => Number.isFinite(price));
-  if (prices.length < 2) return null;
-  const base = prices[0];
-  const last = prices[prices.length - 1];
-  if (!Number.isFinite(base) || base === 0) return null;
-  return ((last - base) / base) * 100;
+  return (
+    <div className="relative">
+      <div
+        ref={ref}
+        className="overflow-x-auto no-scrollbar scroll-smooth flex gap-2 items-center px-8 md:px-10"
+      >
+        {children}
+      </div>
+
+      <button
+        type="button"
+        onClick={() => by(-240)}
+        className="hidden md:flex absolute -left-6 top-1/2 -translate-y-1/2
+                   w-9 h-9 rounded-full border bg-white shadow-sm hover:bg-gray-50
+                   items-center justify-center dark:border-white/10 dark:bg-slate-900/80 dark:hover:bg-slate-900"
+        aria-label="Прокрутити ліворуч"
+      >
+        ‹
+      </button>
+      <button
+        type="button"
+        onClick={() => by(240)}
+        className="hidden md:flex absolute -right-6 top-1/2 -translate-y-1/2
+                   w-9 h-9 rounded-full border bg-white shadow-sm hover:bg-gray-50
+                   items-center justify-center dark:border-white/10 dark:bg-slate-900/80 dark:hover:bg-slate-900"
+        aria-label="Прокрутити праворуч"
+      >
+        ›
+      </button>
+    </div>
+  );
 }
 
 /**
@@ -45,51 +61,21 @@ export default function Stats() {
   const [running, setRunning] = useState(false);
   const [jobInfo, setJobInfo] = useState('');
   const [jobError, setJobError] = useState(null);
-  const [typeFilter, setTypeFilter] = useState('all');
-  const [sortKey, setSortKey] = useState('date_desc');
+  const [typeFilter, setTypeFilter] = useState('All');
 
   const typeOptions = useMemo(() => {
     const types = new Set();
     items.forEach((item) => {
       if (item.type) types.add(item.type);
     });
-    return ['all', ...Array.from(types)];
+    return ['All', ...Array.from(types)];
   }, [items]);
 
   const visibleItems = useMemo(() => {
     const filtered =
-      typeFilter === 'all' ? items : items.filter((item) => item.type === typeFilter);
-    const sorted = [...filtered].sort((a, b) => {
-      switch (sortKey) {
-        case 'title_asc':
-          return (a.title || '').localeCompare(b.title || '');
-        case 'title_desc':
-          return (b.title || '').localeCompare(a.title || '');
-        case 'change_desc': {
-          const aChange = getOverallChange(a);
-          const bChange = getOverallChange(b);
-          if (aChange == null && bChange == null) return 0;
-          if (aChange == null) return 1;
-          if (bChange == null) return -1;
-          return bChange - aChange;
-        }
-        case 'change_asc': {
-          const aChange = getOverallChange(a);
-          const bChange = getOverallChange(b);
-          if (aChange == null && bChange == null) return 0;
-          if (aChange == null) return 1;
-          if (bChange == null) return -1;
-          return aChange - bChange;
-        }
-        case 'date_asc':
-          return new Date(a.startAt || 0) - new Date(b.startAt || 0);
-        case 'date_desc':
-        default:
-          return new Date(b.startAt || 0) - new Date(a.startAt || 0);
-      }
-    });
-    return sorted;
-  }, [items, sortKey, typeFilter]);
+      typeFilter === 'All' ? items : items.filter((item) => item.type === typeFilter);
+    return filtered;
+  }, [items, typeFilter]);
 
   // Helper to load the list of completed tournaments.
   const loadItems = async () => {
@@ -235,49 +221,24 @@ export default function Stats() {
         )}
         {jobError && <p className="relative mt-3 text-sm text-red-600 dark:text-red-400">{jobError}</p>}
       </header>
+      
+      <section className="rounded-2xl p-4">
+        <FilterScroller>
+          {typeOptions.map((option) => (
+            <button
+              key={option}
+              onClick={() => setTypeFilter(option)}
+              className={`px-3 py-1.5 rounded-full border text-sm whitespace-nowrap ${
+                typeFilter === option
+                  ? 'bg-brand-600 text-white border-brand-600'
+                  : 'bg-white border-gray-200 hover:bg-gray-50 dark:bg-slate-900/70 dark:border-white/10 dark:text-white/90 dark:hover:bg-slate-900'
+              }`}
+            >
+              {option}
+            </button>
+          ))}
+        </FilterScroller>
 
-      <section className="rounded-2xl border border-gray-200 bg-white/80 p-4 shadow-sm backdrop-blur-sm dark:border-white/10 dark:bg-white/5">
-        <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
-          <div>
-            <p className="text-sm font-semibold text-slate-800 dark:text-white">Фільтри</p>
-            <p className="text-xs text-slate-500 dark:text-gray-400">
-              Оберіть тип і спосіб сортування, щоб швидко знаходити потрібні івенти.
-            </p>
-          </div>
-          <div className="text-xs text-slate-500 dark:text-gray-400">
-            Показано: <span className="font-semibold text-slate-800 dark:text-white">{visibleItems.length}</span>
-          </div>
-        </div>
-        <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-          <label className="flex flex-col gap-1 text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-gray-400">
-            Тип
-            <select
-              value={typeFilter}
-              onChange={(event) => setTypeFilter(event.target.value)}
-              className="rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700 shadow-sm transition focus:border-emerald-300 focus:outline-none focus:ring-2 focus:ring-emerald-200 dark:border-white/10 dark:bg-slate-900/70 dark:text-white dark:focus:border-emerald-400 dark:focus:ring-emerald-500/30"
-            >
-              {typeOptions.map((option) => (
-                <option key={option} value={option}>
-                  {option === 'all' ? 'Усі типи' : option}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="flex flex-col gap-1 text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-gray-400">
-            Сортування
-            <select
-              value={sortKey}
-              onChange={(event) => setSortKey(event.target.value)}
-              className="rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700 shadow-sm transition focus:border-emerald-300 focus:outline-none focus:ring-2 focus:ring-emerald-200 dark:border-white/10 dark:bg-slate-900/70 dark:text-white dark:focus:border-emerald-400 dark:focus:ring-emerald-500/30"
-            >
-              {SORT_OPTIONS.map((option) => (
-                <option key={option.value} value={option.value}>
-                  {option.label}
-                </option>
-              ))}
-            </select>
-          </label>
-        </div>
       </section>
 
       {loading && <p className="text-sm text-gray-600">Завантаження…</p>}
