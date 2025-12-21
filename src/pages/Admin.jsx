@@ -309,6 +309,13 @@ export default function Admin() {
   const [editId, setEditId] = useState(null);
   const [editTable, setEditTable] = useState(null);
   const [toast, setToast] = useState('');
+  const [showAllApproved, setShowAllApproved] = useState(false);
+  const [showAllStats, setShowAllStats] = useState(false);
+
+  const approvedLimit = 5;
+  const statsLimit = 5;
+  const approvedVisible = showAllApproved ? approved : approved.slice(0, approvedLimit);
+  const statsVisible = showAllStats ? stats : stats.slice(0, statsLimit);
 
   useEffect(() => {
     if (ok) refresh();
@@ -972,7 +979,7 @@ const payload = {
         <h2 className="font-semibold mb-2">Схвалені події</h2>
         {approved.length === 0 && <p className="text-sm text-gray-600">Поки що немає.</p>}
         <div className="space-y-3">
-          {approved.map((ev) => {
+          {approvedVisible.map((ev) => {
             const coins = extractCoinEntries(ev);
             return (
               <article key={ev.id} className="card p-4">
@@ -1017,6 +1024,16 @@ const payload = {
             );
           })}
         </div>
+        {approved.length > approvedLimit && (
+          <div className="mt-3 flex justify-start">
+            <button
+              className="btn-secondary"
+              onClick={() => setShowAllApproved((prev) => !prev)}
+            >
+              {showAllApproved ? 'Згорнути' : 'Показати всі'}
+            </button>
+          </div>
+        )}
       </section>
       
       {/* Статистика */}
@@ -1027,7 +1044,7 @@ const payload = {
         </p>
         {stats.length === 0 && <p className="text-sm text-gray-600">Поки що немає графіків.</p>}
         <div className="space-y-3">
-          {stats.map((row) => {
+          {statsVisible.map((row) => {
             const event = row.events_approved || {};
             return (
               <article key={row.id} className="card p-4">
@@ -1059,6 +1076,16 @@ const payload = {
             );
           })}
         </div>
+        {stats.length > statsLimit && (
+          <div className="mt-3 flex justify-start">
+            <button
+              className="btn-secondary"
+              onClick={() => setShowAllStats((prev) => !prev)}
+            >
+              {showAllStats ? 'Згорнути' : 'Показати всі'}
+            </button>
+          </div>
+        )}
       </section>
 
       {/* ===== ДОВІДНИК БІРЖ ===== */}
