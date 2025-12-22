@@ -271,7 +271,7 @@ function calcPercent(basePrice, nextPrice) {
 async function fetchEvents(supabase) {
   const now = dayjs.utc();
   const windowStart = now.subtract(1, 'day').toISOString();
-  const windowEnd = now.add(1, 'day').toISOString();
+  const windowEnd = now.add(7, 'day').toISOString();
 
   const { data, error } = await supabase
     .from('events_approved')

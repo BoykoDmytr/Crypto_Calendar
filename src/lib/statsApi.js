@@ -66,7 +66,6 @@ async function buildStatsFilter() {
  * приєднані дані з events_approved, готові для PriceReactionCard.
  */
 export async function fetchCompletedTournaments() {
-  const now = new Date().toISOString();
   const { data: excluded } = await supabase
     .from('event_price_reaction_exclusions')
     .select('event_id');
@@ -79,7 +78,6 @@ export async function fetchCompletedTournaments() {
     .select(
       '*, events_approved!event_price_reaction_event_id_fkey(id,title,start_at,type,event_type_slug,coin_name,timezone,coin_price_link,link)'
     )
-    .lte('t0_time', now)
     .or(orFilter, { foreignTable: 'events_approved' })
     .order('t0_time', { ascending: false });
 
@@ -257,11 +255,9 @@ async function fetchCurrentPrice(market) {
  *   - now >= targetTime
  *   - і різниця не більше captureWindowMinutes (за замовчуванням 2 хв)
  */
-function shouldCapture(nowUtc, targetTimeUtc, captureWindowMinutes = 2) {
+function shouldCapture(nowUtc, targetTimeUtc) {
   if (!nowUtc || !targetTimeUtc) return false;
-  if (!nowUtc.isAfter(targetTimeUtc)) return false;
-  const diff = nowUtc.diff(targetTimeUtc, 'minute');
-  return diff >= 0 && diff <= captureWindowMinutes;
+  return nowUtc.isAfter(targetTimeUtc);
 }
 
 /**
@@ -296,7 +292,7 @@ export async function triggerPriceReactionJob() {
     .select(
       'id,title,start_at,type,event_type_slug,coin_name,timezone,tge_exchanges,coin_price_link'
     )
-    .lte('start_at', nowUtc.toISOString())
+    .lte('start_at', nowUtc.add(7, 'day').toISOString())
     .not('start_at', 'is', null)
     .or(orFilter);
 
