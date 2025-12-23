@@ -2,7 +2,6 @@
 import { supabase } from './supabase';
 import dayjs from 'dayjs';
 import utc from 'dayjs/plugin/utc';
-import { fetchMexcTickerPrice as fetchMexcTickerPriceShared } from '../utils/fetchMexcTicker';
 
 dayjs.extend(utc);
 
@@ -137,21 +136,6 @@ function normalizeMexcSymbol(raw) {
 }
 
 /**
- * Поточна ціна з тікера MEXC.
- */
-async function fetchMexcTickerPrice(apiPair) {
-    if (!apiPair) return null;
-
-    try {
-    const { price } = await fetchMexcTickerPriceShared(apiPair, { timeoutMs: 8_000 });
-    return price;
-  } catch (error) {
-    console.error('[MEXC] ticker failed', apiPair, error);
-    return null;
-  }
-}
-
-/**
  * Обрати ринок (пару та біржу) для івенту.
  *
  * Повертає:
@@ -201,53 +185,79 @@ function pickMarket(event) {
 }
 
 /**
- * Поточна ціна для ринку:
- *   1) пробуємо Debot (якщо є),
- *   2) якщо біржа MEXC або не вказана — пробуємо MEXC ticker.
+  * Отримати історичну ціну на конкретний момент часу. Спочатку
+ * намагаємося використати Debot (параметр timestamp),
+ * а в разі відсутності або помилки – звертаємося до MEXC.
+ *
+ * @param {Object} market – інформація про ринок (pair, apiPair, exchange, market)
+ * @param {string} isoTimestamp – мітка часу в ISO форматі UTC
  */
-async function fetchCurrentPrice(market) {
-  const { pair, apiPair, exchange, market: marketType } = market;
-  let price = null;
+async function fetchPriceAt(market, isoTimestamp) {
+  const { pair, apiPair, exchange } = market;
 
   // 1) Debot (якщо налаштований)
   if (DEBOT_BASE_URL) {
     try {
       const url = new URL(DEBOT_PRICE_PATH, DEBOT_BASE_URL);
       url.searchParams.set('pair', pair);
-      if (exchange) url.searchParams.set('exchange', exchange);
+      url.searchParams.set('timestamp', isoTimestamp);
 
       const res = await fetch(url.toString(), {
-        headers: DEBOT_API_KEY
-          ? {
-              Authorization: `Bearer ${DEBOT_API_KEY}`,
-            }
-          : undefined,
+        headers: DEBOT_API_KEY ? { Authorization: `Bearer ${DEBOT_API_KEY}` } : undefined,
       });
 
       if (res.ok) {
         const payload = await res.json();
-        if (typeof payload.price === 'number') {
-          price = payload.price;
-        } else if (payload.data && typeof payload.data.price === 'number') {
-          price = payload.data.price;
-        }
-      } else {
-        const txt = await res.text().catch(() => '');
-        console.error('[DEBOT] price error', pair, exchange, res.status, txt.slice(0, 200));
+        if (typeof payload.price === 'number') return payload.price;
+        if (payload.data && typeof payload.data.price === 'number') return payload.data.price;
       }
-    } catch (error) {
-      console.error('[DEBOT] price failed', pair, exchange, error);
+    } catch {
+      // ігноруємо помилку, переходимо до MEX
     }
   }
 
-  // 2) MEXC ticker (якщо Debot не спрацював і є apiPair)
-  if (price === null && apiPair && (!exchange || /mexc/i.test(exchange))) {
-    // передаємо тип ринку до функції MEXC тикера: futures чи spot
-    const options = marketType ? { market: marketType } : {};
-    price = await fetchMexcTickerPrice(apiPair, options);
+  // 2) MEXC свічки 1m
+  if (apiPair && (!exchange || /mexc/i.test(exchange))) {
+    try {
+      const centerMs = dayjs.utc(isoTimestamp).valueOf();
+      const startTime = centerMs - 60_000;
+      const endTime = centerMs + 60_000;
+      const url = new URL('/api/v3/klines', 'https://api.mexc.com');
+      url.searchParams.set('symbol', apiPair);
+      url.searchParams.set('interval', '1m');
+      url.searchParams.set('startTime', String(startTime));
+      url.searchParams.set('endTime', String(endTime));
+      url.searchParams.set('limit', '1');
+      const res = await fetch(url.toString());
+      if (res.ok) {
+        const data = await res.json();
+        if (Array.isArray(data) && data.length > 0) {
+          const kline = data[0];
+          const openPrice = Array.isArray(kline) ? kline[1] : null;
+          const num = Number(openPrice);
+          if (Number.isFinite(num)) return num;
+        }
+      }
+    } catch {
+      /* пропускаємо */
+    }
+    // 3) запасний варіант – поточний тікер
+    try {
+      const urlTicker = new URL('/api/v3/ticker/price', 'https://api.mexc.com');
+      urlTicker.searchParams.set('symbol', apiPair);
+      const resTicker = await fetch(urlTicker.toString());
+      if (resTicker.ok) {
+        const dataTicker = await resTicker.json();
+        const raw = dataTicker.price ?? dataTicker.lastPrice;
+        const num = Number(raw);
+        if (Number.isFinite(num)) return num;
+      }
+    } catch {
+      /* ігноруємо */
+    }
   }
 
-  return price;
+  return null;
 }
 
 /**
@@ -362,7 +372,7 @@ export async function triggerPriceReactionJob() {
 
         // ловимо T0, якщо вже настало вікно
         if (shouldCapture(nowUtc, t0Time)) {
-          const price0 = await fetchCurrentPrice(market);
+          const price0 = await fetchPriceAt(market, t0Time.toISOString());
           if (price0 != null) {
             payload.t0_price = price0;
           }
@@ -370,18 +380,18 @@ export async function triggerPriceReactionJob() {
 
         // ловимо T+5 / T+15, якщо вже час
         if (shouldCapture(nowUtc, t5Time) && payload.t0_price != null) {
-          const price5 = await fetchCurrentPrice(market);
+          const price5 = await fetchPriceAt(market, t5Time.toISOString());
           if (price5 != null) {
             payload.t_plus_5_price = price5;
             payload.t_plus_5_percent = calcPercent(payload.t0_price, price5);
           }
         }
 
-        if (shouldCapture(nowUtc, t15Time) && payload.t_plus_5_price != null) {
-          const price15 = await fetchCurrentPrice(market);
+        if (shouldCapture(nowUtc, t15Time) && payload.t0_price != null) {
+          const price15 = await fetchPriceAt(market, t15Time.toISOString())
           if (price15 != null) {
             payload.t_plus_15_price = price15;
-            payload.t_plus_15_percent = calcPercent(payload.t_plus_5_price, price15);
+            payload.t_plus_15_percent = calcPercent(payload.t0_price, price15);
           }
         }
 
@@ -402,7 +412,7 @@ export async function triggerPriceReactionJob() {
 
       // T0
       if (existing.t0_price == null && shouldCapture(nowUtc, t0Time)) {
-        const price0 = await fetchCurrentPrice(market);
+        const price0 = await fetchPriceAt(market, t0Time.toISOString());
         if (price0 != null) {
           patch.t0_price = price0;
           patch.t0_time = existing.t0_time || t0Time.toISOString();
@@ -414,26 +424,21 @@ export async function triggerPriceReactionJob() {
 
       // T+5
       if (existing.t_plus_5_price == null && shouldCapture(nowUtc, t5Time) && basePrice != null) {
-        const price5 = await fetchCurrentPrice(market);
+        const price5 = await fetchPriceAt(market, t5Time.toISOString());
         if (price5 != null) {
           patch.t_plus_5_price = price5;
           patch.t_plus_5_time = existing.t_plus_5_time || t5Time.toISOString();
           patch.t_plus_5_percent = calcPercent(basePrice, price5);
         }
       }
-      const base15Price = patch.t_plus_5_price ?? existing.t_plus_5_price;
 
       // T+15
-      if (
-        existing.t_plus_15_price == null &&
-        shouldCapture(nowUtc, t15Time) &&
-        base15Price != null
-      ) {
-        const price15 = await fetchCurrentPrice(market);
+      if (existing.t_plus_15_price == null && shouldCapture(nowUtc, t15Time) && basePrice != null) {
+        const price15 = await fetchPriceAt(market, t15Time.toISOString());
         if (price15 != null) {
           patch.t_plus_15_price = price15;
           patch.t_plus_15_time = existing.t_plus_15_time || t15Time.toISOString();
-          patch.t_plus_15_percent = calcPercent(base15Price, price15);
+          patch.t_plus_15_percent = calcPercent(basePrice, price15);
         }
       }
 
