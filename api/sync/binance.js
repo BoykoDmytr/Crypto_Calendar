@@ -12,10 +12,10 @@ const DEFAULT_LIST_URL = "https://cache.bwe-ws.com/bn-latest";
 const ALLOWED_CATEGORIES = new Set(["Latest Activities"]);
 const TITLE_KEYWORDS = [
   "Trading Competition",
-  "Competition",
-  "Tournament",
-  "Deposit Campaign",
-  "Campaign",
+  //"Competition",
+  //"Tournament",
+  //"Deposit Campaign",
+  //"Campaign",
 ];
 
 function stripTags(html) {
