@@ -10,26 +10,46 @@ function parseChannels(envVal) {
 }
 
 // дуже простий (але робочий) парсинг t.me/s/...
-function extractPosts(html) {
-  // шукаємо data-post="channel/123"
+function decodeHtml(s) {
+  return (s || "")
+    .replace(/<br\s*\/?>/gi, "\n")
+    .replace(/<\/?[^>]+>/g, "")
+    .replace(/&nbsp;/g, " ")
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .trim();
+}
+
+function extractPosts(html, expectedChannel) {
+  // Беремо кожен message-блок по data-post="channel/id"
+  // і далі шукаємо найближчий message text та time datetime в межах цього блоку.
   const posts = [];
-  const re = /data-post="([^"]+?)\/(\d+)".*?class="tgme_widget_message_text[^"]*">([\s\S]*?)<\/div>[\s\S]*?datetime="([^"]+?)"/g;
+
+  const reBlock = /data-post="([^"]+?)\/(\d+)"[\s\S]*?<\/article>/g; // на t.me/s часто все в <article>
   let m;
-  while ((m = re.exec(html)) !== null) {
+
+  while ((m = reBlock.exec(html)) !== null) {
     const channel = m[1];
     const id = Number(m[2]);
-    const rawHtmlText = m[3];
-    const datetime = m[4];
+    const block = m[0];
 
-    // прибираємо теги, залишаємо текст
-    const text = rawHtmlText
-      .replace(/<br\s*\/?>/gi, "\n")
-      .replace(/<\/?[^>]+>/g, "")
-      .replace(/&nbsp;/g, " ")
-      .replace(/&amp;/g, "&")
-      .replace(/&lt;/g, "<")
-      .replace(/&gt;/g, ">")
-      .trim();
+    if (expectedChannel && channel !== expectedChannel) continue;
+
+    // текст (у Telegram часто: tgme_widget_message_text js-message_text)
+    const textMatch =
+      /class="tgme_widget_message_text[^"]*"[^>]*>([\s\S]*?)<\/div>/.exec(block);
+
+    // datetime (часто в <time datetime="...">)
+    const timeMatch = /<time[^>]+datetime="([^"]+)"/.exec(block);
+
+    const text = decodeHtml(textMatch ? textMatch[1] : "");
+    const datetime = timeMatch ? timeMatch[1] : null;
+
+    // Якщо нема тексту (інколи пости тільки з картинкою) — пропускаємо
+    if (!text) continue;
 
     posts.push({
       channel,
@@ -39,8 +59,38 @@ function extractPosts(html) {
       link: `https://t.me/${channel}/${id}`,
     });
   }
+
+  // fallback: якщо <article> не підходить — пробуємо по wrap div
+  if (!posts.length) {
+    const reWrap = /data-post="([^"]+?)\/(\d+)"[\s\S]*?class="tgme_widget_message_footer"/g;
+    let w;
+    while ((w = reWrap.exec(html)) !== null) {
+      const channel = w[1];
+      const id = Number(w[2]);
+      const block = w[0];
+      if (expectedChannel && channel !== expectedChannel) continue;
+
+      const textMatch =
+        /class="tgme_widget_message_text[^"]*"[^>]*>([\s\S]*?)<\/div>/.exec(block);
+      const timeMatch = /<time[^>]+datetime="([^"]+)"/.exec(block);
+
+      const text = decodeHtml(textMatch ? textMatch[1] : "");
+      const datetime = timeMatch ? timeMatch[1] : null;
+      if (!text) continue;
+
+      posts.push({
+        channel,
+        id,
+        text,
+        datetime,
+        link: `https://t.me/${channel}/${id}`,
+      });
+    }
+  }
+
   return posts;
 }
+
 
 function guessEventFromText(text) {
   // мінімальна евристика: якщо є дата/час — ставимо її, інакше null (модератор поправить)
@@ -108,7 +158,10 @@ export default async function handler(req, res) {
     }
 
     const html = await page.text();
-    const posts = extractPosts(html)
+    const dataPostCount = (html.match(/data-post="/g) || []).length;
+    const hasWidgetText = html.includes("tgme_widget_message_text");
+    const posts = extractPosts(html, channel)
+
       .filter((p) => p.channel === channel)
       .sort((a, b) => a.id - b.id);
 
@@ -167,7 +220,7 @@ export default async function handler(req, res) {
       }
     }
 
-    summary.push({ channel, lastMsgId, new: newPosts.length, inserted, skipped, maxSeen });
+    summary.push({ channel, lastMsgId, dataPostCount, hasWidgetText, new: newPosts.length, inserted, skipped, maxSeen });
   }
 
   return res.status(200).json({ ok: true, summary });
