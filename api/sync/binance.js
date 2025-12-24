@@ -163,6 +163,30 @@ export default async function handler(req, res) {
 
     const listUrl = process.env.BINANCE_LATEST_URL || DEFAULT_LIST_URL;
     const listHtml = await fetchText(listUrl);
+    const debug = req?.query?.debug === "1";
+    if (debug) {
+      const sample = listHtml.slice(0, 1200);
+
+      const abs = [...listHtml.matchAll(/https:\/\/cache\.bwe-ws\.com\/bn-\d+/g)].map(m => m[0]);
+      const hrefRel = [...listHtml.matchAll(/href="(\/bn-\d+)"/g)].map(m => `https://cache.bwe-ws.com${m[1]}`);
+      const rel = [...listHtml.matchAll(/\/bn-\d+/g)].map(m => `https://cache.bwe-ws.com${m[0]}`);
+
+      const urls = Array.from(new Set([...abs, ...hrefRel, ...rel])).slice(0, 20);
+
+      return res.status(200).json({
+        ok: true,
+        debug: true,
+        listUrl,
+        htmlStartsWith: sample,
+        found: {
+          abs: abs.length,
+          hrefRel: hrefRel.length,
+          rel: rel.length,
+          uniqueFirst20: urls
+        }
+      });
+    }
+
     const items = parseLatestList(listHtml);
 
     let processed = 0;
