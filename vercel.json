@@ -6,6 +6,10 @@
     {
       "path": "/api/sync/binance?secret=Nwjrg26K0PXITZaFCz3mUlYsRx8hJpD9",
       "schedule": "*/30 * * * *"
+    },
+    {
+      "path": "/api/cron/telegram-scrape",
+      "schedule": "*/10 * * * *"
     }
   ]
 }
