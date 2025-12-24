@@ -68,6 +68,17 @@ function pad(value) {
   return String(value).padStart(2, '0');
 }
 
+function decodeEntities(text) {
+  if (!text) return text;
+  return text
+    .replace(/&#0*36;/g, '$')
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'");
+}
+
 function monthNameToNumber(name) {
   if (!name) return null;
   return MONTHS[name.toLowerCase()] || null;
@@ -89,6 +100,13 @@ function toIsoFromUtcParts({ year, month, day, time = '00:00' }) {
   if (!year || !month || !day) return null;
   const formatted = `${year}-${pad(month)}-${pad(day)} ${time}`;
   const parsed = dayjs.utc(formatted, 'YYYY-MM-DD HH:mm', true);
+  return parsed.isValid() ? parsed.toISOString() : null;
+}
+
+function toIsoFromUtcToKyivParts({ year, month, day, time = '00:00' }) {
+  if (!year || !month || !day) return null;
+  const formatted = `${year}-${pad(month)}-${pad(day)} ${time}`;
+  const parsed = dayjs.utc(formatted, 'YYYY-MM-DD HH:mm', true).tz(KYIV_TZ);
   return parsed.isValid() ? parsed.toISOString() : null;
 }
 
@@ -229,12 +247,36 @@ function parseBinanceAlpha(message, channel) {
   if (alphaPointsLine) descriptionParts.push(alphaPointsLine);
 
   const info = claimInfo || null;
-  const startAt = info ? (info.hasTime ? toIsoFromUtcParts(info) : toIsoFromKyivDate(info)) : null;
+  const startAt = info
+    ? info.hasTime
+      ? toIsoFromUtcToKyivParts(info)
+      : toIsoFromKyivDate(info)
+    : null;
   if (!startAt) return [];
   const todayStart = dayjs().tz(KYIV_TZ).startOf('day');
   if (dayjs(startAt).tz(KYIV_TZ).isBefore(todayStart)) {
     return [];
   }
+
+  let claimDateISO = null;
+  if (info) {
+    if (info.hasTime) {
+      const formatted = `${info.year}-${pad(info.month)}-${pad(info.day)} ${info.time || '00:00'}`;
+      const kyivDate = dayjs.utc(formatted, 'YYYY-MM-DD HH:mm', true).tz(KYIV_TZ);
+      claimDateISO = kyivDate.isValid() ? kyivDate.format('YYYY-MM-DD') : null;
+    } else {
+      const kyivDate = dayjs.tz(
+        `${info.year}-${pad(info.month)}-${pad(info.day)}`,
+        'YYYY-MM-DD',
+        KYIV_TZ,
+        true
+      );
+      claimDateISO = kyivDate.isValid() ? kyivDate.format('YYYY-MM-DD') : null;
+    }
+  }
+
+  const source = token && claimDateISO ? 'binance_alpha' : null;
+  const sourceKey = source ? `BINANCE_ALPHA|${token}|${claimDateISO}` : null;
 
   return [
     {
@@ -244,7 +286,10 @@ function parseBinanceAlpha(message, channel) {
       coins: buildCoins(token, quantity),
       coin_name: token || null,
       coin_quantity: quantity,
+      source,
+      source_key: sourceKey,
       type: 'Binance Alpha',
+      event_type_slug: 'binance_alpha',
     },
   ];
 }
@@ -417,6 +462,37 @@ async function insertIfMissing(supabase, payload) {
   return true;
 }
 
+async function upsertPendingBySourceKey(supabase, payload) {
+  const { data: existing, error: findErr } = await supabase
+    .from('auto_events_pending')
+    .select('id')
+    .eq('source', payload.source)
+    .eq('source_key', payload.source_key)
+    .limit(1);
+
+  if (findErr) throw findErr;
+
+  if (existing && existing.length) {
+    const id = existing[0].id;
+    const patch = { ...payload };
+    Object.keys(patch).forEach((key) => {
+      if (patch[key] === undefined) delete patch[key];
+    });
+
+    const { error: updErr } = await supabase.from('auto_events_pending').update(patch).eq('id', id);
+    if (updErr) throw updErr;
+    return { action: 'updated', id };
+  }
+
+  const { data: insData, error: insErr } = await supabase
+    .from('auto_events_pending')
+    .insert(payload)
+    .select('id')
+    .single();
+  if (insErr) throw insErr;
+  return { action: 'inserted', id: insData.id };
+}
+
 function readState(filePath) {
   try {
     const raw = fs.readFileSync(filePath, 'utf8');
@@ -457,7 +533,8 @@ async function fetchUpdates(token, offset) {
 function normalizeMessage(update) {
   const post = update.channel_post || update.edited_channel_post;
   if (!post || !post.chat || !post.chat.username) return null;
-  const text = post.text || post.caption || '';
+  let text = post.text || post.caption || '';
+  text = decodeEntities(text);
   const usernameRaw = post.chat.username;
   return {
     id: post.message_id,
@@ -541,11 +618,20 @@ async function run() {
         coin_name: parsed.coin_name || null,
         coin_quantity: parsed.coin_quantity !== undefined ? parsed.coin_quantity : null,
         coin_price_link: parsed.coin_price_link || null,
+        source: parsed.source || null,
+        source_key: parsed.source_key || null,
+        event_type_slug: parsed.event_type_slug || null,
       };
 
-      const inserted = await insertIfMissing(supabase, payload);
-      if (inserted) summary.inserted += 1;
-      else summary.skipped += 1;
+      if (payload.source && payload.source_key) {
+        const result = await upsertPendingBySourceKey(supabase, payload);
+        if (result.action === 'inserted') summary.inserted += 1;
+        else summary.skipped += 1;
+      } else {
+        const inserted = await insertIfMissing(supabase, payload);
+        if (inserted) summary.inserted += 1;
+        else summary.skipped += 1;
+      }
     }
 
     perChannelSummary.set(message.username, summary);
