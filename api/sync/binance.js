@@ -8,7 +8,7 @@ import { createClient } from "@supabase/supabase-js";
 dayjs.extend(utc);
 dayjs.extend(timezone);
 
-const DEFAULT_LIST_URL = "https://cache.bwe-ws.com/bn-latest";
+const DEFAULT_LIST_URL ="https://www.binance.com/bapi/composite/v1/public/cms/article/list/query?type=1&pageNo=1&pageSize=50";
 const ALLOWED_CATEGORIES = new Set(["Latest Activities"]);
 const TITLE_KEYWORDS = [
   "Trading Competition",
@@ -31,7 +31,9 @@ async function fetchText(url) {
   const res = await fetch(url, {
     headers: {
       "User-Agent": "Mozilla/5.0 (vercel-cron)",
-      Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+      "Accept": "application/json,text/html,*/*",
+      "Accept-Language": "en-US,en;q=0.9",
+      "clienttype": "web"
     },
   });
   if (!res.ok) {
@@ -40,6 +42,7 @@ async function fetchText(url) {
   }
   return res.text();
 }
+
 
 function looksLikeTournament(title) {
   if (!title) return false;
@@ -51,26 +54,26 @@ function looksLikeTournament(title) {
  * bn-latest — простий HTML список.
  * Ми дістаємо title + category і поруч шукаємо URL виду https://cache.bwe-ws.com/bn-726
  */
-function parseLatestList(html) {
-  const urls = new Set();
-
-  // 1) абсолютні урли
-  for (const m of html.matchAll(/https:\/\/cache\.bwe-ws\.com\/bn-\d+/g)) {
-    urls.add(m[0]);
+function parseLatestList(jsonText) {
+  let obj;
+  try {
+    obj = JSON.parse(jsonText);
+  } catch {
+    return [];
   }
 
-  // 2) відносні href="/bn-123"
-  for (const m of html.matchAll(/href="(\/bn-\d+)"/g)) {
-    urls.add(`https://cache.bwe-ws.com${m[1]}`);
-  }
+  const catalogs = obj?.data?.catalogs || [];
+  const latest = catalogs.find((c) => c?.catalogName === "Latest Activities");
+  const articles = latest?.articles || [];
 
-  // 3) просто "/bn-123" у тексті
-  for (const m of html.matchAll(/\/bn-\d+/g)) {
-    urls.add(`https://cache.bwe-ws.com${m[0]}`);
-  }
-
-  return Array.from(urls).slice(0, 60).map((url) => ({ url }));
+  // Повертаємо code + title + releaseDate
+  return articles.map((a) => ({
+    code: a.code,
+    title: a.title,
+    releaseDate: a.releaseDate,
+  }));
 }
+
 
 
 /**
@@ -194,45 +197,45 @@ export default async function handler(req, res) {
     let skipped = 0;
 
     for (const item of items) {
-      processed += 1;
+    // 1) фільтр по ключових словах по заголовку зі списку
+    if (item.title && !looksLikeTournament(item.title)) continue;
 
-      const pageHtml = await fetchText(item.url);
+    processed += 1;
 
-      // (опційно) залишаємо тільки Latest Activities по сторінці
-      if (!/Latest Activities/i.test(pageHtml)) continue;
+    // 2) йдемо на офіційну сторінку Binance по коду
+    const officialUrl = `https://www.binance.com/en/support/announcement/${item.code}`;
+    const pageHtml = await fetchText(officialUrl);
 
-      const parsed = parseAnnouncementPage(pageHtml);
+    const parsed = parseAnnouncementPage(pageHtml);
 
-      if (!parsed.title) { skipped += 1; continue; }
+    if (!parsed.title) { skipped += 1; continue; }
 
-      // ✅ ОТУТ ФІЛЬТР ПО КЛЮЧОВИХ СЛОВАХ — ПО РЕАЛЬНОМУ TITLE
-      if (!looksLikeTournament(parsed.title)) continue;
+    // 3) дата кінця промо = start_at у нас
+    const start_at = parsed.endUtc || parsed.startUtc;
+    if (!start_at) { skipped += 1; continue; }
 
-      const start_at = parsed.endUtc || parsed.startUtc;
-      if (!start_at) { skipped += 1; continue; }
+    const payload = {
+      title: parsed.title,
+      description: parsed.description || null,
+      start_at,
+      end_at: null,
+      timezone: "Kyiv",
+      type: "Binance Tournaments",
+      event_type_slug: "binance_tournament",
+      link: parsed.officialLink || officialUrl,
 
-      const payload = {
-        title: parsed.title,
-        description: parsed.description || null,
-        start_at,
-        end_at: null,
-        timezone: "Kyiv",
-        type: "Binance Tournaments",
-        event_type_slug: "binance_tournament",
-        link: parsed.officialLink || item.url,
+      coin_name: null,
+      coin_quantity: null,
+      coin_price_link: null,
+      tge_exchanges: [],
+      coins: null,
+    };
 
-        // ці поля будеш руками:
-        coin_name: null,
-        coin_quantity: null,
-        coin_price_link: null,
-        tge_exchanges: [],
-        coins: null,
-      };
+    const ok = await insertIfMissing(supabase, payload);
+    if (ok) inserted += 1;
+    else skipped += 1;
+  }
 
-      const ok = await insertIfMissing(supabase, payload);
-      if (ok) inserted += 1;
-      else skipped += 1;
-    }
 
     return res.status(200).json({ ok: true, processed, inserted, skipped, source: listUrl });
   } catch (e) {
