@@ -391,7 +391,13 @@ export default function EventForm({ onSubmit, loading, initial = {} }) {
       delete payload.tge_exchanges;
     }
 
-    if (!payload.link)        delete payload.link;
+    if (form.link !== undefined) {
+      if (String(form.link).trim() === '') {
+        payload.link = null;
+      } else {
+        payload.link = String(form.link).trim();
+      }
+    }
     if (!payload.description) delete payload.description;
 
     if (showTokenFields) {

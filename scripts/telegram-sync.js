@@ -186,13 +186,13 @@ function parseBinanceAlpha(message, channel) {
   if (tokenLineIndex === -1) return [];
 
   const title = lines[tokenLineIndex].replace(/^Token:\s*/i, '').trim() || 'Binance Alpha Airdrop';
-  const earnedLine = lines.find((line) => /you'?ve earned/i.test(line));
+  const amountLine = lines.find((line) => /^Amount\b/i.test(line));
   const claimLine = lines.find((line) => line.includes('Claim starts'));
   const alphaPointsLine = lines.find((line) => line.toLowerCase().startsWith('alpha points'));
   const consumesLine = lines.find((line) => line.toLowerCase().startsWith('consumes'));
   const requirementsIndex = lines.findIndex((line) => line.startsWith('📋'));
 
-  const { quantity, token } = parseQuantityAndToken(earnedLine);
+  const { quantity, token } = parseQuantityAndToken(amountLine);
   const claimInfo = parseBinanceClaim(claimLine);
 
   const descriptionParts = [];
@@ -504,7 +504,10 @@ async function run() {
         startAt = dayjs.unix(message.date).toISOString();
         notes.push('Дата старту не знайдена — використано час публікації повідомлення.');
       }
-
+      const alphaPointsLine = lines.find((line) => line.toLowerCase().startsWith('alpha points'));
+      const descriptionParts = [];
+      if (amountLine) descriptionParts.push(amountLine);
+      if (alphaPointsLine) descriptionParts.push(alphaPointsLine);
       const description = ensureDescription(
         [parsed.description, notes.length ? notes.join('\n') : null].filter(Boolean).join('\n\n')
       );
