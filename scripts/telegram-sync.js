@@ -79,6 +79,13 @@ function decodeEntities(text) {
     .replace(/&#39;/g, "'");
 }
 
+function stripEmoji(text) {
+  return (text || '')
+    .replace(/\p{Extended_Pictographic}/gu, '')
+    .replace(/\s{2,}/g, ' ')
+    .trim();
+}
+
 function monthNameToNumber(name) {
   if (!name) return null;
   return MONTHS[name.toLowerCase()] || null;
@@ -144,42 +151,50 @@ function ensureDescription(text) {
   return trimmed.length ? trimmed : null;
 }
 
-function parseOkxClaim(line) {
-  if (!line) return null;
-  const match = /Claim Date:\s*(\d{2})\.(\d{2})\.(\d{4})(?:,\s*(\d{2}):(\d{2}))?/i.exec(line);
+function parseClaimDateKyiv(lines) {
+  if (!lines?.length) return null;
+  const claim = lines.find((line) => /^Claim Date\b/i.test(line));
+  if (!claim) return null;
+  const match = /(\d{2}\.\d{2}\.\d{4}),\s*(\d{2}:\d{2})/.exec(claim);
   if (!match) return null;
-  const [, day, month, year, hour, minute] = match;
-  const info = {
-    year: Number(year),
-    month: Number(month),
-    day: Number(day),
-  };
-  if (hour && minute) info.time = `${hour}:${minute}`;
-  return info;
+  const dt = dayjs.tz(`${match[1]} ${match[2]}`, 'DD.MM.YYYY HH:mm', KYIV_TZ);
+  if (!dt.isValid()) return null;
+  return dt.toISOString();
 }
 
 function parseOkxAlpha(message, channel) {
-  const raw = (message.text || '').trim();
-  if (!raw.startsWith(channel.emoji)) return [];
-  const lines = raw.split('\n').map((line) => line.trim()).filter(Boolean);
+  let text = (message.text || '').trim();
+  if (!text.startsWith(channel.emoji)) return [];
+  text = stripEmoji(decodeEntities(text));
+  const lines = text.split('\n').map((line) => line.trim()).filter(Boolean);
   if (!lines.length) return [];
 
   const title = lines[0] || 'OKX Boost X Launch Event';
-  const rewardLine = lines.find((line) => line.startsWith('💰')) || null;
-  const claimLine = lines.find((line) => line.includes('Claim Date')) || null;
-  const { quantity, token } = parseQuantityAndToken(rewardLine);
-  const claimInfo = parseOkxClaim(claimLine);
-  const startAt = claimInfo ? toIsoFromUtcParts(claimInfo) : null;
+  const amountLine = lines.find((line) => /^Amount\b/i.test(line));
+  const alphaPointsLine = lines.find((line) => /^Alpha points\b/i.test(line));
+  const { quantity, token } = parseQuantityAndToken(amountLine);
+  const startAt = parseClaimDateKyiv(lines);
+  if (!startAt) return [];
+  const description = [amountLine, alphaPointsLine].filter(Boolean).join('\n');
+
+  const claimKey = dayjs(startAt).tz(KYIV_TZ).format('YYYY-MM-DD HH:mm');
+  const titleClean = stripEmoji(title);
+  const source = `okx_alpha`;
+  const sourceKey = `OKX_ALPHA|${titleClean}|${claimKey}`;
 
   return [
     {
-      title,
-      description: ensureDescription(lines.slice(1).join('\n')),
+      title: titleClean,
+      description: ensureDescription(description),
       startAt,
       coins: buildCoins(token, quantity),
       coin_name: token || null,
       coin_quantity: quantity,
-      type: 'Airdrop',
+      source,
+      source_key: sourceKey,
+      type: 'OKX Alpha',
+      event_type_slug: 'okx_alpha',
+      coin_price_link: null,
     },
   ];
 }
