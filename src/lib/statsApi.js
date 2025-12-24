@@ -6,28 +6,133 @@ import { fetchMexcTickerPrice as fetchMexcTickerPriceShared } from '../utils/fet
 
 dayjs.extend(utc);
 
-// Які івенти вважаємо турнірами за замовчуванням (якщо немає налаштованих типів).
+// ===== Турнірні типи =====
 const DEFAULT_TOURNAMENT_SLUGS = ['binance_tournament', 'ts_bybit', 'booster'];
 const DEFAULT_TOURNAMENT_TYPES = ['Binance Tournaments', 'TS Bybit', 'Booster'];
 
-// ===== Налаштування джоби (важливо для “івентів наперед”) =====
-const LOOKAHEAD_DAYS = 60; // скільки днів вперед створюємо "заготовки"
-const CAPTURE_WINDOW_MINUTES = 3; // вікно після targetTime, щоб точно зловити (cron раз/хв)
+// ===== Налаштування джоби =====
+const LOOKAHEAD_DAYS = 60;          // скільки днів вперед готуємо
+const CAPTURE_WINDOW_MINUTES = 3;   // вікно після targetTime
 
-// ===== Налаштування джерел цін =====
-const DEBOT_BASE_URL = import.meta.env.VITE_DEBOT_BASE_URL || null;
-const DEBOT_API_KEY = import.meta.env.VITE_DEBOT_API_KEY || null;
-const DEBOT_PRICE_PATH = import.meta.env.VITE_DEBOT_PRICE_PATH || '/v1/price';
+// ───────────────────────────── helpers ─────────────────────────────
 
-/**
- * Нормалізація і ВАЛІДАЦІЯ ціни.
- * 0 / NaN / Infinity / від'ємне → null (щоб не писати в БД "0")
- */
 function normalizeValidPrice(value) {
   const n = Number(value);
   if (!Number.isFinite(n) || n <= 0) return null;
   return n;
 }
+
+function normalizeMexcSymbol(raw) {
+  if (!raw || typeof raw !== 'string') return null;
+  const upper = raw.trim().toUpperCase();
+  const cleaned = upper.replace(/[^A-Z0-9]/g, '');
+  if (cleaned.length < 6) return null;
+  return cleaned;
+}
+
+/**
+ * Витягує пару з MEXC URL:
+ *  - .../futures/BTC_USDT?...  -> BTC_USDT, market=futures
+ *  - .../exchange/BTC_USDT     -> BTC_USDT, market=spot
+ */
+function parseMexcLink(link) {
+  if (!link || typeof link !== 'string') return null;
+  const s = link.trim();
+
+  const isFutures = /\/futures\//i.test(s) || /type=linear_swap/i.test(s);
+
+  const m = s.match(/\/(futures|exchange)\/([A-Z0-9]{2,}_USDT)/i) || s.match(/([A-Z0-9]{2,}_USDT)/i);
+  const pair = m ? m[m.length - 1].toUpperCase() : null;
+  if (!pair) return null;
+
+  return {
+    pair,
+    apiPair: normalizeMexcSymbol(pair),
+    market: isFutures ? 'futures' : 'spot', // якщо не futures — spot
+  };
+}
+
+/**
+ * ✅ ЄДИНЕ ДЖЕРЕЛО — MEXC
+ * Спершу беремо пару з coin_price_link (як ти описав),
+ * якщо немає — з coin_name (BTC -> BTC_USDT),
+ * якщо немає — пробуємо tge_exchanges.pair як fallback.
+ */
+function pickMexcMarket(event) {
+  // 1) З лінка MEXC
+  const fromLink = parseMexcLink(event.coin_price_link);
+  if (fromLink) {
+    return {
+      pair: fromLink.pair,
+      apiPair: fromLink.apiPair,
+      exchange: 'MEXC',
+      market: fromLink.market,
+    };
+  }
+
+  // 2) З coin_name (BTC -> BTC_USDT)
+  if (event.coin_name) {
+    const sym = String(event.coin_name).trim().toUpperCase().replace(/[^A-Z0-9]/g, '');
+    if (sym) {
+      const pair = `${sym}_USDT`;
+      return {
+        pair,
+        apiPair: normalizeMexcSymbol(pair),
+        exchange: 'MEXC',
+        market: 'spot',
+      };
+    }
+  }
+
+  // 3) Fallback зі списку бірж (якщо там теж BTC_USDT і т.п.)
+  const exchanges = Array.isArray(event.tge_exchanges) ? event.tge_exchanges : [];
+  const entry =
+    exchanges.find((x) => x?.pair && String(x.pair).toUpperCase().includes('USDT')) || exchanges[0];
+
+  if (entry?.pair) {
+    const pair = String(entry.pair).toUpperCase();
+    return {
+      pair,
+      apiPair: normalizeMexcSymbol(pair),
+      exchange: 'MEXC',
+      market: /futures/i.test(event.coin_price_link || '') ? 'futures' : 'spot',
+    };
+  }
+
+  return null;
+}
+
+async function fetchMexcPrice(market) {
+  if (!market?.apiPair) return null;
+
+  try {
+    // передаємо тип ринку: futures/spot (твій util має це підтримувати)
+    const { price } = await fetchMexcTickerPriceShared(market.apiPair, {
+      timeoutMs: 8_000,
+      market: market.market || 'spot',
+    });
+    return normalizeValidPrice(price);
+  } catch (e) {
+    console.error('[MEXC] ticker failed', market.apiPair, market.market, e);
+    return null;
+  }
+}
+
+function shouldCapture(nowUtc, targetTimeUtc, captureWindowMinutes = CAPTURE_WINDOW_MINUTES) {
+  if (!nowUtc || !targetTimeUtc) return false;
+  const diffSec = nowUtc.diff(targetTimeUtc, 'second');
+  return diffSec >= 0 && diffSec <= captureWindowMinutes * 60;
+}
+
+function calcPercent(basePrice, nextPrice) {
+  if (basePrice == null || nextPrice == null) return null;
+  const b = Number(basePrice);
+  const n = Number(nextPrice);
+  if (!Number.isFinite(b) || !Number.isFinite(n) || b <= 0) return null;
+  return ((n - b) / b) * 100;
+}
+
+// ───────────────────────────── filters ─────────────────────────────
 
 export async function fetchStatsTypeFilters() {
   try {
@@ -81,8 +186,7 @@ async function buildStatsFilter() {
 }
 
 /**
- * Завантажити всі завершені турніри з event_price_reaction +
- * приєднані дані з events_approved, готові для PriceReactionCard.
+ * Completed tournaments for UI
  */
 export async function fetchCompletedTournaments() {
   const now = new Date().toISOString();
@@ -99,7 +203,6 @@ export async function fetchCompletedTournaments() {
     .select(
       '*, events_approved!event_price_reaction_event_id_fkey(id,title,start_at,type,event_type_slug,coin_name,timezone,coin_price_link,link)'
     )
-    // показуємо те, що вже "настало" по часу t0
     .lte('t0_time', now)
     .or(orFilter, { foreignTable: 'events_approved' })
     .order('t0_time', { ascending: false });
@@ -122,165 +225,15 @@ export async function fetchCompletedTournaments() {
         priceLink: event.coin_price_link || event.link || null,
         priceReaction: [
           { label: 'T0', time: row.t0_time, price: row.t0_price, percent: row.t0_percent ?? 0 },
-          {
-            label: 'T+5m',
-            time: row.t_plus_5_time,
-            price: row.t_plus_5_price,
-            percent: row.t_plus_5_percent,
-          },
-          {
-            label: 'T+15m',
-            time: row.t_plus_15_time,
-            price: row.t_plus_15_price,
-            percent: row.t_plus_15_percent,
-          },
+          { label: 'T+5m', time: row.t_plus_5_time, price: row.t_plus_5_price, percent: row.t_plus_5_percent },
+          { label: 'T+15m', time: row.t_plus_15_time, price: row.t_plus_15_price, percent: row.t_plus_15_percent },
         ],
       };
     });
 }
 
-/**
- * Нормалізуємо символ для MEXC:
- *  - "LTC_USDT" → "LTCUSDT"
- *  - "ltc/usdt" → "LTCUSDT"
- *  - "LTCUSDT"  → "LTCUSDT"
- */
-function normalizeMexcSymbol(raw) {
-  if (!raw || typeof raw !== 'string') return null;
-  const upper = raw.trim().toUpperCase();
-  const cleaned = upper.replace(/[^A-Z0-9]/g, ''); // видаляємо "_", "/", "-" тощо
-  if (cleaned.length < 6) return null;
-  return cleaned;
-}
+// ───────────────────────────── main job ─────────────────────────────
 
-/**
- * Поточна ціна з тікера MEXC (через твій shared utils).
- */
-async function fetchMexcTickerPrice(apiPair, options = {}) {
-  if (!apiPair) return null;
-
-  try {
-    const { price } = await fetchMexcTickerPriceShared(apiPair, { timeoutMs: 8_000, ...options });
-    return normalizeValidPrice(price);
-  } catch (error) {
-    console.error('[MEXC] ticker failed', apiPair, error);
-    return null;
-  }
-}
-
-/**
- * Обрати ринок (пару та біржу) для івенту.
- */
-function pickMarket(event) {
-  const exchanges = Array.isArray(event.tge_exchanges) ? event.tge_exchanges : [];
-
-  const entry =
-    exchanges.find(
-      (item) => item && typeof item.pair === 'string' && item.pair.toUpperCase().includes('USDT')
-    ) || exchanges[0];
-
-  if (entry && entry.pair) {
-    const apiPair = normalizeMexcSymbol(entry.pair);
-    return {
-      pair: entry.pair,
-      apiPair,
-      exchange: entry.exchange || null,
-      market: 'spot',
-    };
-  }
-
-  // fallback: пробуємо лінк
-  if (event.coin_price_link && typeof event.coin_price_link === 'string') {
-    const cleaned = event.coin_price_link.trim();
-    const m = cleaned.match(/[A-Z0-9]{2,}[_/]*USDT/i);
-    const displayPair = m ? m[0] : cleaned;
-    const apiPair = normalizeMexcSymbol(displayPair);
-    const isFutures = /futures/i.test(cleaned);
-    return {
-      pair: displayPair,
-      apiPair,
-      exchange: /mexc/i.test(cleaned) ? 'MEXC' : null,
-      market: isFutures ? 'futures' : 'spot',
-    };
-  }
-
-  return null;
-}
-
-/**
- * Поточна ціна для ринку:
- *   1) Debot (якщо є),
- *   2) MEXC ticker (якщо Debot не спрацював і є apiPair).
- */
-async function fetchCurrentPrice(market) {
-  const { pair, apiPair, exchange, market: marketType } = market;
-  let price = null;
-
-  // 1) Debot (якщо налаштований)
-  if (DEBOT_BASE_URL) {
-    try {
-      const url = new URL(DEBOT_PRICE_PATH, DEBOT_BASE_URL);
-      url.searchParams.set('pair', pair);
-      if (exchange) url.searchParams.set('exchange', exchange);
-
-      const res = await fetch(url.toString(), {
-        headers: DEBOT_API_KEY ? { Authorization: `Bearer ${DEBOT_API_KEY}` } : undefined,
-      });
-
-      if (res.ok) {
-        const payload = await res.json();
-        if (payload?.price != null) {
-          price = normalizeValidPrice(payload.price);
-        } else if (payload?.data?.price != null) {
-          price = normalizeValidPrice(payload.data.price);
-        }
-      } else {
-        const txt = await res.text().catch(() => '');
-        console.error('[DEBOT] price error', pair, exchange, res.status, txt.slice(0, 200));
-      }
-    } catch (error) {
-      console.error('[DEBOT] price failed', pair, exchange, error);
-    }
-  }
-
-  // 2) MEXC ticker
-  if (price == null && apiPair && (!exchange || /mexc/i.test(exchange))) {
-    const options = marketType ? { market: marketType } : {};
-    price = await fetchMexcTickerPrice(apiPair, options);
-  }
-
-  return price;
-}
-
-/**
- * Визначити, чи варто зараз «ловити» ціну для targetTime:
- *   - now >= targetTime
- *   - diff <= captureWindowMinutes
- *
- * ВАЖЛИВО: інклюзивно (>=0 сек), щоб не пролетіти "в рівно"
- */
-function shouldCapture(nowUtc, targetTimeUtc, captureWindowMinutes = CAPTURE_WINDOW_MINUTES) {
-  if (!nowUtc || !targetTimeUtc) return false;
-  const diffSec = nowUtc.diff(targetTimeUtc, 'second');
-  return diffSec >= 0 && diffSec <= captureWindowMinutes * 60;
-}
-
-/**
- * Порахувати % зміну відносно base (base має бути > 0).
- */
-function calcPercent(basePrice, nextPrice) {
-  if (basePrice == null || nextPrice == null) return null;
-  const b = Number(basePrice);
-  const n = Number(nextPrice);
-  if (!Number.isFinite(b) || !Number.isFinite(n) || b <= 0) return null;
-  return ((n - b) / b) * 100;
-}
-
-/**
- * Головна джоба:
- *   - створює заготовки в event_price_reaction наперед (LOOKAHEAD_DAYS)
- *   - ловить ціну у вікні біля T0, T+5, T+15 (CAPTURE_WINDOW_MINUTES)
- */
 export async function triggerPriceReactionJob() {
   const nowUtc = dayjs.utc();
 
@@ -291,7 +244,7 @@ export async function triggerPriceReactionJob() {
 
   const orFilter = await buildStatsFilter();
 
-  // ✅ ВИБІРКА НАПЕРЕД (ось це вирішує "24 -> 30" і тд)
+  // ✅ беремо івенти НАПЕРЕД (для заготовлених постів)
   const { data: events, error: eventsError } = await supabase
     .from('events_approved')
     .select('id,title,start_at,type,event_type_slug,coin_name,timezone,tge_exchanges,coin_price_link')
@@ -324,10 +277,11 @@ export async function triggerPriceReactionJob() {
       continue;
     }
 
-    const market = pickMarket(event);
-    if (!market) {
+    // ✅ завжди MEXC
+    const market = pickMexcMarket(event);
+    if (!market?.apiPair) {
       summary.skipped += 1;
-      console.warn('[stats] skip event, no market', event.id, event.title);
+      console.warn('[stats] skip event, cannot determine MEXC pair', event.id, event.title);
       continue;
     }
 
@@ -337,14 +291,14 @@ export async function triggerPriceReactionJob() {
 
     const existing = existingMap.get(event.id);
 
-    // ✅ 1) Якщо запису ще нема — створюємо ЗАГОТОВКУ (навіть якщо івент через 10 днів)
+    // 1) якщо запису нема — створюємо заготовку
     if (!existing) {
       try {
         const payload = {
           event_id: event.id,
           coin_name: event.coin_name || null,
           pair: market.pair,
-          exchange: market.exchange,
+          exchange: 'MEXC',
 
           t0_time: t0Time.toISOString(),
           t0_price: null,
@@ -361,6 +315,7 @@ export async function triggerPriceReactionJob() {
 
         const { error } = await supabase.from('event_price_reaction').insert(payload);
         if (error) throw error;
+
         summary.inserted += 1;
       } catch (error) {
         console.error('[stats] insert stub failed', event.id, error);
@@ -369,13 +324,13 @@ export async function triggerPriceReactionJob() {
       continue;
     }
 
-    // ✅ 2) Оновлення існуючого запису — ловимо ціни по вікнах
+    // 2) апдейтимо ціни в потрібні вікна
     try {
       const patch = {};
 
       // T0
       if (existing.t0_price == null && shouldCapture(nowUtc, t0Time)) {
-        const p0 = normalizeValidPrice(await fetchCurrentPrice(market));
+        const p0 = await fetchMexcPrice(market);
         if (p0 != null) {
           patch.t0_price = p0;
           patch.t0_percent = 0;
@@ -384,18 +339,18 @@ export async function triggerPriceReactionJob() {
 
       const base = patch.t0_price ?? existing.t0_price;
 
-      // T+5 (відносно T0)
+      // T+5
       if (existing.t_plus_5_price == null && base != null && shouldCapture(nowUtc, t5Time)) {
-        const p5 = normalizeValidPrice(await fetchCurrentPrice(market));
+        const p5 = await fetchMexcPrice(market);
         if (p5 != null) {
           patch.t_plus_5_price = p5;
           patch.t_plus_5_percent = calcPercent(base, p5);
         }
       }
 
-      // T+15 (теж відносно T0)
+      // T+15
       if (existing.t_plus_15_price == null && base != null && shouldCapture(nowUtc, t15Time)) {
-        const p15 = normalizeValidPrice(await fetchCurrentPrice(market));
+        const p15 = await fetchMexcPrice(market);
         if (p15 != null) {
           patch.t_plus_15_price = p15;
           patch.t_plus_15_percent = calcPercent(base, p15);
