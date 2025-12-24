@@ -6,12 +6,12 @@ import { fetchMexcTickerPrice as fetchMexcTickerPriceShared } from '../utils/fet
 
 dayjs.extend(utc);
 
-// ====== Налаштування поведінки ======
-const CAPTURE_WINDOW_MINUTES = 5;      // скільки хвилин після цільового часу дозволено ловити ціну
-const LOOKAHEAD_DAYS = 7;              // на скільки днів вперед створювати/оновлювати записи
-const MIN_WRITE_GAP_SECONDS = 30;      // анти-спам: мін. пауза між записами (щоб не “дьоргало”)
+// ====== Налаштування ======
+const CAPTURE_WINDOW_MINUTES = 5;      // вікно “після” targetTime (щоб не промахнутись)
+const LOOKAHEAD_DAYS = 7;              // наскільки вперед створюємо/тримаємо записи
+const MIN_WRITE_GAP_SECONDS = 20;      // щоб не спамити update при частих викликах
 
-// Які івенти вважаємо турнірами за замовчуванням (якщо немає налаштованих типів).
+// Дефолтні типи (якщо в БД не налаштовано track_in_stats)
 const DEFAULT_TOURNAMENT_SLUGS = ['binance_tournament', 'ts_bybit', 'booster'];
 const DEFAULT_TOURNAMENT_TYPES = ['Binance Tournaments', 'TS Bybit', 'Booster'];
 
@@ -67,9 +67,8 @@ async function buildStatsFilter() {
 }
 
 /**
- * Завантажити всі турніри з event_price_reaction +
- * приєднані дані з events_approved, готові для PriceReactionCard.
- * (показуємо і майбутні теж)
+ * Повертаємо записи event_price_reaction, включно з майбутніми,
+ * щоб “заготовлені” івенти були видимі на Stats одразу.
  */
 export async function fetchCompletedTournaments() {
   const { data: excluded } = await supabase
@@ -122,18 +121,11 @@ export async function fetchCompletedTournaments() {
     });
 }
 
-// ===== Налаштування джерел цін =====
-
+// ===== Джерела цін =====
 const DEBOT_BASE_URL = import.meta.env.VITE_DEBOT_BASE_URL || null;
 const DEBOT_API_KEY = import.meta.env.VITE_DEBOT_API_KEY || null;
 const DEBOT_PRICE_PATH = import.meta.env.VITE_DEBOT_PRICE_PATH || '/v1/price';
 
-/**
- * Нормалізуємо символ для MEXC:
- *  - "LTC_USDT" → "LTCUSDT"
- *  - "ltc/usdt" → "LTCUSDT"
- *  - "LTCUSDT"  → "LTCUSDT"
- */
 function normalizeMexcSymbol(raw) {
   if (!raw || typeof raw !== 'string') return null;
   const upper = raw.trim().toUpperCase();
@@ -142,16 +134,12 @@ function normalizeMexcSymbol(raw) {
   return cleaned;
 }
 
-/**
- * Обрати ринок (пару та біржу) для івенту.
- */
 function pickMarket(event) {
   const exchanges = Array.isArray(event.tge_exchanges) ? event.tge_exchanges : [];
 
   const entry =
     exchanges.find(
-      (item) =>
-        item && typeof item.pair === 'string' && item.pair.toUpperCase().includes('USDT')
+      (item) => item && typeof item.pair === 'string' && item.pair.toUpperCase().includes('USDT')
     ) || exchanges[0];
 
   if (entry && entry.pair) {
@@ -164,17 +152,17 @@ function pickMarket(event) {
     };
   }
 
-  // fallback: пробуємо лінк
-  if (event.coin_price_link && typeof event.coin_price_link === 'string') {
-    const cleaned = event.coin_price_link.trim();
-    const m = cleaned.match(/[A-Z0-9]{2,}[_/]*USDT/i);
-    const displayPair = m ? m[0] : cleaned;
+  // fallback: пробуємо витягнути пару з лінка
+  const link = (event.coin_price_link || event.link || '').trim();
+  if (link) {
+    const m = link.match(/[A-Z0-9]{2,}[_/]*USDT/i);
+    const displayPair = m ? m[0] : link;
     const apiPair = normalizeMexcSymbol(displayPair);
-    const isFutures = /futures/i.test(cleaned);
+    const isFutures = /futures/i.test(link);
     return {
       pair: displayPair,
       apiPair,
-      exchange: /mexc/i.test(cleaned) ? 'MEXC' : null,
+      exchange: /mexc/i.test(link) ? 'MEXC' : null,
       market: isFutures ? 'futures' : 'spot',
     };
   }
@@ -183,9 +171,8 @@ function pickMarket(event) {
 }
 
 /**
- * Поточна ціна:
- *  1) Debot (якщо налаштований)
- *  2) MEXC ticker (через fetchMexcTickerPriceShared)
+ * Браузер-стабільно: беремо поточну ціну.
+ * (історичні klines у браузері часто CORS-блочаться)
  */
 async function fetchCurrentPrice(market) {
   const { pair, apiPair, exchange, market: marketType } = market;
@@ -207,34 +194,29 @@ async function fetchCurrentPrice(market) {
         if (typeof payload.price === 'number') return payload.price;
         if (payload.data && typeof payload.data.price === 'number') return payload.data.price;
       }
-    } catch (error) {
-      console.error('[DEBOT] price failed', pair, exchange, error);
+    } catch (e) {
+      console.error('[DEBOT] price failed', pair, exchange, e);
     }
   }
 
-  // 2) MEXC ticker
-  if (price === null && apiPair && (!exchange || /mexc/i.test(exchange))) {
+  // 2) MEXC ticker (через твій util)
+  if (price == null && apiPair && (!exchange || /mexc/i.test(exchange))) {
     try {
       const options = marketType ? { market: marketType } : {};
       const { price: p } = await fetchMexcTickerPriceShared(apiPair, { timeoutMs: 8000, ...options });
       if (p != null) price = p;
-    } catch (error) {
-      console.error('[MEXC] ticker failed', apiPair, error);
+    } catch (e) {
+      console.error('[MEXC] ticker failed', apiPair, e);
     }
   }
 
   return price;
 }
 
-/**
- * Чи можна “ловити” ціну:
- *  - now >= targetTime
- *  - і не пізніше, ніж CAPTURE_WINDOW_MINUTES після targetTime
- */
 function shouldCapture(nowUtc, targetTimeUtc) {
   if (!nowUtc || !targetTimeUtc) return false;
-  const diffMinutes = nowUtc.diff(targetTimeUtc, 'minute', true);
-  return diffMinutes >= 0 && diffMinutes <= CAPTURE_WINDOW_MINUTES;
+  const diff = nowUtc.diff(targetTimeUtc, 'minute', true);
+  return diff >= 0 && diff <= CAPTURE_WINDOW_MINUTES;
 }
 
 function calcPercent(basePrice, nextPrice) {
@@ -245,27 +227,17 @@ function calcPercent(basePrice, nextPrice) {
   return ((n - b) / b) * 100;
 }
 
-/**
- * Анти-спам: якщо записували щось зовсім недавно — не пишемо знову.
- */
 function tooSoonToWrite(existing, nowUtc) {
-  const last =
-    existing?.updated_at ||
-    existing?.created_at ||
-    null;
-
+  const last = existing?.updated_at || existing?.created_at || null;
   if (!last) return false;
-
-  const lastUtc = dayjs.utc(last);
-  const diffSec = nowUtc.diff(lastUtc, 'second');
+  const diffSec = nowUtc.diff(dayjs.utc(last), 'second');
   return diffSec >= 0 && diffSec < MIN_WRITE_GAP_SECONDS;
 }
 
 /**
- * Головна джоба для вкладки «Статистика»:
- *   - створює записи для майбутніх івентів
- *   - ловить ціну у вікні T0 / T+5 / T+15
- *   - рахує % від T0 для обох точок
+ * Джоба:
+ *  - створює порожні записи для майбутніх івентів
+ *  - на T0/T+5/T+15 ловить поточну ціну (Debot/ticker)
  */
 export async function triggerPriceReactionJob() {
   const nowUtc = dayjs.utc();
@@ -277,7 +249,6 @@ export async function triggerPriceReactionJob() {
 
   const orFilter = await buildStatsFilter();
 
-  // беремо івенти від сьогодні-1д до сьогодні+LOOKAHEAD_DAYS
   const windowStart = nowUtc.subtract(1, 'day').toISOString();
   const windowEnd = nowUtc.add(LOOKAHEAD_DAYS, 'day').toISOString();
 
@@ -303,9 +274,7 @@ export async function triggerPriceReactionJob() {
       .in('event_id', ids);
 
     if (existingError) throw existingError;
-    for (const row of existing || []) {
-      existingMap.set(row.event_id, row);
-    }
+    for (const row of existing || []) existingMap.set(row.event_id, row);
   }
 
   const summary = { processed: 0, inserted: 0, updated: 0, skipped: 0, errors: 0 };
@@ -329,7 +298,7 @@ export async function triggerPriceReactionJob() {
 
     const existing = existingMap.get(event.id);
 
-    // ====== створити пустий запис для майбутнього івенту ======
+    // 1) Якщо запису нема — створюємо “заготовку” (ціни null)
     if (!existing) {
       try {
         const payload = {
@@ -352,21 +321,20 @@ export async function triggerPriceReactionJob() {
         if (error) throw error;
 
         summary.inserted += 1;
-        existingMap.set(event.id, payload);
-      } catch (error) {
-        console.error('[stats] insert reaction failed', event.id, error);
+      } catch (e) {
+        console.error('[stats] insert reaction failed', event.id, e);
         summary.errors += 1;
       }
       continue;
     }
 
-    // анти-спам
+    // анти-спам, якщо Stats часто викликає джобу
     if (tooSoonToWrite(existing, nowUtc)) {
       summary.skipped += 1;
       continue;
     }
 
-    // ====== оновлення існуючого запису ======
+    // 2) Оновлення існуючого
     try {
       const patch = {};
 
@@ -375,14 +343,14 @@ export async function triggerPriceReactionJob() {
         const p0 = await fetchCurrentPrice(market);
         if (p0 != null) {
           patch.t0_price = p0;
-          patch.t0_time = existing.t0_time || t0Time.toISOString();
           patch.t0_percent = 0;
+          patch.t0_time = existing.t0_time || t0Time.toISOString();
         }
       }
 
       const basePrice = patch.t0_price ?? existing.t0_price;
 
-      // T+5
+      // T+5 (percent від T0)
       if (existing.t_plus_5_price == null && basePrice != null && shouldCapture(nowUtc, t5Time)) {
         const p5 = await fetchCurrentPrice(market);
         if (p5 != null) {
@@ -392,7 +360,7 @@ export async function triggerPriceReactionJob() {
         }
       }
 
-      // T+15
+      // T+15 (percent від T0)
       if (existing.t_plus_15_price == null && basePrice != null && shouldCapture(nowUtc, t15Time)) {
         const p15 = await fetchCurrentPrice(market);
         if (p15 != null) {
@@ -407,13 +375,14 @@ export async function triggerPriceReactionJob() {
           .from('event_price_reaction')
           .update(patch)
           .eq('event_id', event.id);
+
         if (error) throw error;
         summary.updated += 1;
       } else {
         summary.skipped += 1;
       }
-    } catch (error) {
-      console.error('[stats] update reaction failed', event.id, error);
+    } catch (e) {
+      console.error('[stats] update reaction failed', event.id, e);
       summary.errors += 1;
     }
   }

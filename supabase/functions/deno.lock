@@ -1,0 +1,29 @@
+{
+  "version": "5",
+  "specifiers": {
+    "npm:dayjs@1.11.10": "1.11.10"
+  },
+  "npm": {
+    "dayjs@1.11.10": {
+      "integrity": "sha512-vjAczensTgRcqDERK0SR2XMwsF/tSvnvlv6VcF2GIhg6Sx4yOIt/irsr1RDJsKiIyBzJDpCoXiWWq28MqH2cnQ=="
+    }
+  },
+  "redirects": {
+    "https://esm.sh/@supabase/supabase-js@2": "https://esm.sh/@supabase/supabase-js@2.89.0",
+    "https://esm.sh/iceberg-js@^0.8.1?target=denonext": "https://esm.sh/iceberg-js@0.8.1?target=denonext"
+  },
+  "remote": {
+    "https://deno.land/std@0.224.0/async/delay.ts": "f90dd685b97c2f142b8069082993e437b1602b8e2561134827eeb7c12b95c499",
+    "https://deno.land/std@0.224.0/http/server.ts": "f9313804bf6467a1704f45f76cb6cd0a3396a3b31c316035e6a4c2035d1ea514",
+    "https://esm.sh/@supabase/auth-js@2.89.0/denonext/auth-js.mjs": "7564602b661ea604c556b71402e3c7957d7c5be4785c1612765f1ce654d57b46",
+    "https://esm.sh/@supabase/functions-js@2.89.0/denonext/functions-js.mjs": "ad96f85b7c776e988d2990d16a6c53e7996545dfe5b8559dbfb9927b793e608d",
+    "https://esm.sh/@supabase/postgrest-js@2.89.0/denonext/postgrest-js.mjs": "ea872d4b524536fb76244c6760db6d21ad3862ca5640e9e45ccc8c94e6bd3c3b",
+    "https://esm.sh/@supabase/realtime-js@2.89.0/denonext/realtime-js.mjs": "e98f81bcfb8fed536a7aeb67d8008c320f465c235107ac69f48dddd861ad2b4e",
+    "https://esm.sh/@supabase/storage-js@2.89.0/denonext/storage-js.mjs": "4dbf4d7138af35a46733d2043e58d73c72e1a2dc40738a71f5ea98fb27a3ed55",
+    "https://esm.sh/@supabase/supabase-js@2.89.0": "afc79f2684e433766a2e1b1dc84be3393c5982ad0368d9a9b0a6e567f4f0dee4",
+    "https://esm.sh/@supabase/supabase-js@2.89.0/denonext/supabase-js.mjs": "0fd755a0eb58d38459cf3bfc839539eb4f93871c6662409e7e1ea922cd442159",
+    "https://esm.sh/iceberg-js@0.8.1/denonext/iceberg-js.mjs": "d839d81a2e3966500ca2cdd0c1cb458e9608bacfc91f7bb67a69b2e878dcdb4f",
+    "https://esm.sh/iceberg-js@0.8.1?target=denonext": "58c849d7fe2bf4eca4a84eb501e83c161a7d8c34ca1bec15a962b3bec3062633",
+    "https://esm.sh/tslib@2.8.1/denonext/tslib.mjs": "c38da5dd6da6281964435002ce204cd586634fe3bdfb24a0ee116f48cf3292e9"
+  }
+}

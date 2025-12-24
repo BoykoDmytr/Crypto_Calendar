@@ -1,0 +1,11 @@
+{
+  "compilerOptions": {
+    "lib": ["deno.ns", "deno.unstable", "dom"],
+    "strict": true
+  },
+  "imports": {
+    "dayjs": "npm:dayjs@1.11.10",
+    "dayjs/plugin/utc": "npm:dayjs@1.11.10/plugin/utc",
+    "@supabase/supabase-js": "https://esm.sh/@supabase/supabase-js@2"
+  }
+}
