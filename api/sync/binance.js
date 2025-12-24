@@ -9,14 +9,17 @@ import { createClient } from "@supabase/supabase-js";
 dayjs.extend(utc);
 dayjs.extend(timezone);
 
-// ✅ Binance CMS list (JSON)
-const DEFAULT_LIST_URL =
+// 1) Composite list -> щоб знайти catalogId по назві
+const DEFAULT_COMPOSITE_URL =
   "https://www.binance.com/bapi/composite/v1/public/cms/article/list/query?type=1&pageNo=1&pageSize=50";
 
-// ✅ беремо тільки цей каталог
-const TARGET_CATALOG = "latest activities";
+// 2) Catalog list -> тягнемо тільки Latest Activities
+const CATALOG_LIST_URL =
+  "https://www.binance.com/bapi/composite/v1/public/cms/article/catalog/list/query";
 
-// ✅ ключові слова для “турнірів”
+const TARGET_CATALOG_NAME = "latest activities";
+
+// Фільтр по ключових словах (залишив як в тебе)
 const TITLE_KEYWORDS = [
   "Trading Competition",
   // "Competition",
@@ -25,9 +28,6 @@ const TITLE_KEYWORDS = [
   // "Campaign",
 ];
 
-// -----------------------------
-// Helpers
-// -----------------------------
 function stripTags(html) {
   return html
     .replace(/<script[\s\S]*?<\/script>/gi, "")
@@ -60,25 +60,33 @@ function looksLikeTournament(title) {
   return TITLE_KEYWORDS.some((k) => t.includes(k.toLowerCase()));
 }
 
-// -----------------------------
-// 1) Parse Binance CMS list JSON
-// -----------------------------
-function parseLatestList(jsonText) {
-  let obj;
+function safeJson(text) {
   try {
-    obj = JSON.parse(jsonText);
+    return JSON.parse(text);
   } catch {
-    return [];
+    return null;
   }
+}
 
-  const catalogs = obj?.data?.catalogs || [];
-  const latest = catalogs.find(
-    (c) => (c?.catalogName || "").trim().toLowerCase() === TARGET_CATALOG
+/**
+ * 1) З composite дістаємо catalogId для "Latest Activities"
+ */
+function getCatalogIdFromComposite(compositeJson) {
+  const catalogs = compositeJson?.data?.catalogs || [];
+  const target = catalogs.find(
+    (c) => (c?.catalogName || "").trim().toLowerCase() === TARGET_CATALOG_NAME
   );
-  if (!latest) return [];
+  return target?.catalogId || null;
+}
 
-  const articles = latest.articles || [];
-  return articles
+/**
+ * 2) З catalog/list/query беремо articles (тільки Latest Activities)
+ */
+function parseCatalogArticles(catalogJson) {
+  // формат у відповіді може бути: data.articles або data (залежно від версії)
+  const data = catalogJson?.data;
+  const articles = data?.articles || data?.catalog?.articles || [];
+  return (articles || [])
     .map((a) => ({
       code: a.code,
       title: a.title,
@@ -87,9 +95,9 @@ function parseLatestList(jsonText) {
     .filter((a) => a.code && a.title);
 }
 
-// -----------------------------
-// 2) Parse announcement page HTML
-// -----------------------------
+/**
+ * Парсимо сторінку анонсу (HTML) і намагаємось знайти період
+ */
 function parseAnnouncementPage(html) {
   const h1Match = html.match(/<h1[^>]*>([\s\S]*?)<\/h1>/i);
   const title = h1Match ? stripTags(h1Match[1]) : null;
@@ -97,12 +105,14 @@ function parseAnnouncementPage(html) {
   const officialMatch = html.match(/href="(https:\/\/www\.binance\.com[^"]+)"/i);
   const officialLink = officialMatch ? officialMatch[1] : null;
 
-  // ✅ підтримуємо кілька варіантів написання періоду
+  // Більше варіантів “періоду”
   const periodRegexes = [
-    // Promotion Period: ... (UTC) to ... (UTC)
+    // Promotion Period / Promotion Time
     /Promotion\s+(?:Period|Time)\s*:?[\s\S]*?([0-9]{4}-[0-9]{2}-[0-9]{2})\s*([0-9]{2}:[0-9]{2})\s*\(UTC\)[\s\S]*?(?:to|-)\s*([0-9]{4}-[0-9]{2}-[0-9]{2})\s*([0-9]{2}:[0-9]{2})\s*\(UTC\)/i,
-    // Activity Period: ... (UTC) to ... (UTC)
+    // Activity Period / Activity Time
     /Activity\s+(?:Period|Time)\s*:?[\s\S]*?([0-9]{4}-[0-9]{2}-[0-9]{2})\s*([0-9]{2}:[0-9]{2})\s*\(UTC\)[\s\S]*?(?:to|-)\s*([0-9]{4}-[0-9]{2}-[0-9]{2})\s*([0-9]{2}:[0-9]{2})\s*\(UTC\)/i,
+    // Event Period / Event Time
+    /Event\s+(?:Period|Time)\s*:?[\s\S]*?([0-9]{4}-[0-9]{2}-[0-9]{2})\s*([0-9]{2}:[0-9]{2})\s*\(UTC\)[\s\S]*?(?:to|-)\s*([0-9]{4}-[0-9]{2}-[0-9]{2})\s*([0-9]{2}:[0-9]{2})\s*\(UTC\)/i,
   ];
 
   let startUtc = null;
@@ -122,7 +132,6 @@ function parseAnnouncementPage(html) {
     }
   }
 
-  // Description: вирізаємо найбільш “читабельний” шматок
   const rawText = stripTags(html);
   let description = rawText;
 
@@ -142,9 +151,9 @@ function parseAnnouncementPage(html) {
   return { title, officialLink, startUtc, endUtc, description };
 }
 
-// -----------------------------
-// 3) Insert if missing (simple dedupe)
-// -----------------------------
+/**
+ * Дедуп: title + start_at + link
+ */
 async function insertIfMissing(supabase, payload) {
   const { data, error } = await supabase
     .from("auto_events_pending")
@@ -163,30 +172,25 @@ async function insertIfMissing(supabase, payload) {
   return true;
 }
 
-// -----------------------------
-// Vercel handler
-// -----------------------------
 export default async function handler(req, res) {
   try {
-    // ✅ захист через secret у query
+    // auth
     const secret = req?.query?.secret;
-    if (
-      !process.env.BINANCE_SYNC_SECRET ||
-      secret !== process.env.BINANCE_SYNC_SECRET
-    ) {
+    if (!process.env.BINANCE_SYNC_SECRET || secret !== process.env.BINANCE_SYNC_SECRET) {
       return res.status(401).json({ ok: false, error: "Unauthorized" });
     }
 
     const debug = req?.query?.debug === "1";
+    const _debugRows = [];
 
+    // supabase env
     const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
     const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
     if (!supabaseUrl || !serviceKey) {
       return res.status(500).json({
         ok: false,
-        error:
-          "Missing env: SUPABASE_URL(or VITE_SUPABASE_URL) / SUPABASE_SERVICE_ROLE_KEY",
+        error: "Missing env: SUPABASE_URL(or VITE_SUPABASE_URL) / SUPABASE_SERVICE_ROLE_KEY",
       });
     }
 
@@ -194,39 +198,64 @@ export default async function handler(req, res) {
       auth: { persistSession: false },
     });
 
-    const listUrl = process.env.BINANCE_LATEST_URL || DEFAULT_LIST_URL;
+    // 1) fetch composite to get catalogId
+    const compositeUrl = process.env.BINANCE_COMPOSITE_URL || DEFAULT_COMPOSITE_URL;
+    const compositeText = await fetchText(compositeUrl);
+    const compositeJson = safeJson(compositeText);
 
-    // ✅ Для debug: показуємо які каталоги прийшли (без “випливання” великих даних)
-    const listText = await fetchText(listUrl);
+    if (!compositeJson) {
+      return res.status(500).json({ ok: false, error: "Binance composite JSON parse failed" });
+    }
+
+    const catalogId = getCatalogIdFromComposite(compositeJson);
 
     if (debug) {
-      let parsed;
-      try {
-        parsed = JSON.parse(listText);
-      } catch {
-        parsed = null;
-      }
-
-      const names =
-        parsed?.data?.catalogs?.map((c) => c?.catalogName).filter(Boolean) || [];
+      const catalogs =
+        compositeJson?.data?.catalogs?.map((c) => ({
+          name: c?.catalogName,
+          id: c?.catalogId,
+          count: c?.articles?.length ?? null,
+        })) || [];
 
       return res.status(200).json({
         ok: true,
         debug: true,
-        listUrl,
-        catalogs: names,
-        note: `Target catalog = "${TARGET_CATALOG}"`,
+        catalogs,
+        targetCatalog: TARGET_CATALOG_NAME,
+        foundCatalogId: catalogId,
       });
     }
 
-    const items = parseLatestList(listText);
+    if (!catalogId) {
+      return res.status(500).json({
+        ok: false,
+        error: `Catalog "${TARGET_CATALOG_NAME}" not found in Binance response`,
+      });
+    }
+
+    // 2) fetch only Latest Activities catalog articles
+    const listUrl =
+      process.env.BINANCE_LATEST_URL ||
+      `${CATALOG_LIST_URL}?catalogId=${catalogId}&pageNo=1&pageSize=50`;
+
+    const catalogText = await fetchText(listUrl);
+    const catalogJson = safeJson(catalogText);
+    if (!catalogJson) {
+      return res.status(500).json({ ok: false, error: "Binance catalog JSON parse failed" });
+    }
+
+    const items = parseCatalogArticles(catalogJson);
 
     let processed = 0;
     let inserted = 0;
     let skipped = 0;
 
-    for (const item of items) {
-      // 1) keyword filter по title зі списку
+    // обмежимо щоб не впиратись у ліміти серверлеса
+    const max = Number(process.env.BINANCE_MAX_ITEMS || "25");
+    const slice = items.slice(0, max);
+
+    for (const item of slice) {
+      // keyword filter
       if (item.title && !looksLikeTournament(item.title)) {
         skipped += 1;
         continue;
@@ -234,9 +263,15 @@ export default async function handler(req, res) {
 
       processed += 1;
 
-      // 2) офіційна сторінка
       const officialUrl = `https://www.binance.com/en/support/announcement/${item.code}`;
-      const pageHtml = await fetchText(officialUrl);
+
+      let pageHtml = "";
+      try {
+        pageHtml = await fetchText(officialUrl);
+      } catch {
+        skipped += 1;
+        continue;
+      }
 
       const parsed = parseAnnouncementPage(pageHtml);
 
@@ -245,7 +280,7 @@ export default async function handler(req, res) {
         continue;
       }
 
-      // 3) твоя логіка: кінець промо = start_at
+      // твоя логіка: кінець промо = start_at
       const start_at = parsed.endUtc || parsed.startUtc;
       if (!start_at) {
         skipped += 1;
@@ -262,7 +297,7 @@ export default async function handler(req, res) {
         event_type_slug: "binance_tournament",
         link: parsed.officialLink || officialUrl,
 
-        // вручну заповниш:
+        // вручну заповниш
         coin_name: null,
         coin_quantity: null,
         coin_price_link: null,
@@ -281,7 +316,10 @@ export default async function handler(req, res) {
       inserted,
       skipped,
       source: listUrl,
+      // показуємо тільки якщо debug=1, інакше undefined
+      debugRows: req?.query?.debug === "1" ? _debugRows : undefined,
     });
+
   } catch (e) {
     return res.status(500).json({ ok: false, error: e?.message || String(e) });
   }
