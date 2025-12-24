@@ -9,7 +9,6 @@ function parseChannels(envVal) {
     .filter(Boolean);
 }
 
-// дуже простий (але робочий) парсинг t.me/s/...
 function decodeHtml(s) {
   return (s || "")
     .replace(/<br\s*\/?>/gi, "\n")
@@ -24,72 +23,56 @@ function decodeHtml(s) {
 }
 
 function extractPosts(html, expectedChannel) {
-  // Беремо кожен message-блок по data-post="channel/id"
-  // і далі шукаємо найближчий message text та time datetime в межах цього блоку.
   const posts = [];
 
-  const reBlock = /data-post="([^"]+?)\/(\d+)"[\s\S]*?<\/article>/g; // на t.me/s часто все в <article>
+  // знайдемо всі позиції data-post="channel/id"
+  const markerRe = /data-post="([^"]+?)\/(\d+)"/g;
+  const markers = [];
   let m;
 
-  while ((m = reBlock.exec(html)) !== null) {
+  while ((m = markerRe.exec(html)) !== null) {
     const channel = m[1];
     const id = Number(m[2]);
-    const block = m[0];
-
     if (expectedChannel && channel !== expectedChannel) continue;
 
-    // текст (у Telegram часто: tgme_widget_message_text js-message_text)
-    const textMatch =
-      /class="tgme_widget_message_text[^"]*"[^>]*>([\s\S]*?)<\/div>/.exec(block);
-
-    // datetime (часто в <time datetime="...">)
-    const timeMatch = /<time[^>]+datetime="([^"]+)"/.exec(block);
-
-    const text = decodeHtml(textMatch ? textMatch[1] : "");
-    const datetime = timeMatch ? timeMatch[1] : null;
-
-    // Якщо нема тексту (інколи пости тільки з картинкою) — пропускаємо
-    if (!text) continue;
-
-    posts.push({
+    markers.push({
       channel,
       id,
-      text,
-      datetime,
-      link: `https://t.me/${channel}/${id}`,
+      idx: m.index, // позиція в html
     });
   }
 
-  // fallback: якщо <article> не підходить — пробуємо по wrap div
-  if (!posts.length) {
-    const reWrap = /data-post="([^"]+?)\/(\d+)"[\s\S]*?class="tgme_widget_message_footer"/g;
-    let w;
-    while ((w = reWrap.exec(html)) !== null) {
-      const channel = w[1];
-      const id = Number(w[2]);
-      const block = w[0];
-      if (expectedChannel && channel !== expectedChannel) continue;
+  // нарізаємо “блок поста” від marker до наступного marker
+  for (let i = 0; i < markers.length; i++) {
+    const cur = markers[i];
+    const start = cur.idx;
+    const end = i + 1 < markers.length ? markers[i + 1].idx : Math.min(html.length, start + 200000);
+    const block = html.slice(start, end);
 
-      const textMatch =
-        /class="tgme_widget_message_text[^"]*"[^>]*>([\s\S]*?)<\/div>/.exec(block);
-      const timeMatch = /<time[^>]+datetime="([^"]+)"/.exec(block);
+    // текст поста
+    const textMatch =
+      /class="tgme_widget_message_text[^"]*"[^>]*>([\s\S]*?)<\/div>/.exec(block);
 
-      const text = decodeHtml(textMatch ? textMatch[1] : "");
-      const datetime = timeMatch ? timeMatch[1] : null;
-      if (!text) continue;
+    // datetime
+    const timeMatch = /<time[^>]+datetime="([^"]+)"/.exec(block);
 
-      posts.push({
-        channel,
-        id,
-        text,
-        datetime,
-        link: `https://t.me/${channel}/${id}`,
-      });
-    }
+    const text = decodeHtml(textMatch ? textMatch[1] : "");
+    if (!text) continue;
+
+    const datetime = timeMatch ? timeMatch[1] : null;
+
+    posts.push({
+      channel: cur.channel,
+      id: cur.id,
+      text,
+      datetime,
+      link: `https://t.me/${cur.channel}/${cur.id}`,
+    });
   }
 
   return posts;
 }
+
 
 
 function guessEventFromText(text) {
