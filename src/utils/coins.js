@@ -121,7 +121,7 @@ export function extractCoinEntries(source) {
           name: source.coin_name,
           quantity: source.coin_quantity,
           // якщо coin_price_link немає, пробуємо загальний link події
-          price_link: source.coin_price_link ?? source.link,
+           price_link: source.coin_price_link,
         }
       : {};
 
@@ -163,7 +163,7 @@ export function extractCoinEntries(source) {
       {
         name: source.coin_name,
         quantity: source.coin_quantity,
-        price_link: source.coin_price_link ?? source.link,
+        price_link: source.coin_price_link,
       },
       rootDefaults
     );

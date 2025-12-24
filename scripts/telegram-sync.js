@@ -28,6 +28,17 @@ const MONTHS = {
   october: 10,
   november: 11,
   december: 12,
+  jan: 1,
+  feb: 2,
+  mar: 3,
+  apr: 4,
+  jun: 6,
+  jul: 7,
+  aug: 8,
+  sep: 9,
+  oct: 10,
+  nov: 11,
+  dec: 12,
 };
 
 const CHANNELS = {
@@ -158,15 +169,31 @@ function parseOkxAlpha(message, channel) {
 function parseBinanceClaim(line) {
   if (!line) return null;
   const cleaned = line
-    .replace(/^🕑\s*Claim starts:\s*/i, '')
+    .replace(/^🕑\s*(Claim starts|Claim begins|Activity time):\s*/i, '')
     .replace(/UTC/gi, '')
     .replace(/\(.*?\)/g, '')
+    .replace(/,\s*/g, ' ')
     .trim();
-  const match = /^(January|February|March|April|May|June|July|August|September|October|November|December)\s+(\d{1,2})(?:,?\s*(\d{4}))?(?:\s+(\d{1,2}):(\d{2}))?/i.exec(
-    cleaned
-  );
-  if (!match) return null;
-  const [, monthName, dayStr, yearStr, hour, minute] = match;
+  const monthPattern = '(January|February|March|April|May|June|July|August|September|October|November|December|Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)';
+  let match = new RegExp(
+    `\\b${monthPattern}\\s+(\\d{1,2})(?:\\s+(\\d{4}))?(?:\\s+(\\d{1,2}):(\\d{2}))?`,
+    'i'
+  ).exec(cleaned);
+  let monthName;
+  let dayStr;
+  let yearStr;
+  let hour;
+  let minute;
+  if (match) {
+    [, monthName, dayStr, yearStr, hour, minute] = match;
+  } else {
+    match = new RegExp(
+      `\\b(\\d{1,2})\\s+${monthPattern}(?:\\s+(\\d{4}))?(?:\\s+(\\d{1,2}):(\\d{2}))?`,
+      'i'
+    ).exec(cleaned);
+    if (!match) return null;
+    [, dayStr, monthName, yearStr, hour, minute] = match;
+  }
   const month = monthNameToNumber(monthName);
   const day = Number(dayStr);
   const year = yearStr ? Number(yearStr) : guessYear(month, day);
@@ -187,33 +214,27 @@ function parseBinanceAlpha(message, channel) {
 
   const title = lines[tokenLineIndex].replace(/^Token:\s*/i, '').trim() || 'Binance Alpha Airdrop';
   const amountLine = lines.find((line) => /^Amount\b/i.test(line));
-  const claimLine = lines.find((line) => line.includes('Claim starts'));
+  if (!amountLine) return [];
+  const claimLine =
+    lines.find((line) => /claim\s+(starts|begins)/i.test(line) || /activity\s+time/i.test(line)) ||
+    lines.find((line) => /\d{1,2}\s+[A-Z][a-z]{2}\s+\d{1,2}:\d{2}\s*UTC/i.test(line));
   const alphaPointsLine = lines.find((line) => line.toLowerCase().startsWith('alpha points'));
-  const consumesLine = lines.find((line) => line.toLowerCase().startsWith('consumes'));
-  const requirementsIndex = lines.findIndex((line) => line.startsWith('📋'));
+  
 
   const { quantity, token } = parseQuantityAndToken(amountLine);
   const claimInfo = parseBinanceClaim(claimLine);
 
   const descriptionParts = [];
+  if (amountLine) descriptionParts.push(amountLine);
   if (alphaPointsLine) descriptionParts.push(alphaPointsLine);
-  if (consumesLine && !descriptionParts.includes(consumesLine)) descriptionParts.push(consumesLine);
-  if (requirementsIndex !== -1) {
-    const reqLines = [];
-    for (let i = requirementsIndex; i < lines.length; i += 1) {
-      const current = lines[i];
-      if (i === requirementsIndex) {
-        reqLines.push(current);
-        continue;
-      }
-      if (current.startsWith('🕑')) break;
-      reqLines.push(current);
-    }
-    if (reqLines.length) descriptionParts.push(reqLines.join('\n'));
-  }
 
   const info = claimInfo || null;
   const startAt = info ? (info.hasTime ? toIsoFromUtcParts(info) : toIsoFromKyivDate(info)) : null;
+  if (!startAt) return [];
+  const todayStart = dayjs().tz(KYIV_TZ).startOf('day');
+  if (dayjs(startAt).tz(KYIV_TZ).isBefore(todayStart)) {
+    return [];
+  }
 
   return [
     {
@@ -223,7 +244,7 @@ function parseBinanceAlpha(message, channel) {
       coins: buildCoins(token, quantity),
       coin_name: token || null,
       coin_quantity: quantity,
-      type: 'Airdrop',
+      type: 'Binance Alpha',
     },
   ];
 }
@@ -498,18 +519,14 @@ async function run() {
       if (!parsed || !parsed.title) continue;
       summary.total += 1;
 
-      const notes = Array.isArray(parsed.notes) ? [...parsed.notes] : [];
       let startAt = parsed.startAt;
       if (!startAt) {
-        startAt = dayjs.unix(message.date).toISOString();
-        notes.push('Дата старту не знайдена — використано час публікації повідомлення.');
+        summary.skipped += 1;
+        continue;
       }
-      const alphaPointsLine = lines.find((line) => line.toLowerCase().startsWith('alpha points'));
-      const descriptionParts = [];
-      if (amountLine) descriptionParts.push(amountLine);
-      if (alphaPointsLine) descriptionParts.push(alphaPointsLine);
+
       const description = ensureDescription(
-        [parsed.description, notes.length ? notes.join('\n') : null].filter(Boolean).join('\n\n')
+        [parsed.description].filter(Boolean).join('\n\n')
       );
 
       const payload = {
