@@ -86,6 +86,38 @@ function stripEmoji(text) {
     .trim();
 }
 
+function cleanTitle(raw) {
+  let title = stripEmoji(decodeEntities(raw || ''));
+  title = title.replace(/^[^A-Za-z0-9]+/g, '').trim();
+  title = title.replace(/#[\w-]+/g, '').trim();
+  title = title.replace(/\s*:\s*/g, ' ').replace(/\s{2,}/g, ' ').trim();
+  title = title.replace(/^new\s+token\s+splash\b/i, 'New Token Splash');
+  return title;
+}
+
+function parseUtcDateLine(lines, keyRu) {
+  const line = lines.find((entry) => new RegExp(`^${keyRu}\\s*:`, 'i').test(entry));
+  if (!line) return null;
+
+  const match = line.match(/(\d{4}-\d{2}-\d{2})\s+(\d{2}:\d{2})\s*UTC/i);
+  if (!match) return null;
+
+  const dt = dayjs.utc(`${match[1]} ${match[2]}`, 'YYYY-MM-DD HH:mm', true);
+  return dt.isValid() ? dt.toISOString() : null;
+}
+
+function extractTotalAmount(lines) {
+  const line = lines.find((entry) => /^Общая награда\s*:/i.test(entry)) || null;
+  if (!line) return null;
+
+  const normalized = decodeEntities(line)
+    .replace(/^Общая награда\s*:\s*/i, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  return stripEmoji(normalized);
+}
+
 function monthNameToNumber(name) {
   if (!name) return null;
   return MONTHS[name.toLowerCase()] || null;
@@ -384,74 +416,68 @@ function parseLaunchpool(message, channel) {
   ];
 }
 
-function parseIsoLine(line) {
-  if (!line) return null;
-  const match = /(\d{4})-(\d{2})-(\d{2})(?:\s+(\d{2}):(\d{2}))?/.exec(line);
-  if (!match) return null;
-  const [, yearStr, monthStr, dayStr, hour, minute] = match;
-  const info = {
-    year: Number(yearStr),
-    month: Number(monthStr),
-    day: Number(dayStr),
+function parseTsBybitEvent(rawText) {
+  const text = stripEmoji(decodeEntities(rawText || ''));
+  const lines = text.split('\n').map((line) => line.trim()).filter(Boolean);
+
+  if (!lines.length) return null;
+
+  const firstLine = lines[0];
+  const isNew = /\bnew\b/i.test(firstLine);
+  if (!isNew) return null;
+
+  const bad = [
+    /Награды были распределены/i,
+    /лежат у участников на балансе/i,
+    /rewards (were|have been) distributed/i,
+    /already (credited|distributed)/i,
+  ];
+  if (bad.some((re) => re.test(text))) return null;
+
+  const startIso = parseUtcDateLine(lines, 'Начало');
+  const endIso = parseUtcDateLine(lines, 'Конец');
+  if (!endIso) return null;
+
+  const totalAmount = extractTotalAmount(lines);
+
+  let ticker = null;
+  const tickerMatch = decodeEntities(firstLine).match(/\$?([A-Z0-9]{2,10})\b/);
+  if (tickerMatch) ticker = tickerMatch[1];
+
+  const title = ticker ? `New Token Splash ${ticker}` : cleanTitle(firstLine);
+
+  const fmtUtc = (iso) => `${dayjs(iso).utc().format('YYYY-MM-DD HH:mm')} UTC`;
+  const descriptionLines = [];
+  if (startIso) descriptionLines.push(`Start Date: ${fmtUtc(startIso)}`);
+  descriptionLines.push(`End Date: ${fmtUtc(endIso)}`);
+  if (totalAmount) descriptionLines.push(`Total Amount: ${totalAmount}`);
+
+  const description = descriptionLines.join('\n');
+
+  return {
+    title,
+    description,
+    startAt: endIso,
+    endAt: endIso,
+    start_date_iso: startIso,
+    end_date_iso: endIso,
+    timezone: 'UTC',
+    type: 'TS BYBIT',
+    event_type_slug: 'ts_bybit',
   };
-  if (hour && minute) info.time = `${hour}:${minute}`;
-  return info;
 }
 
-function parseTsBybit(message, channel) {
+  function parseTsBybit(message, channel) {
   const raw = (message.text || '').trim();
   if (!raw.startsWith(channel.emoji)) return [];
-  const lines = raw.split('\n').map((line) => line.trim()).filter(Boolean);
-  if (!lines.length) return [];
 
-  const baseTitle = lines[0];
-  const startLine = lines.find((line) => /^Начало:/i.test(line));
-  const endLine = lines.find((line) => /^Конец:/i.test(line));
-  const newUsersLine = lines.find((line) => /^New users:/i.test(line));
-  const tradeLine = lines.find((line) => /^Trade:/i.test(line));
-  const rewardLine = lines.find((line) => /Общая награда/i.test(line));
+  const parsed = parseTsBybitEvent(raw);
+  if (!parsed) return [];
 
-  const startInfo = parseIsoLine(startLine);
-  const endInfo = parseIsoLine(endLine);
-  const { quantity, token } = parseQuantityAndToken(rewardLine);
+  const todayUtcStart = dayjs.utc().startOf('day');
+  if (dayjs(parsed.startAt).isBefore(todayUtcStart)) return [];
 
-  const descriptionParts = [];
-  if (newUsersLine) descriptionParts.push(newUsersLine);
-  if (tradeLine) descriptionParts.push(tradeLine);
-  if (rewardLine) descriptionParts.push(rewardLine);
-
-  const base = {
-    description: ensureDescription(descriptionParts.join('\n')),
-    coins: buildCoins(token, quantity),
-    coin_name: token || null,
-    coin_quantity: quantity,
-    type: 'Airdrop',
-  };
-
-  const events = [];
-  if (startInfo) {
-    events.push({
-      ...base,
-      title: `${baseTitle} (Start)`,
-      startAt: toIsoFromUtcParts(startInfo),
-    });
-  }
-  if (endInfo) {
-    events.push({
-      ...base,
-      title: `${baseTitle} (End)`,
-      startAt: toIsoFromUtcParts(endInfo),
-    });
-  }
-  if (!events.length) {
-    events.push({
-      ...base,
-      title: baseTitle,
-      startAt: null,
-      notes: ['Не вдалося розпізнати дату старту. Перевірте повідомлення вручну.'],
-    });
-  }
-  return events;
+  return [parsed];
 }
 
 function cleanPayload(payload) {
