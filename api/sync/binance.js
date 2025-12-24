@@ -52,36 +52,26 @@ function looksLikeTournament(title) {
  * Ми дістаємо title + category і поруч шукаємо URL виду https://cache.bwe-ws.com/bn-726
  */
 function parseLatestList(html) {
-  const items = [];
-  const linkRe = /【\d+†([^】]+)】\s*\n\s*\n\s*([^\n]+)\s*\n/g;
+  const urls = new Set();
 
-  let m;
-  while ((m = linkRe.exec(html))) {
-    const title = (m[1] || "").trim();
-    const category = (m[2] || "").trim();
-
-    const pos = html.indexOf(title);
-    let url = null;
-
-    if (pos !== -1) {
-      const slice = html.slice(pos, pos + 900);
-      const u = slice.match(/https:\/\/cache\.bwe-ws\.com\/bn-\d+/);
-      if (u) url = u[0];
-    }
-
-    if (url) items.push({ title, category, url });
+  // 1) абсолютні урли
+  for (const m of html.matchAll(/https:\/\/cache\.bwe-ws\.com\/bn-\d+/g)) {
+    urls.add(m[0]);
   }
 
-  // fallback якщо формат трохи зміниться
-  if (!items.length) {
-    const urls = Array.from(
-      new Set(html.match(/https:\/\/cache\.bwe-ws\.com\/bn-\d+/g) || [])
-    );
-    for (const u of urls) items.push({ title: u, category: "Unknown", url: u });
+  // 2) відносні href="/bn-123"
+  for (const m of html.matchAll(/href="(\/bn-\d+)"/g)) {
+    urls.add(`https://cache.bwe-ws.com${m[1]}`);
   }
 
-  return items;
+  // 3) просто "/bn-123" у тексті
+  for (const m of html.matchAll(/\/bn-\d+/g)) {
+    urls.add(`https://cache.bwe-ws.com${m[0]}`);
+  }
+
+  return Array.from(urls).slice(0, 60).map((url) => ({ url }));
 }
+
 
 /**
  * На сторінці bn-### є:
@@ -180,17 +170,20 @@ export default async function handler(req, res) {
     let skipped = 0;
 
     for (const item of items) {
-      if (item.category && !ALLOWED_CATEGORIES.has(item.category)) continue;
-      if (item.title && !looksLikeTournament(item.title)) continue;
-
       processed += 1;
 
       const pageHtml = await fetchText(item.url);
+
+      // (опційно) залишаємо тільки Latest Activities по сторінці
+      if (!/Latest Activities/i.test(pageHtml)) continue;
+
       const parsed = parseAnnouncementPage(pageHtml);
 
       if (!parsed.title) { skipped += 1; continue; }
 
-      // ТВОЯ ЛОГІКА: "дата кінця турніру" = start_at у нас
+      // ✅ ОТУТ ФІЛЬТР ПО КЛЮЧОВИХ СЛОВАХ — ПО РЕАЛЬНОМУ TITLE
+      if (!looksLikeTournament(parsed.title)) continue;
+
       const start_at = parsed.endUtc || parsed.startUtc;
       if (!start_at) { skipped += 1; continue; }
 
