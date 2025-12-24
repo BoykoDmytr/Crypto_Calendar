@@ -22,10 +22,23 @@ function normalizeValidPrice(value) {
   return n;
 }
 
-function normalizeMexcSymbol(raw) {
+// для SPOT: BTC_USDT -> BTCUSDT
+function normalizeMexcSpotSymbol(raw) {
   if (!raw || typeof raw !== 'string') return null;
   const upper = raw.trim().toUpperCase();
   const cleaned = upper.replace(/[^A-Z0-9]/g, '');
+  if (cleaned.length < 6) return null;
+  return cleaned;
+}
+
+// для FUTURES: BTC_USDT -> BTC_USDT (залишаємо "_")
+function normalizeMexcFuturesSymbol(raw) {
+  if (!raw || typeof raw !== 'string') return null;
+  const upper = raw.trim().toUpperCase();
+  // дозволяємо тільки A-Z 0-9 та _
+  const cleaned = upper.replace(/[^A-Z0-9_]/g, '');
+  // базова перевірка
+  if (!/_USDT$/.test(cleaned)) return null;
   if (cleaned.length < 6) return null;
   return cleaned;
 }
@@ -41,20 +54,28 @@ function parseMexcLink(link) {
 
   const isFutures = /\/futures\//i.test(s) || /type=linear_swap/i.test(s);
 
-  const m = s.match(/\/(futures|exchange)\/([A-Z0-9]{2,}_USDT)/i) || s.match(/([A-Z0-9]{2,}_USDT)/i);
+  const m =
+    s.match(/\/(futures|exchange)\/([A-Z0-9]{2,}_USDT)/i) ||
+    s.match(/([A-Z0-9]{2,}_USDT)/i);
+
   const pair = m ? m[m.length - 1].toUpperCase() : null;
   if (!pair) return null;
 
+  const market = isFutures ? 'futures' : 'spot';
+
   return {
-    pair,
-    apiPair: normalizeMexcSymbol(pair),
-    market: isFutures ? 'futures' : 'spot', // якщо не futures — spot
+    pair, // "BTC_USDT"
+    // ✅ ключова зміна: futures -> symbol з "_", spot -> без "_"
+    apiPair: market === 'futures'
+      ? normalizeMexcFuturesSymbol(pair)   // BTC_USDT
+      : normalizeMexcSpotSymbol(pair),     // BTCUSDT
+    market,
   };
 }
 
 /**
  * ✅ ЄДИНЕ ДЖЕРЕЛО — MEXC
- * Спершу беремо пару з coin_price_link (як ти описав),
+ * Спершу беремо пару з coin_price_link,
  * якщо немає — з coin_name (BTC -> BTC_USDT),
  * якщо немає — пробуємо tge_exchanges.pair як fallback.
  */
@@ -75,27 +96,33 @@ function pickMexcMarket(event) {
     const sym = String(event.coin_name).trim().toUpperCase().replace(/[^A-Z0-9]/g, '');
     if (sym) {
       const pair = `${sym}_USDT`;
+      // якщо ми не знаємо ринок — вважаємо spot
       return {
         pair,
-        apiPair: normalizeMexcSymbol(pair),
+        apiPair: normalizeMexcSpotSymbol(pair), // BTCUSDT
         exchange: 'MEXC',
         market: 'spot',
       };
     }
   }
 
-  // 3) Fallback зі списку бірж (якщо там теж BTC_USDT і т.п.)
+  // 3) Fallback зі списку бірж
   const exchanges = Array.isArray(event.tge_exchanges) ? event.tge_exchanges : [];
   const entry =
     exchanges.find((x) => x?.pair && String(x.pair).toUpperCase().includes('USDT')) || exchanges[0];
 
   if (entry?.pair) {
     const pair = String(entry.pair).toUpperCase();
+    const isFutures = /futures/i.test(event.coin_price_link || '');
+    const market = isFutures ? 'futures' : 'spot';
+
     return {
       pair,
-      apiPair: normalizeMexcSymbol(pair),
+      apiPair: market === 'futures'
+        ? normalizeMexcFuturesSymbol(pair) // BTC_USDT
+        : normalizeMexcSpotSymbol(pair),   // BTCUSDT
       exchange: 'MEXC',
-      market: /futures/i.test(event.coin_price_link || '') ? 'futures' : 'spot',
+      market,
     };
   }
 
@@ -106,7 +133,9 @@ async function fetchMexcPrice(market) {
   if (!market?.apiPair) return null;
 
   try {
-    // передаємо тип ринку: futures/spot (твій util має це підтримувати)
+    // ✅ symbol тепер правильний:
+    // spot: BTCUSDT
+    // futures: BTC_USDT
     const { price } = await fetchMexcTickerPriceShared(market.apiPair, {
       timeoutMs: 8_000,
       market: market.market || 'spot',
