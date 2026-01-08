@@ -487,19 +487,56 @@ function parseTsBybitEvent(rawText) {
 
   const totalAmount = extractTotalAmount(lines);
 
+  // capture trade/pool line (e.g. "Trade: 100,000 $WHITEWHALE") if present
+  const tradeLine =
+    lines.find((line) => /^Trade\b/i.test(line)) ||
+    lines.find((line) => /^Pool\b/i.test(line)) ||
+    null;
+
+  // parse ticker symbol (without $) from the first line
+
   let ticker = null;
   const tickerMatch = decodeEntities(firstLine).match(/\$?([A-Z0-9]{2,10})\b/);
   if (tickerMatch) ticker = tickerMatch[1];
 
-  const title = ticker ? `New Token Splash ${ticker}` : cleanTitle(firstLine);
+  // title format: "New token splash: TICKER" when ticker is present
+  const title = ticker
+    ? `New token splash: ${ticker}`
+    : cleanTitle(firstLine);
 
   const fmtUtc = (iso) => `${dayjs(iso).utc().format('YYYY-MM-DD HH:mm')} UTC`;
-  const descriptionLines = [];
-  if (startIso) descriptionLines.push(`Start Date: ${fmtUtc(startIso)}`);
-  descriptionLines.push(`End Date: ${fmtUtc(endIso)}`);
-  if (totalAmount) descriptionLines.push(`Total Amount: ${totalAmount}`);
+  // prepare the pool line: prefer the trade line, fallback to total amount
+  let poolLine = null;
+  if (tradeLine) {
+    const { quantity: q, token: tok } = parseQuantityAndToken(tradeLine);
+    if (q && tok) {
+      poolLine = `Pool: ${q} ${tok}`;
+    }
+  }
+  if (!poolLine && totalAmount) {
+    const { quantity: q, token: tok } = parseQuantityAndToken(totalAmount);
+    if (q && tok) {
+      poolLine = `Pool: ${q} ${tok}`;
+    } else {
+      // remove leading $ if present
+      const stripped = totalAmount.replace(/\$/g, '').trim();
+      poolLine = `Pool: ${stripped}`;
+    }
+  }
 
-  const description = descriptionLines.join('\n');
+  // build date line combining start and end dates
+  let dateLine;
+  if (startIso) {
+    dateLine = `Date: ${fmtUtc(startIso)} - ${fmtUtc(endIso)}`;
+  } else {
+    dateLine = `Date: ${fmtUtc(endIso)}`;
+  }
+
+  // compose description
+  const descriptionParts = [];
+  if (poolLine) descriptionParts.push(poolLine);
+  descriptionParts.push(dateLine);
+  const description = descriptionParts.join('\n');
 
   return {
     title,
