@@ -52,10 +52,9 @@ const CHANNELS = {
     emoji: '🎁',
     parser: parseBinanceAlpha,
   },
-  pool_alerts: {
-    name: 'Launchpool Alerts',
-    emoji: '🔥',
-    parser: parseLaunchpool,
+  launchpool_alerts: {
+    name: "Launchpool Alerts",
+    parser: parseLaunchpoolAlerts,
   },
   tokensplsh: {
     name: 'TS Bybit',
@@ -140,13 +139,6 @@ function guessYear(month, day, reference = dayjs().tz(KYIV_TZ)) {
   return candidate.isValid() ? candidate.year() : year;
 }
 
-function toIsoFromUtcParts({ year, month, day, time = '00:00' }) {
-  if (!year || !month || !day) return null;
-  const formatted = `${year}-${pad(month)}-${pad(day)} ${time}`;
-  const parsed = dayjs.utc(formatted, 'YYYY-MM-DD HH:mm', true);
-  return parsed.isValid() ? parsed.toISOString() : null;
-}
-
 function toIsoFromUtcToKyivParts({ year, month, day, time = '00:00' }) {
   if (!year || !month || !day) return null;
   const formatted = `${year}-${pad(month)}-${pad(day)} ${time}`;
@@ -199,42 +191,109 @@ function parseClaimDateKyiv(lines) {
   return dt.toISOString();
 }
 
-function parseOkxAlpha(message, channel) {
-  let text = (message.text || '').trim();
-  if (!text.startsWith(channel.emoji)) return [];
-  text = stripEmoji(decodeEntities(text));
-  const lines = text.split('\n').map((line) => line.trim()).filter(Boolean);
+function normalizeSpaces(s) {
+  return (s || "")
+    .replace(/\u00A0/g, " ")      // NBSP -> space
+    .replace(/[ \t]{2,}/g, " ")   // стискаємо тільки пробіли/таби, НЕ \n
+    .trim();
+}
+
+
+function parseOkxEventDateLine(lines, label) {
+  const line = lines.find((l) => new RegExp(`^${label}\\s*:`, "i").test(l));
+  if (!line) return null;
+
+  const m = line.match(/:\s*(\d{2}\.\d{2}\.\d{4})\s*,\s*(\d{2}:\d{2})/);
+  if (!m) return null;
+
+  // IMPORTANT: це Київський час
+  const dt = dayjs.tz(`${m[1]} ${m[2]}`, "DD.MM.YYYY HH:mm", KYIV_TZ, true);
+  return dt.isValid() ? dt.toISOString() : null;
+}
+
+
+
+export function parseOkxAlpha(message, channel) {
+  let raw = (message.text || "");
+  if (!raw.trimStart().startsWith(channel.emoji)) return [];
+
+  // важливо: НЕ нормалізуємо весь текст, щоб не вбити \n
+  raw = decodeEntities(raw);
+
+  // розбиваємо на рядки, і вже КОЖЕН рядок чистимо
+  const lines = raw
+    .split("\n")
+    .map((l) => normalizeSpaces(stripEmoji(l)))
+    .filter(Boolean);
+
   if (!lines.length) return [];
 
-  const title = lines[0] || 'OKX Boost X Launch Event';
-  const amountLine = lines.find((line) => /^Amount\b/i.test(line));
-  const alphaPointsLine = lines.find((line) => /^Alpha points\b/i.test(line));
-  const { quantity, token } = parseQuantityAndToken(amountLine);
-  const startAt = parseClaimDateKyiv(lines);
-  if (!startAt) return [];
-  const description = [amountLine, alphaPointsLine].filter(Boolean).join('\n');
+  // 1) Vision беремо з рядка "Vision X Launch" (після stripEmoji)
+  // важливо: шукаємо саме "X Launch" як окремий заголовок, а не текст "Event"
+  const launchLine = lines.find((l) => /\bX\s+Launch\b/i.test(l) && !/Event/i.test(l)) || null;
 
-  const claimKey = dayjs(startAt).tz(KYIV_TZ).format('YYYY-MM-DD HH:mm');
-  const titleClean = stripEmoji(title);
-  const source = `okx_alpha`;
-  const sourceKey = `OKX_ALPHA|${titleClean}|${claimKey}`;
+  const vision = launchLine
+    ? normalizeSpaces(launchLine.replace(/\bX\s+Launch\b/i, "").trim())
+    : null;
+
+  // 2) Title
+  const title = vision
+    ? `${vision} OKX Boost X Launch Event!`
+    : "OKX Boost X Launch Event!";
+
+
+  // 3) Pool беремо з "Total Rewards:"
+  const rewardsLine = lines.find((l) => /^Total Rewards\s*:/i.test(l)) || null;
+  let poolText = null;
+  let quantity = null;
+  let token = null;
+
+  if (rewardsLine) {
+    // приклад: "Total Rewards: 6 170 000 VSNV"
+    poolText = normalizeSpaces(rewardsLine.replace(/^Total Rewards\s*:\s*/i, ''));
+    const parsed = parseQuantityAndToken(poolText);
+    quantity = parsed.quantity ?? null;
+    token = parsed.token ?? null;
+  }
+
+  // 4) Claim Date = дата початку (startAt)
+  const claimIso = parseClaimDateKyiv(lines);
+  if (!claimIso) return [];
+
+  // 5) End Date беремо з "X Launch Ends:"
+  const endIso = parseOkxEventDateLine(lines, 'X Launch Ends');
+  const endFmt = endIso ? dayjs(endIso).tz(KYIV_TZ).format('DD.MM.YYYY, HH:mm') : null;
+
+  // 6) Формуємо description тільки як просиш
+  // Pool: ...
+  // End Date: ...
+  const descriptionParts = [];
+  if (poolText) descriptionParts.push(`Pool: ${poolText}`);
+  if (endFmt) descriptionParts.push(`End Date: ${endFmt}`);
+
+  // source_key як було (по claim date)
+  const claimKey = dayjs(claimIso).tz(KYIV_TZ).format('YYYY-MM-DD HH:mm');
+  const source = 'okx_alpha';
+  const sourceKey = `OKX_ALPHA|${title}|${claimKey}`;
 
   return [
     {
-      title: titleClean,
-      description: ensureDescription(description),
-      startAt,
+      title,
+      description: ensureDescription(descriptionParts.join('\n')),
+      startAt: claimIso,           // <-- Claim Date як startAt
+      endAt: endIso || null,       // (не обов’язково, але корисно)
       coins: buildCoins(token, quantity),
       coin_name: token || null,
       coin_quantity: quantity,
       source,
       source_key: sourceKey,
       type: 'OKX Alpha',
-      event_type_slug: 'okx_alpha',
+      event_type_slug: 'okx-alpha', // ВАЖЛИВО: у тебе slug з дефісом!
       coin_price_link: null,
     },
   ];
 }
+
 
 function parseBinanceClaim(line) {
   if (!line) return null;
@@ -273,7 +332,7 @@ function parseBinanceClaim(line) {
   return info;
 }
 
-function parseBinanceAlpha(message, channel) {
+export function parseBinanceAlpha(message, channel) {
   const raw = (message.text || '').trim();
   if (!raw.startsWith(channel.emoji)) return [];
   const lines = raw.split('\n').map((line) => line.trim()).filter(Boolean);
@@ -388,82 +447,110 @@ function parseBinanceAlpha(message, channel) {
   ];
 }
 
-function parseLaunchpoolPart(part) {
-  if (!part) return null;
-  const match = /(?:(\d{1,2}):(\d{2}))?\s*(\d{1,2})\.(\d{1,2})(?:\.(\d{4}))?/.exec(part);
-  if (!match) return null;
-  const [, hour, minute, dayStr, monthStr, yearStr] = match;
-  const info = {
-    day: Number(dayStr),
-    month: Number(monthStr),
-  };
-  if (hour && minute) info.time = `${hour.padStart(2, '0')}:${minute}`;
-  if (yearStr) info.year = Number(yearStr);
-  return info;
+function parseUtcIsoFromLine(line) {
+  // очікуємо: "Start: 2026-01-08 10:00 UTC"
+  const m = line.match(/(\d{4}-\d{2}-\d{2})\s+(\d{2}:\d{2})\s*UTC/i);
+  if (!m) return null;
+  const dt = dayjs.utc(`${m[1]} ${m[2]}`, "YYYY-MM-DD HH:mm", true);
+  return dt.isValid() ? dt.toISOString() : null;
 }
 
-function parseLaunchpoolDuration(line, referenceDate) {
-  if (!line) return { startAt: null, endAt: null };
-  const cleaned = line.replace(/^📆\s*Duration:\s*/i, '').replace(/UTC/gi, '').trim();
-  const [startRaw, endRaw] = cleaned.split('-').map((part) => part.trim());
-  const reference = dayjs.unix(referenceDate).tz(KYIV_TZ);
+function parseQuotaLine(line) {
+  // "Quota: 985.5K VIRTUAL"
+  const m = line.match(/Quota:\s*([0-9][0-9.,]*\s*[KMB]?)\s+([A-Z0-9_-]{2,})/i);
+  if (!m) return { qty: null, token: null };
 
-  const startInfo = parseLaunchpoolPart(startRaw);
-  if (!startInfo) return { startAt: null, endAt: null };
-  startInfo.year = startInfo.year || guessYear(startInfo.month, startInfo.day, reference);
-  const startAt = startInfo.time ? toIsoFromUtcParts(startInfo) : toIsoFromKyivDate(startInfo);
+  const qtyText = m[1].replace(/\s+/g, "").toUpperCase();
+  const token = m[2].toUpperCase();
 
-  let endAt = null;
-  if (endRaw) {
-    const endInfo = parseLaunchpoolPart(endRaw);
-    if (endInfo) {
-      endInfo.year = endInfo.year || startInfo.year;
-      let candidate = endInfo.time ? toIsoFromUtcParts(endInfo) : toIsoFromKyivDate(endInfo);
-      if (candidate && startAt && dayjs(candidate).isBefore(dayjs(startAt))) {
-        endInfo.year += 1;
-        candidate = endInfo.time ? toIsoFromUtcParts(endInfo) : toIsoFromKyivDate(endInfo);
-      }
-      endAt = candidate;
-    }
-  }
+  // перетворимо K/M/B у число (опційно)
+  const mult = qtyText.endsWith("K") ? 1e3 : qtyText.endsWith("M") ? 1e6 : qtyText.endsWith("B") ? 1e9 : 1;
+  const numPart = qtyText.replace(/[KMB]$/i, "");
+  const qty = Number(numPart.replace(/,/g, ""));
+  const quantity = Number.isFinite(qty) ? qty * mult : null;
 
-  return { startAt, endAt };
+  return { qtyText, quantity, token };
 }
 
-function parseLaunchpool(message, channel) {
-  const raw = (message.text || '').trim();
-  if (!raw.startsWith(channel.emoji)) return [];
-  const lines = raw.split('\n').map((line) => line.trim()).filter(Boolean);
+export function parseLaunchpoolAlerts(message, channel) {
+  let raw = (message.text || "");
+  if (channel.emoji && !raw.trimStart().startsWith(channel.emoji)) return [];
+
+
+  raw = decodeEntities(raw);
+
+  const lines = raw
+    .split("\n")
+    .map((l) => normalizeSpaces(stripEmoji(l)))
+    .filter(Boolean);
+
   if (!lines.length) return [];
 
-  const title = lines[0];
-  const rewardLine = lines.find((line) => line.startsWith('🔢')) || null;
-  const poolsLine = lines.find((line) => line.startsWith('🪙')) || null;
-  const durationLine = lines.find((line) => line.startsWith('📆')) || null;
+  // 1) Перший рядок: "Stake VIRTUAL with 100.00% APR (Non-VIP) (link)"
+  const first = lines[0];
 
-  const { quantity, token } = parseQuantityAndToken(rewardLine);
-  const { startAt, endAt } = parseLaunchpoolDuration(durationLine, message.date);
+  // title: обрізаємо все після " ("
+  const title = first.replace(/\s*\(.+$/g, "").trim();
 
-  const descriptionParts = [];
-  if (poolsLine) descriptionParts.push(poolsLine);
-  if (rewardLine) descriptionParts.push(rewardLine);
-  if (durationLine) descriptionParts.push(durationLine);
+  // 2) APR, Period, Quota, Start, End
+  const aprLine = lines.find((l) => /^APR\s*:/i.test(l)) || null;
+  const periodLine = lines.find((l) => /^Period\s*:/i.test(l)) || null;
+  const quotaLine = lines.find((l) => /^Quota\s*:/i.test(l)) || null;
+  const startLine = lines.find((l) => /^Start\s*:/i.test(l)) || null;
+  const endLine = lines.find((l) => /^End\s*:/i.test(l)) || null;
+
+  const startAt = startLine ? parseUtcIsoFromLine(startLine) : null;
+  const endAt = endLine ? parseUtcIsoFromLine(endLine) : null;
+  if (!startAt) return []; // без старту не створюємо івент
+
+  // description: тільки APR + Period
+  const descParts = [];
+  if (aprLine) descParts.push(aprLine);
+  if (periodLine) descParts.push(periodLine);
+
+  // coin: Quota
+  let coin_name = null;
+  let coin_quantity = null;
+  let coins = null;
+
+  if (quotaLine) {
+    const { quantity, token } = parseQuotaLine(quotaLine);
+    coin_name = token;
+    coin_quantity = quantity;
+    coins = buildCoins(coin_name, coin_quantity);
+  }
+
+  // slug для типу "launchpool" (у тебе в event_types є launchpool)
+  const event_type_slug = "launchpool";
+
+  // type: щоб сайт показував як Launchpool
+  const type = "Launchpool";
+
+  // source_key: стабільний дедуп по title+startAt
+  const source = "launchpool_alerts";
+  const source_key = `LAUNCHPOOL|${title}|${dayjs(startAt).utc().format("YYYY-MM-DD HH:mm")}`;
 
   return [
     {
       title,
-      description: ensureDescription(descriptionParts.join('\n')),
+      description: ensureDescription(descParts.join("\n")),
       startAt,
-      endAt,
-      coins: buildCoins(token, quantity),
-      coin_name: token || null,
-      coin_quantity: quantity,
-      type: 'Airdrop',
+      endAt: endAt || null,
+      coins,
+      coin_name,
+      coin_quantity,
+      source,
+      source_key,
+      type,
+      event_type_slug,
+      coin_price_link: null,
+      link: null,
     },
   ];
 }
 
-function parseTsBybitEvent(rawText) {
+
+export function parseTsBybitEvent(rawText) {
   const text = stripEmoji(decodeEntities(rawText || ''));
   const lines = text.split('\n').map((line) => line.trim()).filter(Boolean);
 
@@ -551,7 +638,7 @@ function parseTsBybitEvent(rawText) {
   };
 }
 
-  function parseTsBybit(message, channel) {
+ export function parseTsBybit(message, channel) {
   const raw = (message.text || '').trim();
   if (!raw.startsWith(channel.emoji)) return [];
 
@@ -777,7 +864,13 @@ async function run() {
   }
 }
 
-run().catch((err) => {
-  console.error(err);
-  process.exitCode = 1;
-});
+import { pathToFileURL } from "node:url";
+const isDirectRun =
+  process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href;
+
+if (isDirectRun) {
+  run().catch((err) => {
+    console.error(err);
+    process.exitCode = 1;
+  });
+}
