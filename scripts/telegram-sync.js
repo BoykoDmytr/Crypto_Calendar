@@ -62,6 +62,11 @@ const CHANNELS = {
     emoji: '❗️',
     parser: parseTsBybit,
   },
+  crypto_hornet_listings: {
+    name: 'Crypto Hornet Listings',
+    emoji: '🎁',
+    parser: parseBinanceAlpha,
+  },
 };
 
 function pad(value) {
