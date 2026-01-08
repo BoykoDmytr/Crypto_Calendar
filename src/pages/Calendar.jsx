@@ -265,22 +265,22 @@ export default function Calendar() {
     const panel = pastPanelRef.current;
     if (!panel) return;
 
-    const previous = panel.style.maxHeight;
+    // тимчасово скидаємо max-height, щоб отримати повну висоту
+    const prev = panel.style.maxHeight;
     panel.style.maxHeight = 'none';
-    const nextHeight = panel.scrollHeight;
-    panel.style.maxHeight = previous;
-  
-     if (nextHeight <= 0) {
-      return;
+    const measured = panel.scrollHeight;
+    panel.style.maxHeight = prev;
+
+    // додаємо запас (наприклад, 48px)
+    const nextHeight = measured + 48;
+
+    if (nextHeight > 0) {
+      setPastPanelMaxHeight((current) =>
+        current != null && Math.abs(current - nextHeight) < 1 ? current : nextHeight
+      );
     }
-    
-    setPastPanelMaxHeight((current) => {
-      if (current != null && Math.abs(current - nextHeight) < 1) {
-        return current;
-      }
-      return nextHeight;
-    });
   }, [showPast]);
+
 
   useLayoutEffect(() => {
     if (!showPast) return;
