@@ -281,44 +281,86 @@ function parseBinanceAlpha(message, channel) {
 
   const tokenLineIndex = lines.findIndex((line) => /^Token:/i.test(line));
   if (tokenLineIndex === -1) return [];
+  const tokenLine = lines[tokenLineIndex].replace(/^Token:\s*/i, '').trim();
 
-  const title = lines[tokenLineIndex].replace(/^Token:\s*/i, '').trim() || 'Binance Alpha Airdrop';
-  const amountLine = lines.find((line) => /^Amount\b/i.test(line));
-  if (!amountLine) return [];
+  // Extract the human‑readable token name (before any parenthetical ticker symbol)
+  let tokenName = tokenLine;
+  const parenIdx = tokenName.indexOf('(');
+  if (parenIdx > 0) {
+    tokenName = tokenName.slice(0, parenIdx).trim();
+  }
+  // Build a more descriptive title combining the token name and the event type
+  const title = tokenName ? `${tokenName} Binance Alpha Airdrop` : 'Binance Alpha Airdrop';
+
+  // Locate the amount line. Some messages use "Amount", others use "You've earned" (or typographic variations)
+  const amountLineRaw = lines.find((line) => {
+    const normalized = line.replace(/’/g, "'");
+    return /^Amount\b/i.test(normalized) || /^You'?ve\s+earned\b/i.test(normalized);
+  });
+  if (!amountLineRaw) return [];
+
+  // Attempt to parse quantity and token ticker from the raw amount line
+  const { quantity, token } = parseQuantityAndToken(amountLineRaw);
+  // Format the amount line consistently (e.g. "Amount: 320 tokens")
+  let amountLine = null;
+  if (Number.isFinite(quantity)) {
+    // Use integer quantity if available and pluralize "token" accordingly
+    const unit = quantity === 1 ? 'token' : 'tokens';
+    amountLine = `Amount: ${quantity} ${unit}`;
+  } else {
+    amountLine = amountLineRaw;
+  }
+
+  // Find Alpha points line (case insensitive)
+  const alphaPointsLine = lines.find((line) => line.toLowerCase().startsWith('alpha points')) || null;
+
+  // Determine claim line to extract the event date/time
   const claimLine =
     lines.find((line) => /claim\s+(starts|begins)/i.test(line) || /activity\s+time/i.test(line)) ||
-    lines.find((line) => /\d{1,2}\s+[A-Z][a-z]{2}\s+\d{1,2}:\d{2}\s*UTC/i.test(line));
-  const alphaPointsLine = lines.find((line) => line.toLowerCase().startsWith('alpha points'));
+    lines.find((line) => /\d{1,2}\s+[A-Z][a-z]{2}\s+\d{1,2}:\d{2}\s*UTC/i.test(line)) ||
+    null;
   
 
-  const { quantity, token } = parseQuantityAndToken(amountLine);
   const claimInfo = parseBinanceClaim(claimLine);
 
-  const descriptionParts = [];
-  if (amountLine) descriptionParts.push(amountLine);
-  if (alphaPointsLine) descriptionParts.push(alphaPointsLine);
-
-  const info = claimInfo || null;
-  const startAt = info
-    ? info.hasTime
-      ? toIsoFromUtcToKyivParts(info)
-      : toIsoFromKyivDate(info)
-    : null;
+  // Compute the ISO startAt timestamp. If claimInfo is missing, fall back to the message timestamp.
+  let startAt = null;
+  if (claimInfo) {
+    startAt = claimInfo.hasTime
+      ? toIsoFromUtcToKyivParts(claimInfo)
+      : toIsoFromKyivDate(claimInfo);
+  } else if (message.date) {
+    // Telegram API provides "date" as a Unix timestamp (seconds). Convert to Kyiv timezone.
+    const dt = dayjs.unix(message.date).tz(KYIV_TZ);
+    startAt = dt.isValid() ? dt.toISOString() : null;
+  }
+  // If we still don't have a valid date, skip this message
   if (!startAt) return [];
   const todayStart = dayjs().tz(KYIV_TZ).startOf('day');
   if (dayjs(startAt).tz(KYIV_TZ).isBefore(todayStart)) {
     return [];
   }
 
+  // Format a human‑readable date/time for inclusion in the description (DD.MM.YYYY HH:mm)
+  const dateStr = dayjs(startAt).tz(KYIV_TZ).format('DD.MM.YYYY HH:mm');
+
+  // Assemble description lines
+  const descriptionParts = [];
+  if (amountLine) descriptionParts.push(amountLine);
+  if (alphaPointsLine) descriptionParts.push(alphaPointsLine);
+  descriptionParts.push(`Date: ${dateStr}`);
+
+  // Determine unique source key if token and date info exist
+
   let claimDateISO = null;
-  if (info) {
-    if (info.hasTime) {
-      const formatted = `${info.year}-${pad(info.month)}-${pad(info.day)} ${info.time || '00:00'}`;
+  if (claimInfo) {
+    if (claimInfo.hasTime) {
+      const formatted = `${claimInfo.year}-${pad(claimInfo.month)}-${pad(claimInfo.day)} ${claimInfo.time || '00:00'}`;
       const kyivDate = dayjs.utc(formatted, 'YYYY-MM-DD HH:mm', true).tz(KYIV_TZ);
       claimDateISO = kyivDate.isValid() ? kyivDate.format('YYYY-MM-DD') : null;
     } else {
       const kyivDate = dayjs.tz(
-        `${info.year}-${pad(info.month)}-${pad(info.day)}`,
+        `${claimInfo.year}-${pad(claimInfo.month)}-${pad(claimInfo.day)}`,
         'YYYY-MM-DD',
         KYIV_TZ,
         true
@@ -333,7 +375,7 @@ function parseBinanceAlpha(message, channel) {
   return [
     {
       title,
-      description: ensureDescription(descriptionParts.join('\n\n')),
+      description: ensureDescription(descriptionParts.join('\n')),
       startAt,
       coins: buildCoins(token, quantity),
       coin_name: token || null,
