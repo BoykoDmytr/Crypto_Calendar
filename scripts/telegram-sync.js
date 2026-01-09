@@ -42,31 +42,37 @@ const MONTHS = {
 };
 
 const CHANNELS = {
+  alphadropbinance: {
+    name: "AlphaDropBinance",
+    trigger: "New Binance Alpha Airdrop",
+    parser: parseBinanceAlpha,
+  },
+
+  crypto_hornet_listings: {
+    name: "Crypto Hornet Listings",
+    trigger: "New Binance Alpha Airdrop",
+    parser: parseBinanceAlpha,
+  },
+
   okxboostx: {
-    name: 'OKX Alpha',
-    emoji: '🚀',
+    name: "OKXBoostX",
+    trigger: "New OKX Boost X Launch Event",
     parser: parseOkxAlpha,
   },
-  alphadropbinance: {
-    name: 'Binance Alpha',
-    emoji: '🎁',
-    parser: parseBinanceAlpha,
-  },
-  launchpool_alerts: {
-    name: "Launchpool Alerts",
-    parser: parseLaunchpoolAlerts,
-  },
+
   tokensplsh: {
-    name: 'TS Bybit',
-    emoji: '❗️',
+    name: "TokenSplsh",
+    trigger: "New token splash:",
     parser: parseTsBybit,
   },
-  crypto_hornet_listings: {
-    name: 'Crypto Hornet Listings',
-    emoji: '🎁',
-    parser: parseBinanceAlpha,
+
+  launchpool_alerts: {
+    name: "Launchpool Alerts",
+    trigger: "Stake",
+    parser: parseLaunchpoolAlerts,
   },
 };
+
 
 function pad(value) {
   return String(value).padStart(2, '0');
@@ -198,6 +204,18 @@ function normalizeSpaces(s) {
     .trim();
 }
 
+function matchesTrigger(rawText, channel) {
+  const trigger = channel?.trigger;
+  if (!trigger) return true;
+
+  const firstLine = (rawText || "").split("\n")[0];
+
+  // важливо: чистимо емодзі та HTML-ентіті, але НЕ чіпаємо увесь текст (щоб не вбити \n)
+  const head = normalizeSpaces(stripEmoji(decodeEntities(firstLine))).toLowerCase();
+
+  return head.includes(trigger.toLowerCase());
+}
+
 
 function parseOkxEventDateLine(lines, label) {
   const line = lines.find((l) => new RegExp(`^${label}\\s*:`, "i").test(l));
@@ -215,7 +233,7 @@ function parseOkxEventDateLine(lines, label) {
 
 export function parseOkxAlpha(message, channel) {
   let raw = (message.text || "");
-  if (!raw.trimStart().startsWith(channel.emoji)) return [];
+  if (!matchesTrigger(raw, channel)) return [];
 
   // важливо: НЕ нормалізуємо весь текст, щоб не вбити \n
   raw = decodeEntities(raw);
@@ -333,9 +351,9 @@ function parseBinanceClaim(line) {
 }
 
 export function parseBinanceAlpha(message, channel) {
-  const raw = (message.text || '').trim();
-  if (!raw.startsWith(channel.emoji)) return [];
-  const lines = raw.split('\n').map((line) => line.trim()).filter(Boolean);
+  const raw = (message.text || '');
+  if (!matchesTrigger(raw, channel)) return [];
+  const lines = raw.trim().split("\n").map((l) => l.trim()).filter(Boolean);
   if (!lines.length) return [];
 
   const tokenLineIndex = lines.findIndex((line) => /^Token:/i.test(line));
@@ -474,7 +492,7 @@ function parseQuotaLine(line) {
 
 export function parseLaunchpoolAlerts(message, channel) {
   let raw = (message.text || "");
-  if (channel.emoji && !raw.trimStart().startsWith(channel.emoji)) return [];
+  if (!matchesTrigger(raw, channel)) return [];
 
 
   raw = decodeEntities(raw);
@@ -639,8 +657,9 @@ export function parseTsBybitEvent(rawText) {
 }
 
  export function parseTsBybit(message, channel) {
-  const raw = (message.text || '').trim();
-  if (!raw.startsWith(channel.emoji)) return [];
+  const raw = (message.text || '');
+  if (!matchesTrigger(raw, channel)) return [];
+
 
   const parsed = parseTsBybitEvent(raw);
   if (!parsed) return [];
