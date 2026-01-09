@@ -442,7 +442,7 @@ export function parseBinanceAlpha(message, channel) {
       source,
       source_key: sourceKey,
       type: 'Binance Alpha',
-      event_type_slug: 'binance_alpha',
+      event_type_slug: 'binance-alpha',
     },
   ];
 }
@@ -634,7 +634,7 @@ export function parseTsBybitEvent(rawText) {
     end_date_iso: endIso,
     timezone: 'UTC',
     type: 'TS BYBIT',
-    event_type_slug: 'ts_bybit',
+    event_type_slug: 'ts-bybit',
   };
 }
 
