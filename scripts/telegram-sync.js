@@ -104,29 +104,6 @@ function cleanTitle(raw) {
   return title;
 }
 
-function parseUtcDateLine(lines, keyRu) {
-  const line = lines.find((entry) => new RegExp(`^${keyRu}\\s*:`, 'i').test(entry));
-  if (!line) return null;
-
-  const match = line.match(/(\d{4}-\d{2}-\d{2})\s+(\d{2}:\d{2})\s*UTC/i);
-  if (!match) return null;
-
-  const dt = dayjs.utc(`${match[1]} ${match[2]}`, 'YYYY-MM-DD HH:mm', true);
-  return dt.isValid() ? dt.toISOString() : null;
-}
-
-function extractTotalAmount(lines) {
-  const line = lines.find((entry) => /^Общая награда\s*:/i.test(entry)) || null;
-  if (!line) return null;
-
-  const normalized = decodeEntities(line)
-    .replace(/^Общая награда\s*:\s*/i, '')
-    .replace(/\s+/g, ' ')
-    .trim();
-
-  return stripEmoji(normalized);
-}
-
 function monthNameToNumber(name) {
   if (!name) return null;
   return MONTHS[name.toLowerCase()] || null;
@@ -329,11 +306,12 @@ export function parseOkxAlpha(message, channel) {
 function parseBinanceClaim(line) {
   if (!line) return null;
   const cleaned = line
-    .replace(/^🕑\s*(Claim starts|Claim begins|Activity time):\s*/i, '')
+    .replace(/^(?:🕑\s*)?(Claim starts|Claim begins|Claim date|Activity time):\s*/i, '')
     .replace(/UTC/gi, '')
     .replace(/\(.*?\)/g, '')
     .replace(/,\s*/g, ' ')
     .trim();
+
   const monthPattern = '(January|February|March|April|May|June|July|August|September|October|November|December|Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)';
   let match = new RegExp(
     `\\b${monthPattern}\\s+(\\d{1,2})(?:\\s+(\\d{4}))?(?:\\s+(\\d{1,2}):(\\d{2}))?`,
@@ -365,120 +343,104 @@ function parseBinanceClaim(line) {
 
 export function parseBinanceAlpha(message, channel) {
   const raw = (message.text || '');
-  // Match based on the configured trigger rather than emoji. If the first
-  // line does not contain the trigger, skip this message.
   if (!matchesTrigger(raw, channel)) return [];
-  const lines = raw.trim().split('\n').map((line) => line.trim()).filter(Boolean);
+
+  const decoded = decodeEntities(raw);
+  const lines = decoded
+    .split('\n')
+    .map((l) => normalizeSpaces(stripEmoji(l)))
+    .filter(Boolean);
+
   if (!lines.length) return [];
 
   const tokenLineIndex = lines.findIndex((line) => /^Token:/i.test(line));
   if (tokenLineIndex === -1) return [];
+
   const tokenLine = lines[tokenLineIndex].replace(/^Token:\s*/i, '').trim();
 
-  // Extract the human‑readable token name (before any parenthetical ticker symbol)
+  // token name = до "("
   let tokenName = tokenLine;
   const parenIdx = tokenName.indexOf('(');
-  if (parenIdx > 0) {
-    tokenName = tokenName.slice(0, parenIdx).trim();
-  }
-  // Build a more descriptive title combining the token name and the event type
+  if (parenIdx > 0) tokenName = tokenName.slice(0, parenIdx).trim();
+
+  // ticker із дужок ($DN)
+  let ticker = null;
+  const tickerMatch = tokenLine.match(/\(\s*\$?([A-Z0-9]{2,})\s*\)/i);
+  if (tickerMatch) ticker = tickerMatch[1].toUpperCase();
+
   const title = tokenName ? `${tokenName} Binance Alpha Airdrop` : 'Binance Alpha Airdrop';
 
-  // Locate the amount line. Some messages use "Amount", others use "You've earned" (or typographic variations)
+  // Amount — тепер НЕ обов’язковий
   const amountLineRaw = lines.find((line) => {
     const normalized = line.replace(/’/g, "'");
     return /^Amount\b/i.test(normalized) || /^You'?ve\s+earned\b/i.test(normalized);
-  });
-  if (!amountLineRaw) return [];
+  }) || null;
 
-  // Attempt to parse quantity and token ticker from the raw amount line
-  const { quantity, token } = parseQuantityAndToken(amountLineRaw);
-  // Format the amount line consistently (e.g. "Amount: 320 tokens")
+  let quantity = null;
   let amountLine = null;
-  if (Number.isFinite(quantity)) {
-    // Use integer quantity if available and pluralize "token" accordingly
-    const unit = quantity === 1 ? 'token' : 'tokens';
-    amountLine = `Amount: ${quantity} ${unit}`;
-  } else {
-    amountLine = amountLineRaw;
+
+  if (amountLineRaw) {
+    const parsed = parseQuantityAndToken(amountLineRaw);
+    quantity = Number.isFinite(parsed.quantity) ? parsed.quantity : null;
+
+    if (Number.isFinite(quantity)) {
+      const unit = quantity === 1 ? 'token' : 'tokens';
+      amountLine = `Amount: ${quantity} ${unit}`;
+    }
   }
 
-  // Find Alpha points line (case insensitive)
-  const alphaPointsLine = lines.find((line) => line.toLowerCase().startsWith('alpha points')) || null;
+  // Alpha points — опційно
+  const alphaPointsLine = lines.find((line) => /^Alpha points\b/i.test(line)) || null;
 
-  // Determine claim line to extract the event date/time
+  // Claim line
   const claimLine =
-    lines.find((line) => /claim\s+(starts|begins)/i.test(line) || /activity\s+time/i.test(line)) ||
-    lines.find((line) => /\d{1,2}\s+[A-Z][a-z]{2}\s+\d{1,2}:\d{2}\s*UTC/i.test(line)) ||
+    lines.find((line) => /claim\s+(starts|begins|date)/i.test(line) || /activity\s+time/i.test(line)) ||
     null;
-  
 
   const claimInfo = parseBinanceClaim(claimLine);
 
-  // Compute the ISO startAt timestamp. If claimInfo is missing, fall back to the message timestamp.
   let startAt = null;
   if (claimInfo) {
     startAt = claimInfo.hasTime
       ? toIsoFromUtcToKyivParts(claimInfo)
       : toIsoFromKyivDate(claimInfo);
   } else if (message.date) {
-    // Telegram API provides "date" as a Unix timestamp (seconds). Convert to Kyiv timezone.
     const dt = dayjs.unix(message.date).tz(KYIV_TZ);
     startAt = dt.isValid() ? dt.toISOString() : null;
   }
-  // If we still don't have a valid date, skip this message
-  if (!startAt) return [];
-  const todayStart = dayjs().tz(KYIV_TZ).startOf('day');
-  if (dayjs(startAt).tz(KYIV_TZ).isBefore(todayStart)) {
-    return [];
-  }
 
-  // Format a human‑readable date/time for inclusion in the description (DD.MM.YYYY HH:mm)
+  if (!startAt) return [];
+
+  // Date у форматі DD.MM.YYYY HH:mm (Kyiv)
   const dateStr = dayjs(startAt).tz(KYIV_TZ).format('DD.MM.YYYY HH:mm');
 
-  // Assemble description lines
   const descriptionParts = [];
   if (amountLine) descriptionParts.push(amountLine);
   if (alphaPointsLine) descriptionParts.push(alphaPointsLine);
   descriptionParts.push(`Date: ${dateStr}`);
 
-  // Determine unique source key if token and date info exist
-
-  let claimDateISO = null;
-  if (claimInfo) {
-    if (claimInfo.hasTime) {
-      const formatted = `${claimInfo.year}-${pad(claimInfo.month)}-${pad(claimInfo.day)} ${claimInfo.time || '00:00'}`;
-      const kyivDate = dayjs.utc(formatted, 'YYYY-MM-DD HH:mm', true).tz(KYIV_TZ);
-      claimDateISO = kyivDate.isValid() ? kyivDate.format('YYYY-MM-DD') : null;
-    } else {
-      const kyivDate = dayjs.tz(
-        `${claimInfo.year}-${pad(claimInfo.month)}-${pad(claimInfo.day)}`,
-        'YYYY-MM-DD',
-        KYIV_TZ,
-        true
-      );
-      claimDateISO = kyivDate.isValid() ? kyivDate.format('YYYY-MM-DD') : null;
-    }
-  }
-
-  const source = token && claimDateISO ? 'binance_alpha' : null;
-  const sourceKey = source ? `BINANCE_ALPHA|${token}|${claimDateISO}` : null;
+  const claimDateISO = dayjs(startAt).tz(KYIV_TZ).format('YYYY-MM-DD');
+  const source = ticker ? 'binance_alpha' : null;
+  const sourceKey = source ? `BINANCE_ALPHA|${ticker}|${claimDateISO}` : null;
 
   return [
     {
       title,
       description: ensureDescription(descriptionParts.join('\n')),
       startAt,
-      coins: buildCoins(token, quantity),
-      coin_name: token || null,
+      coins: quantity !== null && ticker ? buildCoins(ticker, quantity) : null,
+      coin_name: ticker || null,
       coin_quantity: quantity,
       source,
       source_key: sourceKey,
       type: 'Binance Alpha',
       event_type_slug: 'binance-alpha',
+      coin_price_link: null,
+      link: null,
     },
   ];
 }
+
 
 function parseUtcIsoFromLine(line) {
   // очікуємо: "Start: 2026-01-08 10:00 UTC"
@@ -585,12 +547,15 @@ export function parseLaunchpoolAlerts(message, channel) {
 
 
 export function parseTsBybitEvent(rawText) {
-  const text = stripEmoji(decodeEntities(rawText || ''));
+  const decoded = decodeEntities(rawText || '');
+  const text = stripEmoji(decoded);
   const lines = text.split('\n').map((line) => line.trim()).filter(Boolean);
 
   if (!lines.length) return null;
 
   const firstLine = lines[0];
+
+  // має бути "new token splash"
   const isNew = /\bnew\b/i.test(firstLine);
   if (!isNew) return null;
 
@@ -602,50 +567,74 @@ export function parseTsBybitEvent(rawText) {
   ];
   if (bad.some((re) => re.test(text))) return null;
 
-  const startIso = parseUtcDateLine(lines, 'Начало');
-  const endIso = parseUtcDateLine(lines, 'Конец');
+  // ----------------------------
+  // 1) START / END з усього тексту (бо у тебе "Начало:" може бути в середині рядка)
+  // ----------------------------
+  const mStart = decoded.match(/Начало:\s*(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2})\s*UTC/i);
+  const mEnd = decoded.match(/Конец:\s*(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2})\s*UTC/i);
+
+  const startIso = mStart
+    ? dayjs.utc(mStart[1], 'YYYY-MM-DD HH:mm', true).toISOString()
+    : null;
+
+  const endIso = mEnd
+    ? dayjs.utc(mEnd[1], 'YYYY-MM-DD HH:mm', true).toISOString()
+    : null;
+
+  // якщо немає кінця — це невалідний івент
   if (!endIso) return null;
 
-  const totalAmount = extractTotalAmount(lines);
+  // startAt = Start (якщо є), інакше End
+  const startAt = startIso || endIso;
 
-  // capture trade/pool line (e.g. "Trade: 100,000 $WHITEWHALE") if present
-  const tradeLine =
-    lines.find((line) => /^Trade\b/i.test(line)) ||
-    lines.find((line) => /^Pool\b/i.test(line)) ||
-    null;
-
-  // parse ticker symbol (without $) from the first line
-
+  // ----------------------------
+  // 2) Ticker (не ловимо "New", беремо саме після $ або після "token splash:")
+  // ----------------------------
   let ticker = null;
-  const tickerMatch = decodeEntities(firstLine).match(/\$?([A-Z0-9]{2,10})\b/);
-  if (tickerMatch) ticker = tickerMatch[1];
+  const t1 = firstLine.match(/\$([A-Z0-9]{2,20})/i);
+  const t2 = firstLine.match(/token\s+splash:\s*\$?([A-Z0-9]{2,20})/i);
+  ticker = (t1?.[1] || t2?.[1] || null);
+  if (ticker) ticker = ticker.toUpperCase();
 
-  // title format: "New token splash: TICKER" when ticker is present
   const title = ticker
     ? `New token splash: ${ticker}`
     : cleanTitle(firstLine);
 
-  const fmtUtc = (iso) => `${dayjs(iso).utc().format('YYYY-MM-DD HH:mm')} UTC`;
-  // prepare the pool line: prefer the trade line, fallback to total amount
+  // ----------------------------
+  // 3) Pool (Trade або Общая награда) — теж шукаємо у всьому тексті
+  // ----------------------------
+  const mPool =
+    decoded.match(/Общая награда:\s*([0-9][0-9\s,.]*)\s*\$?([A-Z0-9_-]{2,})/i) ||
+    decoded.match(/Trade:\s*([0-9][0-9\s,.]*)\s*\$?([A-Z0-9_-]{2,})/i) ||
+    null;
+
   let poolLine = null;
-  if (tradeLine) {
-    const { quantity: q, token: tok } = parseQuantityAndToken(tradeLine);
-    if (q && tok) {
-      poolLine = `Pool: ${q} ${tok}`;
-    }
-  }
-  if (!poolLine && totalAmount) {
-    const { quantity: q, token: tok } = parseQuantityAndToken(totalAmount);
-    if (q && tok) {
-      poolLine = `Pool: ${q} ${tok}`;
-    } else {
-      // remove leading $ if present
-      const stripped = totalAmount.replace(/\$/g, '').trim();
-      poolLine = `Pool: ${stripped}`;
+  let coin_name = null;
+  let coin_quantity = null;
+  let coins = null;
+
+  if (mPool) {
+    const qtyDisplay = mPool[1].trim().replace(/\u00A0/g, ' '); // NBSP -> space
+    const token = (mPool[2] || '').replace(/\$/g, '').toUpperCase();
+
+    poolLine = `Pool: ${qtyDisplay} ${token}`;
+
+    // number для БД: прибираємо пробіли і коми
+    const qtyNumStr = qtyDisplay.replace(/\s+/g, '').replace(/,/g, '');
+    const qtyNum = Number(qtyNumStr);
+
+    if (Number.isFinite(qtyNum)) {
+      coin_name = token;
+      coin_quantity = qtyNum;
+      coins = buildCoins(coin_name, coin_quantity);
     }
   }
 
-  // build date line combining start and end dates
+  // ----------------------------
+  // 4) Description: Pool + Date range
+  // ----------------------------
+  const fmtUtc = (iso) => `${dayjs(iso).utc().format('YYYY-MM-DD HH:mm')} UTC`;
+
   let dateLine;
   if (startIso) {
     dateLine = `Date: ${fmtUtc(startIso)} - ${fmtUtc(endIso)}`;
@@ -653,35 +642,33 @@ export function parseTsBybitEvent(rawText) {
     dateLine = `Date: ${fmtUtc(endIso)}`;
   }
 
-  // compose description
   const descriptionParts = [];
   if (poolLine) descriptionParts.push(poolLine);
   descriptionParts.push(dateLine);
-  const description = descriptionParts.join('\n');
+
+  const description = ensureDescription(descriptionParts.join('\n'));
 
   return {
     title,
     description,
-    startAt: endIso,
-    endAt: endIso,
-    start_date_iso: startIso,
-    end_date_iso: endIso,
+    startAt,
+    endAt: endIso || null,
+    coins,
+    coin_name,
+    coin_quantity,
     timezone: 'UTC',
     type: 'TS BYBIT',
     event_type_slug: 'ts-bybit',
   };
 }
 
+
  export function parseTsBybit(message, channel) {
   const raw = (message.text || '');
-  // Use trigger matching instead of emoji.  If the trigger is not present, skip.
   if (!matchesTrigger(raw, channel)) return [];
 
   const parsed = parseTsBybitEvent(raw);
   if (!parsed) return [];
-
-  const todayUtcStart = dayjs.utc().startOf('day');
-  if (dayjs(parsed.startAt).isBefore(todayUtcStart)) return [];
 
   return [parsed];
 }
