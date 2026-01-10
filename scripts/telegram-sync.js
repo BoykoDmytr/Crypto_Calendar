@@ -41,38 +41,37 @@ const MONTHS = {
   dec: 12,
 };
 
+// Mapping of Telegram channel usernames to parsers.  Instead of relying on a
+// leading emoji (which can be inconsistent due to hidden characters), we
+// define a `trigger` string that must appear in the first line of the
+// message.  The matching is case‑insensitive and ignores emojis/HTML entities.
 const CHANNELS = {
-  alphadropbinance: {
-    name: "AlphaDropBinance",
-    trigger: "New Binance Alpha Airdrop",
-    parser: parseBinanceAlpha,
-  },
-
-  crypto_hornet_listings: {
-    name: "Crypto Hornet Listings",
-    trigger: "New Binance Alpha Airdrop",
-    parser: parseBinanceAlpha,
-  },
-
   okxboostx: {
-    name: "OKXBoostX",
-    trigger: "New OKX Boost X Launch Event",
+    name: 'OKX Alpha',
+    trigger: 'new okx boost x launch event',
     parser: parseOkxAlpha,
   },
-
-  tokensplsh: {
-    name: "TokenSplsh",
-    trigger: "New token splash:",
-    parser: parseTsBybit,
+  alphadropbinance: {
+    name: 'Binance Alpha',
+    trigger: 'new binance alpha airdrop',
+    parser: parseBinanceAlpha,
   },
-
   launchpool_alerts: {
-    name: "Launchpool Alerts",
-    trigger: "Stake",
+    name: 'Launchpool Alerts',
+    trigger: 'stake',
     parser: parseLaunchpoolAlerts,
   },
+  tokensplsh: {
+    name: 'TS Bybit',
+    trigger: 'new token splash:',
+    parser: parseTsBybit,
+  },
+  crypto_hornet_listings: {
+    name: 'Crypto Hornet Listings',
+    trigger: 'new binance alpha airdrop',
+    parser: parseBinanceAlpha,
+  },
 };
-
 
 function pad(value) {
   return String(value).padStart(2, '0');
@@ -188,8 +187,12 @@ function ensureDescription(text) {
 
 function parseClaimDateKyiv(lines) {
   if (!lines?.length) return null;
-  const claim = lines.find((line) => /^Claim Date\b/i.test(line));
+  // Find a line containing "Claim Date" anywhere, not just at the start.  Some
+  // channels embed the claim date within a longer line of text.  Use a
+  // case‑insensitive search.
+  const claim = lines.find((line) => /Claim\s+Date/i.test(line));
   if (!claim) return null;
+  // Extract DD.MM.YYYY and HH:MM from the found line
   const match = /(\d{2}\.\d{2}\.\d{4}),\s*(\d{2}:\d{2})/.exec(claim);
   if (!match) return null;
   const dt = dayjs.tz(`${match[1]} ${match[2]}`, 'DD.MM.YYYY HH:mm', KYIV_TZ);
@@ -204,16 +207,24 @@ function normalizeSpaces(s) {
     .trim();
 }
 
+/**
+ * Determine whether the first line of a message matches the configured trigger for a channel.
+ * Many Telegram posts include leading emojis or HTML entities; this helper strips those
+ * decorations and performs a case‑insensitive substring search on the cleaned first line.
+ *
+ * If no trigger is defined on the channel, this always returns true.
+ *
+ * @param {string} rawText The raw message text (may include newlines).
+ * @param {object} channel The channel configuration, which may contain a `trigger` string.
+ * @returns {boolean} Whether the trigger is present in the first line.
+ */
 function matchesTrigger(rawText, channel) {
-  const trigger = channel?.trigger;
-  if (!trigger) return true;
-
-  const firstLine = (rawText || "").split("\n")[0];
-
-  // важливо: чистимо емодзі та HTML-ентіті, але НЕ чіпаємо увесь текст (щоб не вбити \n)
-  const head = normalizeSpaces(stripEmoji(decodeEntities(firstLine))).toLowerCase();
-
-  return head.includes(trigger.toLowerCase());
+  if (!channel || !channel.trigger) return true;
+  const trigger = String(channel.trigger).toLowerCase();
+  const firstLine = (rawText || '').split('\n')[0];
+  // decode HTML entities and strip emojis from the first line
+  const cleaned = normalizeSpaces(stripEmoji(decodeEntities(firstLine))).toLowerCase();
+  return cleaned.includes(trigger);
 }
 
 
@@ -232,10 +243,12 @@ function parseOkxEventDateLine(lines, label) {
 
 
 export function parseOkxAlpha(message, channel) {
-  let raw = (message.text || "");
+  let raw = (message.text || '');
+  // Use trigger matching instead of leading emoji.  If the trigger is not present
+  // in the first line, skip this message.
   if (!matchesTrigger(raw, channel)) return [];
 
-  // важливо: НЕ нормалізуємо весь текст, щоб не вбити \n
+  // Важливо: не нормалізуємо весь текст, щоб не вбити \n
   raw = decodeEntities(raw);
 
   // розбиваємо на рядки, і вже КОЖЕН рядок чистимо
@@ -352,8 +365,10 @@ function parseBinanceClaim(line) {
 
 export function parseBinanceAlpha(message, channel) {
   const raw = (message.text || '');
+  // Match based on the configured trigger rather than emoji. If the first
+  // line does not contain the trigger, skip this message.
   if (!matchesTrigger(raw, channel)) return [];
-  const lines = raw.trim().split("\n").map((l) => l.trim()).filter(Boolean);
+  const lines = raw.trim().split('\n').map((line) => line.trim()).filter(Boolean);
   if (!lines.length) return [];
 
   const tokenLineIndex = lines.findIndex((line) => /^Token:/i.test(line));
@@ -491,9 +506,10 @@ function parseQuotaLine(line) {
 }
 
 export function parseLaunchpoolAlerts(message, channel) {
-  let raw = (message.text || "");
+  let raw = (message.text || '');
+  // Match based on trigger instead of emoji.  If trigger is defined and not found,
+  // skip this message.  If trigger is undefined, accept any message.
   if (!matchesTrigger(raw, channel)) return [];
-
 
   raw = decodeEntities(raw);
 
@@ -658,8 +674,8 @@ export function parseTsBybitEvent(rawText) {
 
  export function parseTsBybit(message, channel) {
   const raw = (message.text || '');
+  // Use trigger matching instead of emoji.  If the trigger is not present, skip.
   if (!matchesTrigger(raw, channel)) return [];
-
 
   const parsed = parseTsBybitEvent(raw);
   if (!parsed) return [];
@@ -837,13 +853,21 @@ async function run() {
         [parsed.description].filter(Boolean).join('\n\n')
       );
 
+      // Require both type and event_type_slug; otherwise skip this parsed event.
+      const parsedType = parsed.type || null;
+      const parsedSlug = parsed.event_type_slug || null;
+      if (!parsedType || !parsedSlug) {
+        summary.skipped += 1;
+        continue;
+      }
+
       const payload = {
         title: parsed.title,
         description,
         start_at: startAt,
         end_at: parsed.endAt || null,
         timezone: parsed.timezone || 'Kyiv',
-        type: parsed.type || 'Airdrop',
+        type: parsedType,
         link,
         coins: parsed.coins || null,
         coin_name: parsed.coin_name || null,
@@ -851,7 +875,7 @@ async function run() {
         coin_price_link: parsed.coin_price_link || null,
         source: parsed.source || null,
         source_key: parsed.source_key || null,
-        event_type_slug: parsed.event_type_slug || null,
+        event_type_slug: parsedSlug,
       };
 
       if (payload.source && payload.source_key) {
