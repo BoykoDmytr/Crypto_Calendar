@@ -89,4 +89,4 @@ node --env-file=.env.local scripts/telegram-sync.js
 Every execution fetches new `channel_post` updates, converts recognised posts into events, and
 skips entries that already exist in `auto_events_pending` (matching by title, start date, and link).
 If the script cannot parse a date, it stores the publication timestamp and leaves a note in the
-description so moderators can adjust the row manually via the admin panel.
+description so moderators can adjust the row manually via the admin panel..
