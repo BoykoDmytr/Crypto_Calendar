@@ -45,6 +45,11 @@ const MONTHS = {
 // leading emoji (which can be inconsistent due to hidden characters), we
 // define a `trigger` string that must appear in the first line of the
 // message.  The matching is case‑insensitive and ignores emojis/HTML entities.
+// Mapping of Telegram channel usernames to parsers. Each entry defines a human‑readable name,
+// a trigger string that should appear in the first line of the post, and the parser that
+// should be invoked for that channel.  The `trigger` field is used by the parser itself
+// via the `matchesTrigger` helper.  When adding new channels, set the trigger to the
+// lowercase phrase that identifies the posts from that channel.
 const CHANNELS = {
   okxboostx: {
     name: 'OKX Alpha',
@@ -72,6 +77,19 @@ const CHANNELS = {
     parser: parseBinanceAlpha,
   },
 };
+
+// In addition to channel‑specific parsers, we maintain a list of *all* event parsers.  This
+// allows the synchronization logic to attempt multiple parsers on the same message if the
+// primary parser fails.  Each entry in this array is a function reference.  The order
+// matters: parsers are tried in sequence and the first one that returns a non‑empty
+// result will be used.  Note that we intentionally do *not* specify a trigger here; when
+// attempting a fallback parse the channel's trigger is ignored.
+const ALL_PARSERS = [
+  parseBinanceAlpha,
+  parseOkxAlpha,
+  parseTsBybit,
+  parseLaunchpoolAlerts,
+];
 
 function pad(value) {
   return String(value).padStart(2, '0');
@@ -306,12 +324,11 @@ export function parseOkxAlpha(message, channel) {
 function parseBinanceClaim(line) {
   if (!line) return null;
   const cleaned = line
-    .replace(/^(?:🕑\s*)?(Claim starts|Claim begins|Claim date|Activity time):\s*/i, '')
+    .replace(/^🕑\s*(Claim starts|Claim begins|Activity time):\s*/i, '')
     .replace(/UTC/gi, '')
     .replace(/\(.*?\)/g, '')
     .replace(/,\s*/g, ' ')
     .trim();
-
   const monthPattern = '(January|February|March|April|May|June|July|August|September|October|November|December|Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)';
   let match = new RegExp(
     `\\b${monthPattern}\\s+(\\d{1,2})(?:\\s+(\\d{4}))?(?:\\s+(\\d{1,2}):(\\d{2}))?`,
@@ -343,104 +360,130 @@ function parseBinanceClaim(line) {
 
 export function parseBinanceAlpha(message, channel) {
   const raw = (message.text || '');
+  // Match based on the configured trigger rather than emoji. If the first
+  // line does not contain the trigger, skip this message.
   if (!matchesTrigger(raw, channel)) return [];
-
-  const decoded = decodeEntities(raw);
-  const lines = decoded
-    .split('\n')
-    .map((l) => normalizeSpaces(stripEmoji(l)))
-    .filter(Boolean);
-
+  const lines = raw.trim().split('\n').map((line) => line.trim()).filter(Boolean);
   if (!lines.length) return [];
 
   const tokenLineIndex = lines.findIndex((line) => /^Token:/i.test(line));
   if (tokenLineIndex === -1) return [];
-
   const tokenLine = lines[tokenLineIndex].replace(/^Token:\s*/i, '').trim();
 
-  // token name = до "("
+  // Extract the human‑readable token name (before any parenthetical ticker symbol)
   let tokenName = tokenLine;
   const parenIdx = tokenName.indexOf('(');
-  if (parenIdx > 0) tokenName = tokenName.slice(0, parenIdx).trim();
-
-  // ticker із дужок ($DN)
-  let ticker = null;
-  const tickerMatch = tokenLine.match(/\(\s*\$?([A-Z0-9]{2,})\s*\)/i);
-  if (tickerMatch) ticker = tickerMatch[1].toUpperCase();
-
+  if (parenIdx > 0) {
+    tokenName = tokenName.slice(0, parenIdx).trim();
+  }
+  // Build a more descriptive title combining the token name and the event type
   const title = tokenName ? `${tokenName} Binance Alpha Airdrop` : 'Binance Alpha Airdrop';
 
-  // Amount — тепер НЕ обов’язковий
+  // Locate the amount line. Some messages use "Amount", others use "You've earned" (or typographic variations)
   const amountLineRaw = lines.find((line) => {
     const normalized = line.replace(/’/g, "'");
     return /^Amount\b/i.test(normalized) || /^You'?ve\s+earned\b/i.test(normalized);
-  }) || null;
+  });
+  // amountLineRaw is optional.  Some posts only provide the token name and claim date.
 
-  let quantity = null;
+  // Attempt to parse quantity and token ticker from the raw amount line
+  // Extract quantity and token ticker from the amount line, if present
+  const { quantity, token: amountToken } = parseQuantityAndToken(amountLineRaw);
+  // Format the amount line consistently (e.g. "Amount: 320 tokens")
   let amountLine = null;
-
-  if (amountLineRaw) {
-    const parsed = parseQuantityAndToken(amountLineRaw);
-    quantity = Number.isFinite(parsed.quantity) ? parsed.quantity : null;
-
-    if (Number.isFinite(quantity)) {
-      const unit = quantity === 1 ? 'token' : 'tokens';
-      amountLine = `Amount: ${quantity} ${unit}`;
-    }
+  if (Number.isFinite(quantity)) {
+    // Use integer quantity if available and pluralize "token" accordingly
+    const unit = quantity === 1 ? 'token' : 'tokens';
+    amountLine = `Amount: ${quantity} ${unit}`;
+  } else {
+    amountLine = amountLineRaw;
   }
 
-  // Alpha points — опційно
-  const alphaPointsLine = lines.find((line) => /^Alpha points\b/i.test(line)) || null;
+  // Find Alpha points line (case insensitive)
+  const alphaPointsLine = lines.find((line) => line.toLowerCase().startsWith('alpha points')) || null;
 
-  // Claim line
+  // Determine claim line to extract the event date/time
   const claimLine =
-    lines.find((line) => /claim\s+(starts|begins|date)/i.test(line) || /activity\s+time/i.test(line)) ||
+    lines.find((line) => /claim\s+(starts|begins)/i.test(line) || /activity\s+time/i.test(line)) ||
+    lines.find((line) => /\d{1,2}\s+[A-Z][a-z]{2}\s+\d{1,2}:\d{2}\s*UTC/i.test(line)) ||
     null;
+  
 
   const claimInfo = parseBinanceClaim(claimLine);
 
+  // Compute the ISO startAt timestamp. If claimInfo is missing, fall back to the message timestamp.
   let startAt = null;
   if (claimInfo) {
     startAt = claimInfo.hasTime
       ? toIsoFromUtcToKyivParts(claimInfo)
       : toIsoFromKyivDate(claimInfo);
   } else if (message.date) {
+    // Telegram API provides "date" as a Unix timestamp (seconds). Convert to Kyiv timezone.
     const dt = dayjs.unix(message.date).tz(KYIV_TZ);
     startAt = dt.isValid() ? dt.toISOString() : null;
   }
-
+  // If we still don't have a valid date, skip this message
   if (!startAt) return [];
+  const todayStart = dayjs().tz(KYIV_TZ).startOf('day');
+  if (dayjs(startAt).tz(KYIV_TZ).isBefore(todayStart)) {
+    return [];
+  }
 
-  // Date у форматі DD.MM.YYYY HH:mm (Kyiv)
+  // Format a human‑readable date/time for inclusion in the description (DD.MM.YYYY HH:mm)
   const dateStr = dayjs(startAt).tz(KYIV_TZ).format('DD.MM.YYYY HH:mm');
 
+  // Assemble description lines
   const descriptionParts = [];
   if (amountLine) descriptionParts.push(amountLine);
   if (alphaPointsLine) descriptionParts.push(alphaPointsLine);
   descriptionParts.push(`Date: ${dateStr}`);
 
-  const claimDateISO = dayjs(startAt).tz(KYIV_TZ).format('YYYY-MM-DD');
-  const source = ticker ? 'binance_alpha' : null;
-  const sourceKey = source ? `BINANCE_ALPHA|${ticker}|${claimDateISO}` : null;
+  // Determine the ticker from the Token line if we couldn't parse one from the amount line
+  let ticker = null;
+  const tickerMatch = tokenLine.match(/\(\s*\$?([A-Za-z0-9]{2,})\s*\)/);
+  if (tickerMatch) ticker = tickerMatch[1].toUpperCase();
+
+  // Use the token parsed from the amount line if available; otherwise fall back to the ticker from the
+  // "Token:" line.  This value will be used for the coin fields and source key.
+  const finalToken = amountToken || ticker || null;
+
+  // Determine unique source key if token and date info exist
+
+  let claimDateISO = null;
+  if (claimInfo) {
+    if (claimInfo.hasTime) {
+      const formatted = `${claimInfo.year}-${pad(claimInfo.month)}-${pad(claimInfo.day)} ${claimInfo.time || '00:00'}`;
+      const kyivDate = dayjs.utc(formatted, 'YYYY-MM-DD HH:mm', true).tz(KYIV_TZ);
+      claimDateISO = kyivDate.isValid() ? kyivDate.format('YYYY-MM-DD') : null;
+    } else {
+      const kyivDate = dayjs.tz(
+        `${claimInfo.year}-${pad(claimInfo.month)}-${pad(claimInfo.day)}`,
+        'YYYY-MM-DD',
+        KYIV_TZ,
+        true
+      );
+      claimDateISO = kyivDate.isValid() ? kyivDate.format('YYYY-MM-DD') : null;
+    }
+  }
+
+  const source = finalToken && claimDateISO ? 'binance_alpha' : null;
+  const sourceKey = source ? `BINANCE_ALPHA|${finalToken}|${claimDateISO}` : null;
 
   return [
     {
       title,
       description: ensureDescription(descriptionParts.join('\n')),
       startAt,
-      coins: quantity !== null && ticker ? buildCoins(ticker, quantity) : null,
-      coin_name: ticker || null,
+      coins: buildCoins(finalToken, quantity),
+      coin_name: finalToken || null,
       coin_quantity: quantity,
       source,
       source_key: sourceKey,
       type: 'Binance Alpha',
       event_type_slug: 'binance-alpha',
-      coin_price_link: null,
-      link: null,
     },
   ];
 }
-
 
 function parseUtcIsoFromLine(line) {
   // очікуємо: "Start: 2026-01-08 10:00 UTC"
@@ -547,6 +590,9 @@ export function parseLaunchpoolAlerts(message, channel) {
 
 
 export function parseTsBybitEvent(rawText) {
+  // Decode HTML entities and strip emojis, but preserve the overall line structure.  Telegram
+  // sometimes collapses multiple fields onto a single line, so we cannot rely solely on
+  // splitting by newlines.  Instead we search for keywords within the entire text.
   const decoded = decodeEntities(rawText || '');
   const text = stripEmoji(decoded);
   const lines = text.split('\n').map((line) => line.trim()).filter(Boolean);
@@ -554,11 +600,10 @@ export function parseTsBybitEvent(rawText) {
   if (!lines.length) return null;
 
   const firstLine = lines[0];
+  // The post should include the word "new" to indicate a new splash event
+  if (!/\bnew\b/i.test(firstLine)) return null;
 
-  // має бути "new token splash"
-  const isNew = /\bnew\b/i.test(firstLine);
-  if (!isNew) return null;
-
+  // Skip posts that announce distribution of rewards
   const bad = [
     /Награды были распределены/i,
     /лежат у участников на балансе/i,
@@ -567,44 +612,36 @@ export function parseTsBybitEvent(rawText) {
   ];
   if (bad.some((re) => re.test(text))) return null;
 
-  // ----------------------------
-  // 1) START / END з усього тексту (бо у тебе "Начало:" може бути в середині рядка)
-  // ----------------------------
+  // Extract Start and End times from the entire decoded text.  Sometimes "Начало" and
+  // "Конец" appear in the middle of a line, so use regex on the full string.
   const mStart = decoded.match(/Начало:\s*(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2})\s*UTC/i);
   const mEnd = decoded.match(/Конец:\s*(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2})\s*UTC/i);
 
   const startIso = mStart
     ? dayjs.utc(mStart[1], 'YYYY-MM-DD HH:mm', true).toISOString()
     : null;
-
   const endIso = mEnd
     ? dayjs.utc(mEnd[1], 'YYYY-MM-DD HH:mm', true).toISOString()
     : null;
-
-  // якщо немає кінця — це невалідний івент
+  // Without an end date we cannot compute the duration of the event
   if (!endIso) return null;
 
-  // startAt = Start (якщо є), інакше End
+  // Start at defaults to startIso when present; otherwise endIso
   const startAt = startIso || endIso;
 
-  // ----------------------------
-  // 2) Ticker (не ловимо "New", беремо саме після $ або після "token splash:")
-  // ----------------------------
+  // Extract ticker from the first line after the colon in "New token splash" phrase.
   let ticker = null;
   const t1 = firstLine.match(/\$([A-Z0-9]{2,20})/i);
   const t2 = firstLine.match(/token\s+splash:\s*\$?([A-Z0-9]{2,20})/i);
   ticker = (t1?.[1] || t2?.[1] || null);
   if (ticker) ticker = ticker.toUpperCase();
+  const title = ticker ? `New token splash: ${ticker}` : cleanTitle(firstLine);
 
-  const title = ticker
-    ? `New token splash: ${ticker}`
-    : cleanTitle(firstLine);
-
-  // ----------------------------
-  // 3) Pool (Trade або Общая награда) — теж шукаємо у всьому тексті
-  // ----------------------------
+  // Determine the pool amount and token.  We search the entire decoded text for either
+  // "Общая награда:" or "Trade:" followed by a number and token.  This covers both
+  // Russian and English variants.  The number may include spaces or commas.
   const mPool =
-    decoded.match(/Общая награда:\s*([0-9][0-9\s,.]*)\s*\$?([A-Z0-9_-]{2,})/i) ||
+    decoded.match(/Общая\s+наград(?:а|ы):\s*([0-9][0-9\s,.]*)\s*\$?([A-Z0-9_-]{2,})/i) ||
     decoded.match(/Trade:\s*([0-9][0-9\s,.]*)\s*\$?([A-Z0-9_-]{2,})/i) ||
     null;
 
@@ -612,17 +649,13 @@ export function parseTsBybitEvent(rawText) {
   let coin_name = null;
   let coin_quantity = null;
   let coins = null;
-
   if (mPool) {
-    const qtyDisplay = mPool[1].trim().replace(/\u00A0/g, ' '); // NBSP -> space
+    const qtyDisplay = mPool[1].trim().replace(/\u00A0/g, ' ');
     const token = (mPool[2] || '').replace(/\$/g, '').toUpperCase();
-
     poolLine = `Pool: ${qtyDisplay} ${token}`;
-
-    // number для БД: прибираємо пробіли і коми
+    // For numerical quantity, remove spaces and commas
     const qtyNumStr = qtyDisplay.replace(/\s+/g, '').replace(/,/g, '');
     const qtyNum = Number(qtyNumStr);
-
     if (Number.isFinite(qtyNum)) {
       coin_name = token;
       coin_quantity = qtyNum;
@@ -630,11 +663,8 @@ export function parseTsBybitEvent(rawText) {
     }
   }
 
-  // ----------------------------
-  // 4) Description: Pool + Date range
-  // ----------------------------
+  // Compose the date line: include both start and end if start date exists
   const fmtUtc = (iso) => `${dayjs(iso).utc().format('YYYY-MM-DD HH:mm')} UTC`;
-
   let dateLine;
   if (startIso) {
     dateLine = `Date: ${fmtUtc(startIso)} - ${fmtUtc(endIso)}`;
@@ -645,7 +675,6 @@ export function parseTsBybitEvent(rawText) {
   const descriptionParts = [];
   if (poolLine) descriptionParts.push(poolLine);
   descriptionParts.push(dateLine);
-
   const description = ensureDescription(descriptionParts.join('\n'));
 
   return {
@@ -662,14 +691,17 @@ export function parseTsBybitEvent(rawText) {
   };
 }
 
-
  export function parseTsBybit(message, channel) {
   const raw = (message.text || '');
+  // Use trigger matching instead of emoji.  If the trigger is not present, skip.
   if (!matchesTrigger(raw, channel)) return [];
 
   const parsed = parseTsBybitEvent(raw);
+  // If parsing failed, return an empty array
   if (!parsed) return [];
-
+  // Do not filter out events based on their start date.  The caller (run())
+  // may decide whether to skip old events.  Returning the parsed event here
+  // allows for better visibility during development and testing.
   return [parsed];
 }
 
@@ -819,7 +851,33 @@ async function run() {
     const channel = CHANNELS[message.username];
     if (!channel) continue;
 
-    const parsedEvents = channel.parser(message, channel) || [];
+    // Try to parse the message using the channel's primary parser.  If it
+    // returns an empty array, iterate over all parsers in sequence until one
+    // produces a result.  This allows us to handle cases where the channel
+    // configuration or trigger does not match the actual post, yet another
+    // parser is capable of understanding the message.
+    let parsedEvents = channel.parser(message, channel) || [];
+    if (!parsedEvents.length) {
+      for (const parserFn of ALL_PARSERS) {
+        // Skip the primary parser since we already tried it
+        if (parserFn === channel.parser) continue;
+        try {
+          // Pass an empty channel object so that matchesTrigger() does not
+          // require a trigger to be present
+          const res = parserFn(message, {});
+          if (res && res.length) {
+            parsedEvents = res;
+            break;
+          }
+        } catch (err) {
+          // If a parser throws, log and continue with the next parser
+          console.warn('Parser error', parserFn.name, err?.message || err);
+        }
+      }
+    }
+    // If no parser handled this message, skip it entirely.  We intentionally
+    // avoid inserting a generic fallback event so that unrecognized posts do
+    // not clutter the pending list.
     if (!parsedEvents.length) continue;
 
     const slug = message.originalUsername || message.username;
