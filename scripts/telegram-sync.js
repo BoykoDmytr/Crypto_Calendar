@@ -849,37 +849,41 @@ async function run() {
     const message = normalizeMessage(update);
     if (!message) continue;
 
-    const channel = CHANNELS[message.username];
-    if (!channel) continue;
+    const channel = CHANNELS[message.username] || null;
 
-    // Try to parse the message using the channel's primary parser.  If it
-    // returns an empty array, iterate over all parsers in sequence until one
-    // produces a result.  This allows us to handle cases where the channel
-    // configuration or trigger does not match the actual post, yet another
-    // parser is capable of understanding the message.
-    let parsedEvents = channel.parser(message, channel) || [];
+    // 1) пробуємо парсер “свого” каналу (якщо він є)
+    let parsedEvents = [];
+    if (channel?.parser) {
+      try {
+        parsedEvents = channel.parser(message, channel) || [];
+      } catch (err) {
+        console.warn('Channel parser error', channel?.name, err?.message || err);
+      }
+    }
+
+    // 2) якщо не спрацювало — пробуємо ВСІ парсери, але з їхніми trigger
     if (!parsedEvents.length) {
-      for (const parserFn of ALL_PARSERS) {
-        // Skip the primary parser since we already tried it
-        if (parserFn === channel.parser) continue;
+      for (const p of ALL_PARSERS) {
+        // якщо це той самий парсер що й у каналу — не дублюємо
+        if (channel?.parser && p.fn === channel.parser) continue;
+
         try {
-          // Pass an empty channel object so that matchesTrigger() does not
-          // require a trigger to be present
-          const res = parserFn(message, {});
-          if (res && res.length) {
+          const res = p.fn(message, { trigger: p.trigger }) || [];
+          if (res.length) {
             parsedEvents = res;
             break;
           }
         } catch (err) {
-          // If a parser throws, log and continue with the next parser
-          console.warn('Parser error', parserFn.name, err?.message || err);
+          console.warn('Parser error', p.name, err?.message || err);
         }
       }
     }
-    // If no parser handled this message, skip it entirely.  We intentionally
-    // avoid inserting a generic fallback event so that unrecognized posts do
-    // not clutter the pending list.
-    if (!parsedEvents.length) continue;
+
+    // 3) якщо жоден шаблон не підійшов — НЕ постимо в базу взагалі
+    if (!parsedEvents.length) {
+      continue;
+    }
+
 
     const slug = message.originalUsername || message.username;
     const link = `https://t.me/${slug}/${message.id}`;
