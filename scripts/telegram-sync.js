@@ -85,11 +85,12 @@ const CHANNELS = {
 // result will be used.  Note that we intentionally do *not* specify a trigger here; when
 // attempting a fallback parse the channel's trigger is ignored.
 const ALL_PARSERS = [
-  parseBinanceAlpha,
-  parseOkxAlpha,
-  parseTsBybit,
-  parseLaunchpoolAlerts,
+  { name: 'Binance Alpha', trigger: 'new binance alpha airdrop', fn: parseBinanceAlpha },
+  { name: 'OKX Alpha', trigger: 'new okx boost x launch event', fn: parseOkxAlpha },
+  { name: 'TS Bybit', trigger: 'new token splash:', fn: parseTsBybit },
+  { name: 'Launchpool', trigger: 'stake', fn: parseLaunchpoolAlerts },
 ];
+
 
 function pad(value) {
   return String(value).padStart(2, '0');
