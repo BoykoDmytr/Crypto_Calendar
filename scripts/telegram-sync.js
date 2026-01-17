@@ -157,12 +157,29 @@ function buildCoins(token, quantity) {
   return Object.keys(entry).length ? [entry] : null;
 }
 
+function normalizeTriggerText(s) {
+  return normalizeSpaces(stripEmoji(decodeEntities(s)))
+    .toLowerCase()
+    .replace(/[!?.:|()[\]{}]/g, ' ')   // прибираємо пунктуацію, що часто заважає
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
 function matchesTrigger(rawText, trigger) {
   if (!trigger) return true;
-  const firstLine = (rawText || '').split('\n')[0];
-  const cleaned = normalizeSpaces(stripEmoji(decodeEntities(firstLine))).toLowerCase();
-  return cleaned.includes(String(trigger).toLowerCase());
+
+  const lines = (rawText || '')
+    .split('\n')
+    .map((l) => normalizeTriggerText(l))
+    .filter(Boolean);
+
+  const head = lines.slice(0, 5).join(' ');          // ✅ перші 5 рядків
+  const trig = normalizeTriggerText(trigger);
+
+  return head.includes(trig);
 }
+
+
 
 /**
  * =========================
@@ -181,13 +198,47 @@ function parseOkxEventDateLine(lines, label) {
 }
 
 function parseClaimDateKyiv(lines) {
-  const claim = lines.find((line) => /Claim\s+Date/i.test(line));
+  const claim = lines.find((line) => /claim\s*date/i.test(line));
   if (!claim) return null;
-  const match = /(\d{2}\.\d{2}\.\d{4}),\s*(\d{2}:\d{2})/.exec(claim);
-  if (!match) return null;
-  const dt = dayjs.tz(`${match[1]} ${match[2]}`, 'DD.MM.YYYY HH:mm', KYIV_TZ);
-  return dt.isValid() ? dt.toISOString() : null;
+
+  const m = claim.match(/(\d{2})\.(\d{2})\.(\d{4})\D+(\d{2}):(\d{2})/);
+  if (!m) return null;
+
+  const dd = Number(m[1]);
+  const mm = Number(m[2]);
+  const yyyy = Number(m[3]);
+  const HH = Number(m[4]);
+  const Min = Number(m[5]);
+
+  // робимо "наївну" дату
+  const isoLike = `${yyyy}-${pad(mm)}-${pad(dd)}T${pad(HH)}:${pad(Min)}:00`;
+
+  // отримуємо offset для Europe/Kyiv на цю дату/час через Intl
+  const dt = new Date(`${isoLike}Z`); // базово як UTC точка для розрахунку
+  const fmt = new Intl.DateTimeFormat('en-US', {
+    timeZone: KYIV_TZ,
+    timeZoneName: 'shortOffset',
+    year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', second: '2-digit',
+    hour12: false,
+  });
+
+  const parts = fmt.formatToParts(dt);
+  const tzPart = parts.find(p => p.type === 'timeZoneName')?.value; // типу "GMT+2"
+  if (!tzPart) return null;
+
+  // перетворюємо "GMT+2" -> "+02:00"
+  const mo = tzPart.match(/GMT([+-]\d{1,2})/);
+  if (!mo) return null;
+  const offH = Number(mo[1]);
+  const offset = `${offH >= 0 ? '+' : '-'}${pad(Math.abs(offH))}:00`;
+
+  // Повертаємо ISO з офсетом Києва
+  return `${isoLike}${offset}`;
 }
+
+
+
 
 // OKX
 export function parseOkxAlpha(message, channel) {
@@ -198,8 +249,8 @@ export function parseOkxAlpha(message, channel) {
   const lines = raw.split('\n').map((l) => normalizeSpaces(stripEmoji(l))).filter(Boolean);
   if (!lines.length) return [];
 
-  const launchLine =
-    lines.find((l) => /\bX\s+Launch\b/i.test(l) && !/Event/i.test(l)) || null;
+  const launchLine = lines.find((l) => /X\s+Launch/i.test(l) && !/Event/i.test(l)) || null;
+
 
   const vision = launchLine
     ? normalizeSpaces(launchLine.replace(/\bX\s+Launch\b/i, '').trim())
@@ -222,10 +273,10 @@ export function parseOkxAlpha(message, channel) {
 
   // ✅ startAt = Claim Date
   const claimIso = parseClaimDateKyiv(lines);
+  console.log('OKX DEBUG lines:', lines);
+  console.log('OKX DEBUG claimIso:', claimIso);
   if (!claimIso) return [];
 
-  // ✅ endAt = X Launch Ends
-  const endIso = parseOkxEventDateLine(lines, 'X Launch Ends');
 
   // ✅ Description only Pool
   const description = poolText ? `Pool: ${poolText}` : null;
@@ -343,9 +394,13 @@ export function parseBinanceAlpha(message, channel) {
   if (!startAt) return [];
 
   // ✅ Description WITHOUT Date
+  const consumesLine = lines.find((line) => /consumes\s*:/i.test(line)) || null;
+
   const descriptionParts = [];
   if (amountLine) descriptionParts.push(amountLine);
   if (alphaPointsLine) descriptionParts.push(alphaPointsLine);
+  if (consumesLine) descriptionParts.push(consumesLine);
+
 
   let ticker = null;
   const tickerMatch = tokenLine.match(/\(\s*\$?([A-Za-z0-9]{2,})\s*\)/);
@@ -407,14 +462,22 @@ export function parseLaunchpoolAlerts(message, channel) {
   const title = first.replace(/\s*\(.+$/g, '').trim();
 
   const aprLine = lines.find((l) => /^APR\s*:/i.test(l)) || null;
-  const periodLine = lines.find((l) => /^Period\s*:/i.test(l)) || null;
+  const periodLine = lines.find((l) => /Period\s*:/i.test(l)) || null;
   const quotaLine = lines.find((l) => /^Quota\s*:/i.test(l)) || null;
   const startLine = lines.find((l) => /^Start\s*:/i.test(l)) || null;
   const endLine = lines.find((l) => /^End\s*:/i.test(l)) || null;
 
-  const startAt = startLine ? parseUtcIsoFromLine(startLine) : null;
-  const endAt = endLine ? parseUtcIsoFromLine(endLine) : null;
-  if (!startAt) return [];
+  const startIso = startLine ? parseUtcIsoFromLine(startLine) : null;
+  const endIso = endLine ? parseUtcIsoFromLine(endLine) : null;
+
+  // за твоїм правилом: нам потрібен End
+  if (!endIso) return [];
+
+  // ✅ startAt = End
+  const startAt = endIso;
+  // endAt можеш тримати, але якщо на сайті не треба — лишай null
+  const endAt = null;
+
 
   const descParts = [];
   if (aprLine) descParts.push(aprLine);
@@ -786,7 +849,15 @@ async function run() {
   console.table(summary);
 }
 
-run().catch((err) => {
-  console.error(err);
-  process.exitCode = 1;
-});
+import { pathToFileURL } from 'node:url';
+
+const isDirectRun =
+  process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href;
+
+if (isDirectRun) {
+  run().catch((err) => {
+    console.error(err);
+    process.exitCode = 1;
+  });
+}
+
