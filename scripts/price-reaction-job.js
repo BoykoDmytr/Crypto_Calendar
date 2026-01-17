@@ -18,15 +18,25 @@ function log(message, extra = {}) {
 
 function ensureSupabaseClient() {
   const url = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY;
+  const key =
+    process.env.SUPABASE_SERVICE_ROLE_KEY ||
+    process.env.SUPABASE_ANON_KEY ||
+    process.env.VITE_SUPABASE_ANON_KEY;
+
   if (!url || !key) {
-    throw new Error('Supabase credentials are missing. Provide SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY.');
+    throw new Error(
+      'Supabase credentials are missing. Provide SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY.',
+    );
   }
   return createClient(url, key);
 }
 
 class DebotClient {
-  constructor({ baseUrl = process.env.DEBOT_BASE_URL, apiKey = process.env.DEBOT_API_KEY, pricePath = process.env.DEBOT_PRICE_PATH || '/v1/price' } = {}) {
+  constructor({
+    baseUrl = process.env.DEBOT_BASE_URL,
+    apiKey = process.env.DEBOT_API_KEY,
+    pricePath = process.env.DEBOT_PRICE_PATH || '/v1/price',
+  } = {}) {
     this.baseUrl = baseUrl;
     this.apiKey = apiKey;
     this.pricePath = pricePath;
@@ -41,16 +51,20 @@ class DebotClient {
       const url = new URL(this.pricePath, this.baseUrl);
       url.searchParams.set('pair', pair);
       url.searchParams.set('timestamp', dayjs.utc(timestampUtc).toISOString());
+
       const res = await fetch(url, {
         headers: this.apiKey ? { Authorization: `Bearer ${this.apiKey}` } : undefined,
       });
+
       if (!res.ok) {
         log(`DEBOT responded with status ${res.status}`, { pair, timestampUtc });
         return null;
       }
+
       const payload = await res.json();
       if (typeof payload.price === 'number') return payload.price;
       if (payload.data && typeof payload.data.price === 'number') return payload.data.price;
+
       log('DEBOT response missing price', { payload });
       return null;
     } catch (error) {
@@ -74,7 +88,7 @@ class MexcClient {
 
     try {
       const url = new URL('/api/v3/klines', this.baseUrl);
-      url.searchParams.set('symbol', pair);        // BTCUSDT
+      url.searchParams.set('symbol', pair); // BTCUSDT
       url.searchParams.set('interval', '1m');
       url.searchParams.set('startTime', String(startTime));
       url.searchParams.set('endTime', String(endTime));
@@ -161,7 +175,6 @@ function safeParseCoins(raw) {
   return [];
 }
 
-
 function extractPairFromLink(raw) {
   if (!raw) return null;
 
@@ -171,21 +184,19 @@ function extractPairFromLink(raw) {
   // 1) URL MEXC: .../exchange/BTC_USDT або /uk-UA/exchange/BTC_USDT
   try {
     const url = new URL(str);
-    const path = url.pathname.toUpperCase(); // /EXCHANGE/BTC_USDT або /UK-UA/EXCHANGE/BTC_USDT
+    const path = url.pathname.toUpperCase();
     const mexcMatch = path.match(/\/EXCHANGE\/([A-Z0-9]+)_USDT/);
     if (mexcMatch) {
-      const base = mexcMatch[1]; // BTC
-      return `${base}USDT`;      // BTCUSDT — те, що шлеcь у MEXC API
+      const base = mexcMatch[1];
+      return `${base}USDT`; // BTCUSDT — те, що шлеться у MEXC API
     }
   } catch {
-    // якщо не URL — просто йдемо далі
+    // не URL — йдемо далі
   }
 
   // 2) голий запис BTC_USDT
   const underscore = upper.match(/^([A-Z0-9]+)_USDT$/);
-  if (underscore) {
-    return `${underscore[1]}USDT`;
-  }
+  if (underscore) return `${underscore[1]}USDT`;
 
   // 3) десь у рядку є BTCUSDT
   const generic = upper.match(/[A-Z0-9]{2,}USDT/);
@@ -194,39 +205,24 @@ function extractPairFromLink(raw) {
   return null;
 }
 
-
 function pickMarket(event) {
   // 1) Спочатку пробуємо витягти пару з coins / coin_price_link / link
   const coins = safeParseCoins(event.coins);
   const primaryCoin = coins[0] || null;
 
-  const linkCandidate =
-    (primaryCoin && primaryCoin.price_link) ||
-    event.coin_price_link ||
-    event.link ||
-    '';
-
+  const linkCandidate = (primaryCoin && primaryCoin.price_link) || event.coin_price_link || event.link || '';
   const pairFromLink = extractPairFromLink(linkCandidate);
 
   if (pairFromLink) {
     return {
       pair: pairFromLink,
-      // Можеш за бажанням використати exchange для відладки
       exchange: linkCandidate.includes('mexc.com') ? 'MEXC' : null,
     };
   }
 
-  // 2) Якщо в лінках нічого не знайшли – фолбек на tge_exchanges
-  const exchanges = Array.isArray(event.tge_exchanges)
-    ? event.tge_exchanges
-    : [];
-
-  const entry = exchanges.find(
-    (item) =>
-      item &&
-      typeof item.pair === 'string' &&
-      item.pair.trim().length > 0
-  );
+  // 2) Fallback на tge_exchanges
+  const exchanges = Array.isArray(event.tge_exchanges) ? event.tge_exchanges : [];
+  const entry = exchanges.find((item) => item && typeof item.pair === 'string' && item.pair.trim().length > 0);
 
   if (entry) {
     return {
@@ -235,31 +231,21 @@ function pickMarket(event) {
     };
   }
 
-  // 3) Взагалі нічого не знайшли – скіпаємо івент
   return null;
 }
-
-
-
 
 function resolvePricePreference(event) {
   const coins = Array.isArray(event.coins) ? event.coins : [];
   const primaryCoin = coins[0] || null;
 
-  const rawLink =
-    (primaryCoin && primaryCoin.price_link) ||
-    event.coin_price_link ||
-    '';
-
+  const rawLink = (primaryCoin && primaryCoin.price_link) || event.coin_price_link || '';
   const link = String(rawLink).toLowerCase();
 
   if (link.includes('mexc.com')) return 'mexc';
   if (link.includes('debot.ai')) return 'debot';
 
-  // якщо нічого явно — за замовчуванням MEXC
   return 'mexc';
 }
-
 
 function calcPercent(basePrice, nextPrice) {
   if (basePrice === null || basePrice === undefined) return null;
@@ -275,9 +261,7 @@ async function fetchEvents(supabase) {
 
   const { data, error } = await supabase
     .from('events_approved')
-    .select(
-      'id, title, start_at, event_type_slug, coin_name, tge_exchanges, coins, coin_price_link, link'
-    )
+    .select('id, title, start_at, event_type_slug, coin_name, tge_exchanges, coins, coin_price_link, link')
     .gte('start_at', windowStart)
     .lte('start_at', windowEnd);
 
@@ -290,18 +274,13 @@ async function fetchEvents(supabase) {
   return data || [];
 }
 
-
 async function loadExistingReactions(supabase, eventIds) {
   if (!eventIds.length) return new Map();
-  const { data, error } = await supabase
-    .from('event_price_reaction')
-    .select('*')
-    .in('event_id', eventIds);
+  const { data, error } = await supabase.from('event_price_reaction').select('*').in('event_id', eventIds);
   if (error) throw error;
+
   const map = new Map();
-  for (const row of data || []) {
-    map.set(row.event_id, row);
-  }
+  for (const row of data || []) map.set(row.event_id, row);
   return map;
 }
 
@@ -319,14 +298,12 @@ async function upsertReaction({ supabase, debot, mexc, event, existing }) {
 
   const preference = resolvePricePreference(event);
 
-  // 🔽 ОЦЕ МИ ДОДАЛИ
   log('Processing event for price reaction', {
     eventId: event.id,
     title: event.title,
     pair: market.pair,
     preference,
   });
-  // 🔼 ДО СЮДИ
 
   async function getPrice(pair, isoTimestamp) {
     if (preference === 'mexc') {
@@ -340,66 +317,70 @@ async function upsertReaction({ supabase, debot, mexc, event, existing }) {
     return mexc.getPriceAt(pair, isoTimestamp);
   }
 
-  // 1) Якщо рядка ще немає — створюємо з t0
+  // ✅ FIX #1: Якщо рядка ще немає — створюємо ЗАГОТОВКУ БЕЗ ЦІН.
+  // ВАЖЛИВО: не беремо t0Price для майбутнього івенту.
   if (!existing) {
-    const t0Price = await getPrice(market.pair, t0Time.toISOString());
-
     const payload = {
       event_id: event.id,
       coin_name: event.coin_name || null,
       pair: market.pair,
       exchange: market.exchange,
+
       t0_time: t0Time.toISOString(),
-      t0_price: t0Price,
+      t0_price: null,
       t0_percent: 0,
+
       t_plus_5_time: t5Time.toISOString(),
+      t_plus_5_price: null,
+      t_plus_5_percent: null,
+
       t_plus_15_time: t15Time.toISOString(),
+      t_plus_15_price: null,
+      t_plus_15_percent: null,
     };
 
     const { error } = await supabase.from('event_price_reaction').insert(payload);
     if (error) {
-      log('Failed to insert t0 record', { error: error.message, eventId: event.id });
+      log('Failed to insert stub record', { error: error.message, eventId: event.id });
     }
     return;
   }
 
-  // 2) Якщо рядок є, але t0_price ще null — дораховуємо t0
   const patch = {};
 
-  if (existing.t0_price == null) {
+  // ✅ FIX #2: T0 захоплюємо ЛИШЕ коли час івенту вже настав.
+  if (existing.t0_price == null && now.isAfter(t0Time)) {
     const t0Price = await getPrice(market.pair, t0Time.toISOString());
     patch.t0_price = t0Price;
     patch.t0_time = existing.t0_time || t0Time.toISOString();
     patch.t0_percent = 0;
   }
 
-  if (!existing.t_plus_5_price && now.isAfter(t5Time)) {
+  const basePrice = patch.t0_price ?? existing.t0_price;
+
+  // T+5: теж тільки коли час настав, і тільки якщо є basePrice
+  if (existing.t_plus_5_price == null && basePrice != null && now.isAfter(t5Time)) {
     const price = await getPrice(market.pair, t5Time.toISOString());
     patch.t_plus_5_price = price;
-    patch.t_plus_5_percent = calcPercent(existing.t0_price ?? patch.t0_price, price);
+    patch.t_plus_5_percent = calcPercent(basePrice, price);
     patch.t_plus_5_time = existing.t_plus_5_time || t5Time.toISOString();
   }
 
-  if (!existing.t_plus_15_price && now.isAfter(t15Time)) {
+  // T+15: теж тільки коли час настав, і тільки якщо є basePrice
+  if (existing.t_plus_15_price == null && basePrice != null && now.isAfter(t15Time)) {
     const price = await getPrice(market.pair, t15Time.toISOString());
     patch.t_plus_15_price = price;
-    patch.t_plus_15_percent = calcPercent(existing.t0_price ?? patch.t0_price, price);
+    patch.t_plus_15_percent = calcPercent(basePrice, price);
     patch.t_plus_15_time = existing.t_plus_15_time || t15Time.toISOString();
   }
 
   if (Object.keys(patch).length === 0) return;
 
-  const { error } = await supabase
-    .from('event_price_reaction')
-    .update(patch)
-    .eq('id', existing.id);
-
+  const { error } = await supabase.from('event_price_reaction').update(patch).eq('id', existing.id);
   if (error) {
     log('Failed to update price reaction', { error: error.message, eventId: event.id });
   }
 }
-
-
 
 async function main() {
   const supabase = ensureSupabaseClient();
@@ -426,7 +407,10 @@ async function main() {
           existing: existingMap.get(event.id),
         });
       } catch (error) {
-        log('Unhandled error while processing event', { eventId: event.id, error: error.message });
+        log('Unhandled error while processing event', {
+          eventId: event.id,
+          error: error.message,
+        });
       }
     }
   } catch (error) {
@@ -435,7 +419,5 @@ async function main() {
   }
 }
 
-main();
-
-
+// ✅ FIX #3: Прибираємо дубльований виклик main()
 main();
