@@ -43,12 +43,6 @@ async function fetchMexcTickerPrice(symbol: string): Promise<number | null> {
 
 serve(async (req: Request) => {
 
-  // (опційно) простий захист: якщо хочеш — перевіряй секретний хедер
-  // const secret = Deno.env.get("CRON_SECRET");
-  // if (secret && req.headers.get("x-cron-secret") !== secret) {
-  //   return new Response("Unauthorized", { status: 401 });
-  // }
-
   const SUPABASE_URL = Deno.env.get("PROJECT_URL")!;
   const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SERVICE_ROLE_KEY")!;
 
