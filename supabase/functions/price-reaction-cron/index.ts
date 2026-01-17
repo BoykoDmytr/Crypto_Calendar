@@ -43,12 +43,41 @@ async function fetchMexcTickerPrice(symbol: string): Promise<number | null> {
 
 serve(async (req: Request) => {
 
-  const SUPABASE_URL = Deno.env.get("PROJECT_URL")!;
-  const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SERVICE_ROLE_KEY")!;
+  const SUPABASE_URL =
+  Deno.env.get("SUPABASE_URL") ??
+  Deno.env.get("PROJECT_URL") ??
+  "";
+
+  const SUPABASE_SERVICE_ROLE_KEY =
+    Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ??
+    Deno.env.get("SERVICE_ROLE_KEY") ??
+    Deno.env.get("SUPABASE_ANON_KEY") ??
+    "";
+
+  if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
+    return new Response(
+      JSON.stringify({
+        ok: false,
+        error: "Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY/SERVICE_ROLE_KEY",
+        hasUrl: Boolean(SUPABASE_URL),
+        hasKey: Boolean(SUPABASE_SERVICE_ROLE_KEY),
+        // швидка діагностика, щоб ти бачив що реально є в env:
+        envFlags: {
+          PROJECT_URL: Boolean(Deno.env.get("PROJECT_URL")),
+          SERVICE_ROLE_KEY: Boolean(Deno.env.get("SERVICE_ROLE_KEY")),
+          SUPABASE_URL: Boolean(Deno.env.get("SUPABASE_URL")),
+          SUPABASE_SERVICE_ROLE_KEY: Boolean(Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")),
+          SUPABASE_ANON_KEY: Boolean(Deno.env.get("SUPABASE_ANON_KEY")),
+        },
+      }),
+      { status: 500, headers: { "content-type": "application/json" } },
+    );
+  }
 
   const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
     auth: { persistSession: false },
   });
+
 
   const nowUtc = dayjs.utc();
   const windowStart = nowUtc.subtract(1, "day").toISOString();
