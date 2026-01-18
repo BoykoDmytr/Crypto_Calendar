@@ -724,7 +724,7 @@ function extractPostsFromHtml(channel, html) {
  * RUN
  * =========================
  */
-async function run() {
+export async function run() {
   const { SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY } = process.env;
   if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
     throw new Error('SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY must be provided.');
@@ -849,15 +849,18 @@ async function run() {
   console.table(summary);
 }
 
+export async function runTelegramSync() {
+  return run(); // або просто встав тіло run() і назви її runTelegramSync
+}
+
 import { pathToFileURL } from 'node:url';
 
 const isDirectRun =
   process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href;
 
 if (isDirectRun) {
-  run().catch((err) => {
+  runTelegramSync().catch((err) => {
     console.error(err);
     process.exitCode = 1;
   });
 }
-
