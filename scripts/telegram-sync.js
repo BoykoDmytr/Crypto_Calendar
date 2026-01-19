@@ -500,6 +500,8 @@ export function parseLaunchpoolAlerts(message, channel) {
   const descParts = [];
   if (aprLine) descParts.push(aprLine);
   if (periodLine) descParts.push(periodLine);
+  if (startLine) descParts.push(startLine);
+  if (endLine) descParts.push(endLine);
 
   let coin_name = null;
   let coin_quantity = null;
