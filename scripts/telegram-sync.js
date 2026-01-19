@@ -246,7 +246,11 @@ export function parseOkxAlpha(message, channel) {
   if (!matchesTrigger(rawText, channel?.trigger)) return [];
 
   const raw = decodeEntities(rawText);
-  const lines = raw.split('\n').map((l) => normalizeSpaces(stripEmoji(l))).filter(Boolean);
+  const lines = raw
+    .split('\n')
+    .map((l) => normalizeSpaces(stripEmoji(l)))
+    .filter(Boolean)
+    .filter((line) => !/^Go to Launch\b/i.test(line));
   if (!lines.length) return [];
 
   const launchLine = lines.find((l) => /X\s+Launch/i.test(l) && !/Event/i.test(l)) || null;
@@ -277,9 +281,21 @@ export function parseOkxAlpha(message, channel) {
   console.log('OKX DEBUG claimIso:', claimIso);
   if (!claimIso) return [];
 
+  const requirements = lines
+    .filter((line) => /Min\.\s*Boost\s*(Balance|Volume)\s*:/i.test(line))
+    .map((line) => normalizeSpaces(line.replace(/^[•\-\s]+/, '').trim()));
+
+  const claimLine = lines.find((line) => /Claim Date\s*:/i.test(line)) || null;
+  const claimDescription = claimLine
+    ? normalizeSpaces(claimLine.replace(/^Claim Date\s*:\s*/i, '').trim())
+    : null;
 
   // ✅ Description only Pool
-  const description = poolText ? `Pool: ${poolText}` : null;
+  const descriptionParts = [];
+  if (poolText) descriptionParts.push(`Pool: ${poolText}`);
+  if (requirements.length) descriptionParts.push(`Requirements: ${requirements.join(' • ')}`);
+  if (claimDescription) descriptionParts.push(`Claim Date: ${claimDescription}`);
+  const description = ensureDescription(descriptionParts.join('\n'));
 
   const source = 'okx_alpha';
   const sourceKey = `OKX_ALPHA|${title}|${dayjs(claimIso).tz(KYIV_TZ).format('YYYY-MM-DD HH:mm')}`;
@@ -297,6 +313,7 @@ export function parseOkxAlpha(message, channel) {
     type: 'OKX Alpha',
     event_type_slug: 'okx-alpha',
     coin_price_link: null,
+    omitLink: true,
   }];
 }
 
@@ -425,6 +442,7 @@ export function parseBinanceAlpha(message, channel) {
     source_key,
     type: 'Binance Alpha',
     event_type_slug: 'binance-alpha',
+    omitLink: true,
   }];
 }
 
@@ -529,8 +547,12 @@ export function parseTsBybit(message, channel) {
   const mStart = decoded.match(/Начало:\s*(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2})\s*UTC/i);
   const mEnd   = decoded.match(/Конец:\s*(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2})\s*UTC/i);
 
-  const startIso = mStart ? dayjs.utc(mStart[1], 'YYYY-MM-DD HH:mm', true).toISOString() : null;
-  const endIso   = mEnd   ? dayjs.utc(mEnd[1],   'YYYY-MM-DD HH:mm', true).toISOString() : null;
+  const startIso = mStart
+    ? dayjs.utc(mStart[1], 'YYYY-MM-DD HH:mm', true).tz(KYIV_TZ).toISOString()
+    : null;
+  const endIso = mEnd
+    ? dayjs.utc(mEnd[1], 'YYYY-MM-DD HH:mm', true).tz(KYIV_TZ).toISOString()
+    : null;
 
   // тобі потрібно чітко мати обидві дати
   if (!startIso || !endIso) return [];
@@ -580,7 +602,7 @@ export function parseTsBybit(message, channel) {
     description,
     startAt: endIso,   // ✅ 2025-12-29 10:00 UTC -> start
     endAt: null,       // ✅ 2026-01-09 11:00 UTC -> end
-    timezone: 'UTC',
+    timezone: KYIV_TZ,
     coins,
     coin_name,
     coin_quantity,
@@ -588,6 +610,7 @@ export function parseTsBybit(message, channel) {
     event_type_slug: 'ts-bybit',
     source,
     source_key,
+    omitLink: true,
   }];
 }
 
@@ -807,7 +830,7 @@ export async function run() {
           end_at: ev.endAt || null,
           timezone: ev.timezone || 'Kyiv',
           type: ev.type,
-          link,
+          link: ev.omitLink ? null : link,
           coins: ev.coins || null,
           coin_name: ev.coin_name || null,
           coin_quantity: ev.coin_quantity ?? null,
