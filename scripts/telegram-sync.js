@@ -39,8 +39,8 @@ const CHANNELS = {
   pool_alerts: {
     username: 'pool_alerts',
     name: 'High APR Pools Alerts',
-    trigger: 'Stake',
-    parser: parseLaunchpoolAlerts,
+    trigger: null,
+    parser: parsePoolAlerts,
   },
 };
 
@@ -50,6 +50,7 @@ const ALL_PARSERS = [
   { name: 'OKX Alpha', trigger: 'New OKX Boost X Launch Event', fn: parseOkxAlpha },
   { name: 'Token Splash', trigger: 'New token splash:', fn: parseTsBybit },
   { name: 'Launchpool', trigger: 'Stake', fn: parseLaunchpoolAlerts },
+  { name: 'Launchpool (New)', trigger: 'New Launchpool', fn: parseLaunchpoolNew },
 ];
 
 /**
@@ -531,6 +532,89 @@ export function parseLaunchpoolAlerts(message, channel) {
     event_type_slug: 'launchpool',
     coin_price_link: null,
   }];
+}
+
+function parseLaunchpoolDurationLine(line) {
+  const match = line?.match(
+    /Duration:\s*(\d{2}:\d{2})\s*(\d{2})\.(\d{2})\s*-\s*(\d{2}:\d{2})\s*(\d{2})\.(\d{2})\s*UTC/i
+  );
+  if (!match) return null;
+  const endTime = match[4];
+  const endDay = Number(match[5]);
+  const endMonth = Number(match[6]);
+  const year = guessYear(endMonth, endDay);
+  if (!year) return null;
+  const endIso = dayjs
+    .utc(`${year}-${pad(endMonth)}-${pad(endDay)} ${endTime}`, 'YYYY-MM-DD HH:mm', true)
+    .toISOString();
+  return { endIso, endTime, endDay, endMonth };
+}
+
+function parseLaunchpoolRewardLine(line) {
+  const match = line?.match(/Reward:\s*([0-9][0-9,._]*)\s*([A-Z0-9_-]{2,})/i);
+  if (!match) return { quantity: null, token: null };
+  const quantityRaw = match[1].replace(/[,_]/g, '');
+  const quantity = Number(quantityRaw);
+  const token = match[2].toUpperCase();
+  return {
+    quantity: Number.isFinite(quantity) ? quantity : null,
+    token,
+  };
+}
+
+export function parseLaunchpoolNew(message, channel) {
+  const rawText = message.text || '';
+  if (!matchesTrigger(rawText, channel?.trigger)) return [];
+
+  const decoded = decodeEntities(rawText);
+  const text = stripEmoji(decoded);
+  const lines = text.split('\n').map((line) => normalizeSpaces(line)).filter(Boolean);
+  if (!lines.length) return [];
+
+  const firstLine = lines[0];
+  const title = normalizeSpaces(firstLine.replace(/\bNew\b\s*/i, '')).trim();
+
+  const poolsLine = lines.find((line) => /^Pools\s*:/i.test(line)) || null;
+  const durationLine = lines.find((line) => /^Duration\s*:/i.test(line)) || null;
+  const rewardLine = lines.find((line) => /^Reward\s*:/i.test(line)) || null;
+
+  const duration = durationLine ? parseLaunchpoolDurationLine(durationLine) : null;
+  if (!duration?.endIso) return [];
+
+  const { quantity, token } = rewardLine ? parseLaunchpoolRewardLine(rewardLine) : { quantity: null, token: null };
+
+  const descParts = [];
+  if (poolsLine) descParts.push(poolsLine);
+  if (durationLine) descParts.push(durationLine);
+  if (duration) {
+    descParts.push(`End: ${duration.endTime} ${pad(duration.endDay)}.${pad(duration.endMonth)} UTC`);
+  }
+  if (rewardLine) descParts.push(rewardLine);
+
+  const source = 'launchpool_alerts';
+  const source_key = `LAUNCHPOOL_NEW|${title}|${dayjs(duration.endIso).utc().format('YYYY-MM-DD HH:mm')}`;
+
+  return [{
+    title,
+    description: ensureDescription(descParts.join('\n')),
+    startAt: duration.endIso,
+    endAt: null,
+    coins: buildCoins(token, quantity),
+    coin_name: token,
+    coin_quantity: quantity,
+    source,
+    source_key,
+    type: 'Launchpool',
+    event_type_slug: 'launchpool',
+    coin_price_link: null,
+  }];
+}
+
+export function parsePoolAlerts(message) {
+  return [
+    ...parseLaunchpoolAlerts(message, { trigger: 'Stake' }),
+    ...parseLaunchpoolNew(message, { trigger: 'New Launchpool' }),
+  ];
 }
 
 // Token Splash (Bybit) — з title як ти просив: "New token splash: $WHITEWHALE"
