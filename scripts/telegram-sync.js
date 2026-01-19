@@ -687,7 +687,8 @@ function extractPostsFromHtml(channel, html) {
   const posts = [];
 
   // кожен пост має data-post="channel/123"
-  const postRegex = /data-post="([^"]+\/\d+)"[\s\S]*?class="tgme_widget_message_text"[\s\S]*?<\/div>/g;
+  const postRegex =
+  /data-post="([^"]+\/\d+)"[\s\S]*?class="tgme_widget_message_text[^"]*"[\s\S]*?<\/div>/g;
   let match;
 
   while ((match = postRegex.exec(html)) !== null) {
@@ -702,7 +703,8 @@ function extractPostsFromHtml(channel, html) {
     const timeMatch = chunk.match(/<time[^>]+datetime="([^"]+)"/i);
     const datetime = timeMatch ? timeMatch[1] : null;
 
-    const textMatch = chunk.match(/class="tgme_widget_message_text"[^>]*>([\s\S]*?)<\/div>/i);
+    const textMatch =
+  chunk.match(/class="tgme_widget_message_text[^"]*"[^>]*>([\s\S]*?)<\/div>/i);
     const textHtml = textMatch ? textMatch[1] : '';
     const text = decodeEntities(stripHtml(textHtml));
 
