@@ -911,7 +911,7 @@ export async function run() {
           end_at: ev.endAt || null,
           timezone: ev.timezone || 'Kyiv',
           type: ev.type,
-          link: null,
+          link: ev.omitLink ? null : link,
           coins: ev.coins || null,
           coin_name: ev.coin_name || null,
           coin_quantity: ev.coin_quantity ?? null,
