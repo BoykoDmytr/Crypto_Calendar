@@ -17,7 +17,7 @@
     },
     {
       "path": "/api/cron/resolve-coin-info",
-      "schedule": "*/30 * * * *"
+      "schedule": "*/10 * * * *"
     }
   ]
 }
