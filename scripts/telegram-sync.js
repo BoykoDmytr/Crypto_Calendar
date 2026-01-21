@@ -644,7 +644,9 @@ export function parseTsBybit(message, channel) {
   const t2 = firstLine.match(/token\s+splash:\s*\$?([A-Z0-9]{2,20})/i);
   const ticker = (t1?.[1] || t2?.[1] || '').toUpperCase() || null;
 
-  const title = ticker ? `$${ticker}` : 'Token splash';
+  const normalizedFirstLine = normalizeSpaces(firstLine);
+  const title = normalizedFirstLine || (ticker ? `Token splash: $${ticker}` : 'Token splash');
+
 
   // Pool line
   const mPool =
