@@ -683,7 +683,6 @@ export function parseTsBybit(message, channel) {
     description,
     startAt: endIso,   // ✅ 2025-12-29 10:00 UTC -> start
     endAt: null,       // ✅ 2026-01-09 11:00 UTC -> end
-    timezone: KYIV_TZ,
     coins,
     coin_name,
     coin_quantity,
