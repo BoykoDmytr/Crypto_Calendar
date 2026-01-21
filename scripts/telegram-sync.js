@@ -630,30 +630,25 @@ export function parseTsBybit(message, channel) {
   const firstLine = lines[0];
 
   // ✅ Start/End must go into startAt/endAt (UTC)
-  const mStart = decoded.match(/Начало:\s*(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2})\s*UTC/i);
   const mEnd   = decoded.match(/Конец:\s*(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2})\s*UTC/i);
 
-  const startIso = mStart
-    ? dayjs.utc(mStart[1], 'YYYY-MM-DD HH:mm', true).tz(KYIV_TZ).toISOString()
-    : null;
   const endIso = mEnd
     ? dayjs.utc(mEnd[1], 'YYYY-MM-DD HH:mm', true).tz(KYIV_TZ).toISOString()
     : null;
 
   // тобі потрібно чітко мати обидві дати
-  if (!startIso || !endIso) return [];
+  if (!endIso) return [];
 
   // ticker
   const t1 = firstLine.match(/\$([A-Z0-9]{2,20})/i);
   const t2 = firstLine.match(/token\s+splash:\s*\$?([A-Z0-9]{2,20})/i);
   const ticker = (t1?.[1] || t2?.[1] || '').toUpperCase() || null;
 
-  const title = ticker ? `New token splash: $${ticker}` : 'New token splash';
+  const title = ticker ? `$${ticker}` : 'Token splash';
 
   // Pool line
   const mPool =
     decoded.match(/Общая\s+наград(?:а|ы):\s*([0-9][0-9\s,.]*)\s*\$?([A-Z0-9_-]{2,})/i) ||
-    decoded.match(/Trade:\s*([0-9][0-9\s,.]*)\s*\$?([A-Z0-9_-]{2,})/i) ||
     null;
 
   let poolLine = null;
@@ -664,7 +659,7 @@ export function parseTsBybit(message, channel) {
   if (mPool) {
     const qtyDisplay = mPool[1].trim().replace(/\u00A0/g, ' ');
     const token = (mPool[2] || '').replace(/\$/g, '').toUpperCase();
-    poolLine = `Pool: ${qtyDisplay} ${token}`;
+    poolLine = `Pool: ${qtyDisplay} $${token}`;
 
     const qtyNumStr = qtyDisplay.replace(/\s+/g, '').replace(/,/g, '');
     const qtyNum = Number(qtyNumStr);
@@ -680,8 +675,8 @@ export function parseTsBybit(message, channel) {
 
   const source = 'ts_bybit';
   const source_key = ticker
-    ? `TS|${ticker}|${dayjs(startIso).utc().format('YYYY-MM-DD HH:mm')}|${dayjs(endIso).utc().format('YYYY-MM-DD HH:mm')}`
-    : `TS|${dayjs(startIso).utc().format('YYYY-MM-DD HH:mm')}|${dayjs(endIso).utc().format('YYYY-MM-DD HH:mm')}`;
+    ? `TS|${ticker}|${dayjs(endIso).utc().format('YYYY-MM-DD HH:mm')}`
+    : `TS|${dayjs(endIso).utc().format('YYYY-MM-DD HH:mm')}`;
 
   return [{
     title,
