@@ -17,13 +17,9 @@ export function parseCoinQuantity(value) {
 }
 
 /**
- * Normalizes a coin entry.
- * The second argument `defaults` allows substituting name / quantity / address / price_link
- * from the event level (coin_name, coin_quantity, coin_address or coin_price_link), if
- * they are not present on the item itself.  Historically `price_link` represented a
- * Debot or MEXC URL; with the CoinGecko integration we now store a `coin_address`
- * separately.  To preserve backwards compatibility, both `address` and `price_link`
- * are read from incoming data and surfaced in the normalized result.
+ * Нормалізує запис монети.
+ * Другий аргумент defaults дозволяє підставити name / quantity / price_link
+ * з рівня події (coin_name, coin_quantity, coin_price_link / link), якщо їх немає в самому item.
  */
 function normalizeCoinEntry(coin, defaults = {}) {
   if (!coin) return null;
@@ -35,20 +31,11 @@ function normalizeCoinEntry(coin, defaults = {}) {
     defaults.name ??
     '';
 
-  // price_link retains old behaviour: Debot/MEXC URL if supplied
   const rawPriceLink =
     coin.price_link ??
     coin.priceLink ??
     coin.link ??
     defaults.price_link ??
-    '';
-
-  // contract address: prefer explicit address/coin_address/contract fields
-  const rawAddress =
-    coin.address ??
-    coin.coin_address ??
-    coin.contract ??
-    defaults.address ??
     '';
 
   const rawQuantity =
@@ -67,29 +54,19 @@ function normalizeCoinEntry(coin, defaults = {}) {
       ? rawPriceLink.trim()
       : String(rawPriceLink ?? '').trim();
 
-  const address =
-    typeof rawAddress === 'string'
-      ? rawAddress.trim()
-      : String(rawAddress ?? '').trim();
-
   const quantity = parseCoinQuantity(rawQuantity);
 
   const hasName = name.length > 0;
   const hasQuantity = quantity !== null;
-  const hasAddress = address.length > 0;
   const hasPriceLink = priceLink.length > 0;
 
-  // If nothing is specified – ignore this entry
-  if (!hasName && !hasQuantity && !hasAddress && !hasPriceLink) {
+  if (!hasName && !hasQuantity && !hasPriceLink) {
     return null;
   }
 
   const normalized = {};
   if (hasName) normalized.name = name;
   if (hasQuantity) normalized.quantity = quantity;
-  // expose address if present; prefer explicit address over price_link
-  if (hasAddress) normalized.address = address;
-  // preserve price_link for backwards compatibility
   if (hasPriceLink) normalized.price_link = priceLink;
 
   return normalized;
@@ -126,9 +103,10 @@ function coerceCoinList(candidate) {
 }
 
 /**
- * Main function:
- * - reads coins from source.coins / source.payload.coins / the source itself;
- * - substitutes defaults from the event level: coin_name, coin_quantity, coin_address or coin_price_link.
+ * Головна функція:
+ * - читає монети з source.coins / source.payload.coins / самого source;
+ * - підставляє дефолти з рівня події:
+ *   coin_name, coin_quantity, coin_price_link, link.
  */
 export function extractCoinEntries(source) {
   if (!source) return [];
@@ -136,24 +114,23 @@ export function extractCoinEntries(source) {
   const result = [];
   const candidates = [];
 
-  // Defaults from the event level (events_approved / events_pending / auto_events_pending)
+  // Дефолти з рівня події (events_approved / events_pending / auto_events_pending)
   const rootDefaults =
     source && typeof source === 'object'
       ? {
           name: source.coin_name,
           quantity: source.coin_quantity,
-          // if coin_address is missing, fall back to coin_price_link for legacy events
-          address: source.coin_address || null,
-          price_link: source.coin_price_link,
+          // якщо coin_price_link немає, пробуємо загальний link події
+           price_link: source.coin_price_link,
         }
       : {};
 
-  // Case when we were given an array / string of coins directly
+  // Варіант, коли нам прямо передали масив / строку монет
   if (Array.isArray(source) || typeof source === 'string') {
     candidates.push({ raw: source, defaults: {} });
   }
 
-  // Case when an event / payload with a coins field was supplied
+  // Варіант, коли передали івент / payload з полем coins
   if (source && typeof source === 'object') {
     if ('coins' in source) {
       candidates.push({ raw: source.coins, defaults: rootDefaults });
@@ -176,17 +153,16 @@ export function extractCoinEntries(source) {
       if (normalized) result.push(normalized);
     }
 
-    // Stop at the first non-empty set
+    // Якщо вже щось знайшли — далі інші кандидати не дивимося
     if (result.length > 0) break;
   }
 
-  // Fallback to root-level fields if no coins were found
+  // Якщо з coins нічого не вийшло — падаємо в fallback на root-поля події
   if (result.length === 0 && !Array.isArray(source) && source && typeof source === 'object') {
     const fallback = normalizeCoinEntry(
       {
         name: source.coin_name,
         quantity: source.coin_quantity,
-        address: source.coin_address,
         price_link: source.coin_price_link,
       },
       rootDefaults
@@ -219,10 +195,7 @@ export function coinEntriesEqual(leftSource, rightSource) {
     const qtyB = bHasQty ? b.quantity : null;
     if (!Object.is(qtyA, qtyB)) return false;
 
-    // Compare address first; fallback to price_link for legacy entries
-    const addrA = a.address || a.price_link || '';
-    const addrB = b.address || b.price_link || '';
-    if ((addrA || '') !== (addrB || '')) return false;
+    if ((a.price_link || '') !== (b.price_link || '')) return false;
   }
 
   return true;

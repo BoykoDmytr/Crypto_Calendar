@@ -4,20 +4,12 @@
   ],
   "crons": [
     {
-      "path": "/api/sync/binance?secret=Nwjrg26K0PXITZaFCz3mUlYsRx8hJpD9",
-      "schedule": "*/30 * * * *"
-    },
-    {
       "path": "/api/cron/telegram-scrape",
       "schedule": "*/10 * * * *"
     },
     {
       "path": "/api/cron/delete-old-events",
       "schedule": "0 3 * * *"
-    },
-    {
-      "path": "/api/cron/resolve-coin-info",
-      "schedule": "*/10 * * * *"
     }
   ]
 }

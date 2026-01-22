@@ -13,10 +13,7 @@ dayjs.extend(timezone);
 
 const kyivTZ = 'Europe/Kyiv';
 
-// The empty coin template used when adding a new coin entry in the form.  It
-// includes a contract address field instead of a price link; the address
-// represents the token contract on its native chain.
-const emptyCoin = { name: '', quantity: '', address: '' };
+const emptyCoin = { name: '', quantity: '', price_link: '' };
 
 const extractTimeSegment = (value) => {
   if (!value) return '';
@@ -24,44 +21,37 @@ const extractTimeSegment = (value) => {
   return match ? match[1] : '';
 };
 
-// Convert a normalized coin entry into the shape expected by the form state.
-// Prefers the explicit address field over a legacy price_link if present.
 const toFormCoin = (coin) => {
   const name = coin?.name || '';
   const hasQuantity = coin && Object.prototype.hasOwnProperty.call(coin, 'quantity');
   const quantity = hasQuantity && coin.quantity !== null && coin.quantity !== undefined
     ? String(coin.quantity)
     : '';
-  // Prefer address; fallback to price_link for legacy events
-  const address = coin?.address || coin?.price_link || '';
-  return { name, quantity, address };
+  const priceLink = coin?.price_link || '';
+  return { name, quantity, price_link: priceLink };
 };
 
-// Build the list of coins for the form state from an incoming source (event or edit).
 const deriveCoinsForState = (source) => {
   const entries = extractCoinEntries(source);
   if (!entries.length) return [];
   return entries.map((coin) => toFormCoin(coin));
 };
 
-// Sanitize coins before sending to the backend.  Trims strings and converts
-// quantity to a number.  Only includes fields that are present.  Uses
-// `address` instead of `price_link`.
 const sanitizeCoinsForPayload = (coins) => {
   if (!Array.isArray(coins)) return [];
   return coins
     .map((coin) => {
       const name = (coin?.name || '').trim();
-      const address = (coin?.address || '').trim();
+      const priceLink = (coin?.price_link || '').trim();
       const quantityValue = parseCoinQuantity(coin?.quantity);
 
-      const hasAny = name || address || quantityValue !== null;
+      const hasAny = name || priceLink || quantityValue !== null;
       if (!hasAny) return null;
 
       const entry = {};
       if (name) entry.name = name;
       if (quantityValue !== null) entry.quantity = quantityValue;
-      if (address) entry.address = address;
+      if (priceLink) entry.price_link = priceLink;
       return entry;
     })
     .filter(Boolean);
@@ -97,8 +87,6 @@ export default function EventForm({ onSubmit, loading, initial = {} }) {
     delete merged.coin_name;
     delete merged.coin_quantity;
     delete merged.coin_price_link;
-    delete merged.coin_address;
-    delete merged.coin_circulating_supply;
     merged.nickname = merged.nickname || '';
     return merged;
   });
@@ -155,7 +143,7 @@ export default function EventForm({ onSubmit, loading, initial = {} }) {
               t.name === initial.type ||
               t.label === initial.type
           ) || null;
-      }
+        }
 
       if (!next.event_type_slug && matchedType) {
         next.event_type_slug = matchedType.slug;
@@ -196,7 +184,7 @@ export default function EventForm({ onSubmit, loading, initial = {} }) {
             timeLocal = extractTimeSegment(prev.start_time);
           }
           next.start_time = timeLocal === '00:00' ? '' : timeLocal;
-        } else if (initial.start_time) {
+          } else if (initial.start_time) {
           const cleaned = extractTimeSegment(initial.start_time);
           next.start_time = cleaned === '00:00' ? '' : cleaned;
         }
@@ -227,7 +215,7 @@ export default function EventForm({ onSubmit, loading, initial = {} }) {
 
       // 👇 ключова правка: зафіксувати у формі ту саму TZ, якою гідратнули поля
       next.timezone = tz;
-
+      
       const derivedCoins = deriveCoinsForState(initial);
       if (derivedCoins.length) {
         next.coins = derivedCoins;
@@ -237,8 +225,6 @@ export default function EventForm({ onSubmit, loading, initial = {} }) {
       delete next.coin_name;
       delete next.coin_quantity;
       delete next.coin_price_link;
-      delete next.coin_address;
-      delete next.coin_circulating_supply;
       next.nickname = next.nickname || '';
       return next;
     });
@@ -429,30 +415,22 @@ export default function EventForm({ onSubmit, loading, initial = {} }) {
         } else {
           delete payload.coin_quantity;
         }
-        if (primary.address) {
-          payload.coin_address = primary.address;
+        if (primary.price_link) {
+          payload.coin_price_link = primary.price_link;
         } else {
-          delete payload.coin_address;
+          delete payload.coin_price_link;
         }
-        // Do not set coin_price_link at creation; it will be resolved later
-        delete payload.coin_price_link;
-        // clear any previously stored circulating supply on new submission
-        delete payload.coin_circulating_supply;
       } else {
         delete payload.coins;
         delete payload.coin_name;
         delete payload.coin_quantity;
-        delete payload.coin_address;
         delete payload.coin_price_link;
-        delete payload.coin_circulating_supply;
       }
     } else {
       delete payload.coins;
       delete payload.coin_name;
       delete payload.coin_quantity;
-      delete payload.coin_address;
       delete payload.coin_price_link;
-      delete payload.coin_circulating_supply;
     }
     const nickname = (form.nickname || '').trim();
     if (nickname) {
@@ -640,12 +618,12 @@ export default function EventForm({ onSubmit, loading, initial = {} }) {
                     />
                   </div>
                   <div>
-                    <label className="label">Адреса контракту</label>
+                    <label className="label">Посилання на ціну (Debot/MEXC)</label>
                     <input
                       className="input"
-                      value={coin?.address || ''}
-                      onChange={(e) => updateCoin(index, 'address', e.target.value)}
-                      placeholder="0x…"
+                      value={coin?.price_link || ''}
+                      onChange={(e) => updateCoin(index, 'price_link', e.target.value)}
+                      placeholder="https://debot.ai/token/... або https://www.mexc.com/exchange/COIN_USDT"
                     />
                   </div>
                 </div>
@@ -662,8 +640,8 @@ export default function EventForm({ onSubmit, loading, initial = {} }) {
               + Додати монету
             </button>
             <p className="text-xs text-gray-500">
-               Вкажіть монету, її кількість і адресу контракту — ми автоматично підставимо URL на MEXC
-              та підтягнемо USD‑ціну. Якщо вказана адреса вже торгується на MEXC, ціна братиметься з MEXC; інакше буде виконано пошук через CoinGecko.
+               Вкажіть монету, її кількість і посилання на Debot або MEXC — ми автоматично підтягнемо USD-ціну й
+              оновлюватимемо її щохвилини. Якщо посилання містить <code>mexc.com</code>, ціна братиметься з MEXC; якщо <code>debot.ai</code> — з Debot.
             </p>
           </div>
         )}

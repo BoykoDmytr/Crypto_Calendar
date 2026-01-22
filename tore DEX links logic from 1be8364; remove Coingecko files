@@ -1,0 +1,168 @@
+[1mdiff --git a/src/components/EventForm.jsx b/src/components/EventForm.jsx[m
+[1mindex d09dd35..183e611 100644[m
+[1m--- a/src/components/EventForm.jsx[m
+[1m+++ b/src/components/EventForm.jsx[m
+[36m@@ -13,10 +13,7 @@[m [mdayjs.extend(timezone);[m
+ [m
+ const kyivTZ = 'Europe/Kyiv';[m
+ [m
+[31m-// The empty coin template used when adding a new coin entry in the form.  It[m
+[31m-// includes a contract address field instead of a price link; the address[m
+[31m-// represents the token contract on its native chain.[m
+[31m-const emptyCoin = { name: '', quantity: '', address: '' };[m
+[32m+[m[32mconst emptyCoin = { name: '', quantity: '', price_link: '' };[m
+ [m
+ const extractTimeSegment = (value) => {[m
+   if (!value) return '';[m
+[36m@@ -24,44 +21,37 @@[m [mconst extractTimeSegment = (value) => {[m
+   return match ? match[1] : '';[m
+ };[m
+ [m
+[31m-// Convert a normalized coin entry into the shape expected by the form state.[m
+[31m-// Prefers the explicit address field over a legacy price_link if present.[m
+ const toFormCoin = (coin) => {[m
+   const name = coin?.name || '';[m
+   const hasQuantity = coin && Object.prototype.hasOwnProperty.call(coin, 'quantity');[m
+   const quantity = hasQuantity && coin.quantity !== null && coin.quantity !== undefined[m
+     ? String(coin.quantity)[m
+     : '';[m
+[31m-  // Prefer address; fallback to price_link for legacy events[m
+[31m-  const address = coin?.address || coin?.price_link || '';[m
+[31m-  return { name, quantity, address };[m
+[32m+[m[32m  const priceLink = coin?.price_link || '';[m
+[32m+[m[32m  return { name, quantity, price_link: priceLink };[m
+ };[m
+ [m
+[31m-// Build the list of coins for the form state from an incoming source (event or edit).[m
+ const deriveCoinsForState = (source) => {[m
+   const entries = extractCoinEntries(source);[m
+   if (!entries.length) return [];[m
+   return entries.map((coin) => toFormCoin(coin));[m
+ };[m
+ [m
+[31m-// Sanitize coins before sending to the backend.  Trims strings and converts[m
+[31m-// quantity to a number.  Only includes fields that are present.  Uses[m
+[31m-// `address` instead of `price_link`.[m
+ const sanitizeCoinsForPayload = (coins) => {[m
+   if (!Array.isArray(coins)) return [];[m
+   return coins[m
+     .map((coin) => {[m
+       const name = (coin?.name || '').trim();[m
+[31m-      const address = (coin?.address || '').trim();[m
+[32m+[m[32m      const priceLink = (coin?.price_link || '').trim();[m
+       const quantityValue = parseCoinQuantity(coin?.quantity);[m
+ [m
+[31m-      const hasAny = name || address || quantityValue !== null;[m
+[32m+[m[32m      const hasAny = name || priceLink || quantityValue !== null;[m
+       if (!hasAny) return null;[m
+ [m
+       const entry = {};[m
+       if (name) entry.name = name;[m
+       if (quantityValue !== null) entry.quantity = quantityValue;[m
+[31m-      if (address) entry.address = address;[m
+[32m+[m[32m      if (priceLink) entry.price_link = priceLink;[m
+       return entry;[m
+     })[m
+     .filter(Boolean);[m
+[36m@@ -97,8 +87,6 @@[m [mexport default function EventForm({ onSubmit, loading, initial = {} }) {[m
+     delete merged.coin_name;[m
+     delete merged.coin_quantity;[m
+     delete merged.coin_price_link;[m
+[31m-    delete merged.coin_address;[m
+[31m-    delete merged.coin_circulating_supply;[m
+     merged.nickname = merged.nickname || '';[m
+     return merged;[m
+   });[m
+[36m@@ -155,7 +143,7 @@[m [mexport default function EventForm({ onSubmit, loading, initial = {} }) {[m
+               t.name === initial.type ||[m
+               t.label === initial.type[m
+           ) || null;[m
+[31m-      }[m
+[32m+[m[32m        }[m
+ [m
+       if (!next.event_type_slug && matchedType) {[m
+         next.event_type_slug = matchedType.slug;[m
+[36m@@ -196,7 +184,7 @@[m [mexport default function EventForm({ onSubmit, loading, initial = {} }) {[m
+             timeLocal = extractTimeSegment(prev.start_time);[m
+           }[m
+           next.start_time = timeLocal === '00:00' ? '' : timeLocal;[m
+[31m-        } else if (initial.start_time) {[m
+[32m+[m[32m          } else if (initial.start_time) {[m
+           const cleaned = extractTimeSegment(initial.start_time);[m
+           next.start_time = cleaned === '00:00' ? '' : cleaned;[m
+         }[m
+[36m@@ -227,7 +215,7 @@[m [mexport default function EventForm({ onSubmit, loading, initial = {} }) {[m
+ [m
+       // 👇 ключова правка: зафіксувати у формі ту саму TZ, якою гідратнули поля[m
+       next.timezone = tz;[m
+[31m-[m
+[32m+[m[41m      [m
+       const derivedCoins = deriveCoinsForState(initial);[m
+       if (derivedCoins.length) {[m
+         next.coins = derivedCoins;[m
+[36m@@ -237,8 +225,6 @@[m [mexport default function EventForm({ onSubmit, loading, initial = {} }) {[m
+       delete next.coin_name;[m
+       delete next.coin_quantity;[m
+       delete next.coin_price_link;[m
+[31m-      delete next.coin_address;[m
+[31m-      delete next.coin_circulating_supply;[m
+       next.nickname = next.nickname || '';[m
+       return next;[m
+     });[m
+[36m@@ -429,30 +415,22 @@[m [mexport default function EventForm({ onSubmit, loading, initial = {} }) {[m
+         } else {[m
+           delete payload.coin_quantity;[m
+         }[m
+[31m-        if (primary.address) {[m
+[31m-          payload.coin_address = primary.address;[m
+[32m+[m[32m        if (primary.price_link) {[m
+[32m+[m[32m          payload.coin_price_link = primary.price_link;[m
+         } else {[m
+[31m-          delete payload.coin_address;[m
+[32m+[m[32m          delete payload.coin_price_link;[m
+         }[m
+[31m-        // Do not set coin_price_link at creation; it will be resolved later[m
+[31m-        delete payload.coin_price_link;[m
+[31m-        // clear any previously stored circulating supply on new submission[m
+[31m-        delete payload.coin_circulating_supply;[m
+       } else {[m
+         delete payload.coins;[m
+         delete payload.coin_name;[m
+         delete payload.coin_quantity;[m
+[31m-        delete payload.coin_address;[m
+         delete payload.coin_price_link;[m
+[31m-        delete payload.coin_circulating_supply;[m
+       }[m
+     } else {[m
+       delete payload.coins;[m
+       delete payload.coin_name;[m
+       delete payload.coin_quantity;[m
+[31m-      delete payload.coin_address;[m
+       delete payload.coin_price_link;[m
+[31m-      delete payload.coin_circulating_supply;[m
+     }[m
+     const nickname = (form.nickname || '').trim();[m
+     if (nickname) {[m
+[36m@@ -640,12 +618,12 @@[m [mexport default function EventForm({ onSubmit, loading, initial = {} }) {[m
+                     />[m
+                   </div>[m
+                   <div>[m
+[31m-                    <label className="label">Адреса контракту</label>[m
+[32m+[m[32m                    <label className="label">Посилання на ціну (Debot/MEXC)</label>[m
+                     <input[m
+                       className="input"[m
+[31m-                      value={coin?.address || ''}[m
+[31m-                      onChange={(e) => updateCoin(index, 'address', e.target.value)}[m
+[31m-                      placeholder="0x…"[m
+[32m+[m[32m                      value={coin?.price_link || ''}[m
+[32m+[m[32m                      onChange={(e) => updateCoin(index, 'price_link', e.target.value)}[m
+[32m+[m[32m                      placeholder="https://debot.ai/token/... або https://www.mexc.com/exchange/COIN_USDT"[m
+                     />[m
+                   </div>[m
+                 </div>[m
+[36m@@ -662,8 +640,8 @@[m [mexport default function EventForm({ onSubmit, loading, initial = {} }) {[m
+               + Додати монету[m
+             </button>[m
+             <p className="text-xs text-gray-500">[m
+[31m-               Вкажіть монету, її кількість і адресу контракту — ми автоматично підставимо URL на MEXC[m
+[31
