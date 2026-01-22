@@ -85,6 +85,15 @@ function normalizeSpaces(s) {
     .trim();
 }
 
+function buildMexcExchangeLink(coinName) {
+  if (!coinName) return null;
+  const raw = String(coinName).trim();
+  if (!raw) return null;
+  const token = raw.split(/[\s(]/)[0].replace(/[^A-Za-z0-9]/g, '').toUpperCase();
+  if (!token) return null;
+  return `https://www.mexc.com/uk-UA/exchange/${token}_USDT#token-info`;
+}
+
 function ensureDescription(text) {
   if (!text) return null;
   const t = text.trim();
@@ -904,6 +913,10 @@ export async function run() {
           skipped++;
           continue;
         }
+        
+        const inferredCoinPriceLink =
+          ev.coin_price_link ||
+          buildMexcExchangeLink(ev.coin_name || ev.coins?.[0]?.name);
 
         const payload = {
           title: ev.title,
@@ -916,7 +929,7 @@ export async function run() {
           coins: ev.coins || null,
           coin_name: ev.coin_name || null,
           coin_quantity: ev.coin_quantity ?? null,
-          coin_price_link: ev.coin_price_link || null,
+          coin_price_link: inferredCoinPriceLink || null,
           source: ev.source || null,
           source_key: ev.source_key || null,
           event_type_slug: ev.event_type_slug,
