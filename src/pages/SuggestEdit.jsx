@@ -1,8 +1,4 @@
-// Modified SuggestEdit.jsx to support contract address and circulating supply edits.
-// The form now allows editing of coin_address and coin_circulating_supply fields.
-// It leaves coin_price_link untouched (managed by backend resolution) but retains backward
-// compatibility by allowing existing price links to be displayed.
-
+// src/pages/Suggest.jsx
 import { useEffect, useMemo, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
@@ -122,10 +118,7 @@ export default function SuggestEdit() {
       'nickname',
       'coin_name',
       'coin_quantity',
-      // ✅ allow editing of address and circulating supply; price link is resolved automatically
-      'coin_address',
-      'coin_circulating_supply',
-      // leave coin_price_link out to avoid manual edits
+      'coin_price_link',
     ];
     const clean = Object.fromEntries(
       Object.entries(payload).filter(([k]) => allowed.includes(k))
