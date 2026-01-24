@@ -66,7 +66,8 @@ function decodeEntities(str) {
     .replace(/&lt;/g, '<')
     .replace(/&gt;/g, '>')
     .replace(/&quot;/g, '"')
-    .replace(/&#39;/g, "'");
+    .replace(/&#39;/g, "'")
+    .replace(/&nbsp;|&#160;|&#xA0;/gi, ' ');
 }
 
 function stripEmoji(s) {
@@ -273,13 +274,15 @@ export function parseOkxAlpha(message, channel) {
   const title = vision ? `${vision} OKX Boost X Launch Event!` : 'OKX Boost X Launch Event!';
 
   const rewardsLine = lines.find((l) => /^Total Rewards\s*:/i.test(l)) || null;
+  const poolLine = lines.find((l) => /^Pool\s*:/i.test(l)) || null;
 
   let poolText = null;
   let quantity = null;
   let token = null;
 
-  if (rewardsLine) {
-    poolText = normalizeSpaces(rewardsLine.replace(/^Total Rewards\s*:\s*/i, ''));
+  if (rewardsLine || poolLine) {
+    const sourceLine = poolLine || rewardsLine;
+    poolText = normalizeSpaces(sourceLine.replace(/^(Total Rewards|Pool)\s*:\s*/i, ''));
     const parsed = parseQuantityAndToken(poolText);
     quantity = parsed.quantity ?? null;
     token = parsed.token ?? null;
