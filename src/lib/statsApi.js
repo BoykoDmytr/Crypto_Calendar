@@ -242,6 +242,11 @@ export async function fetchCompletedTournaments() {
     .filter((row) => !excludedIds.has(row.event_id))
     .map((row) => {
       const event = row.events_approved || {};
+      const t0Price = row.t0_price;
+      const t5Price = row.t_plus_5_price;
+      const t15Price = row.t_plus_15_price;
+      const t5Percent = calcPercent(t0Price, t5Price) ?? row.t_plus_5_percent;
+      const t15Percent = calcPercent(t5Price, t15Price) ?? row.t_plus_15_percent;
       return {
         eventId: row.event_id,
         title: event.title,
@@ -253,9 +258,9 @@ export async function fetchCompletedTournaments() {
         exchange: row.exchange,
         priceLink: event.coin_price_link || event.link || null,
         priceReaction: [
-          { label: 'T0', time: row.t0_time, price: row.t0_price, percent: row.t0_percent ?? 0 },
-          { label: 'T+5m', time: row.t_plus_5_time, price: row.t_plus_5_price, percent: row.t_plus_5_percent },
-          { label: 'T+15m', time: row.t_plus_15_time, price: row.t_plus_15_price, percent: row.t_plus_15_percent },
+          { label: 'T0', time: row.t0_time, price: t0Price, percent: row.t0_percent ?? 0 },
+          { label: 'T+5m', time: row.t_plus_5_time, price: t5Price, percent: t5Percent },
+          { label: 'T+15m', time: row.t_plus_15_time, price: t15Price, percent: t15Percent },
         ],
       };
     });
@@ -382,7 +387,8 @@ export async function triggerPriceReactionJob() {
         const p15 = await fetchMexcPrice(market);
         if (p15 != null) {
           patch.t_plus_15_price = p15;
-          patch.t_plus_15_percent = calcPercent(base, p15);
+          const t5Base = patch.t_plus_5_price ?? existing.t_plus_5_price;
+          patch.t_plus_15_percent = calcPercent(t5Base, p15);
         }
       }
 
