@@ -14,6 +14,19 @@ dayjs.extend(timezone);
 const kyivTZ = 'Europe/Kyiv';
 
 const emptyCoin = { name: '', quantity: '', price_link: '' };
+const MEXC_PRICE_LINK_TEMPLATE = 'https://www.mexc.com/uk-UA/exchange/XXX_USDT#token-info';
+
+const buildMexcPriceLink = (name) => {
+  const symbol = String(name || '')
+    .trim()
+    .toUpperCase()
+    .replace(/[^A-Z0-9]/g, '');
+  if (!symbol) return '';
+  return `https://www.mexc.com/uk-UA/exchange/${symbol}_USDT#token-info`;
+};
+
+const isAutoMexcLink = (link) =>
+  /^https:\/\/www\.mexc\.com\/uk-UA\/exchange\/[A-Z0-9]+_USDT#token-info$/i.test(link || '');
 
 const extractTimeSegment = (value) => {
   if (!value) return '';
@@ -301,6 +314,20 @@ export default function EventForm({ onSubmit, loading, initial = {} }) {
         list[index] = { ...emptyCoin };
       }
       list[index] = { ...list[index], [key]: value };
+      return { ...prev, coins: list };
+    });
+  };
+
+  const updateCoinName = (index, value) => {
+    setForm((prev) => {
+      const list = Array.isArray(prev.coins) ? prev.coins.slice() : [];
+      if (!list[index]) {
+        list[index] = { ...emptyCoin };
+      }
+      const currentLink = list[index]?.price_link || '';
+      const shouldAutoUpdate = !currentLink || isAutoMexcLink(currentLink);
+      const nextLink = shouldAutoUpdate ? buildMexcPriceLink(value) : currentLink;
+      list[index] = { ...list[index], name: value, price_link: nextLink };
       return { ...prev, coins: list };
     });
   };
@@ -602,7 +629,7 @@ export default function EventForm({ onSubmit, loading, initial = {} }) {
                     <input
                       className="input"
                       value={coin?.name || ''}
-                      onChange={(e) => updateCoin(index, 'name', e.target.value)}
+                      onChange={(e) => updateCoinName(index, e.target.value)}
                       placeholder="Напр., TURTLE"
                     />
                   </div>
@@ -623,7 +650,7 @@ export default function EventForm({ onSubmit, loading, initial = {} }) {
                       className="input"
                       value={coin?.price_link || ''}
                       onChange={(e) => updateCoin(index, 'price_link', e.target.value)}
-                      placeholder="https://debot.ai/token/... або https://www.mexc.com/exchange/COIN_USDT"
+                      placeholder={`https://debot.ai/token/... або ${MEXC_PRICE_LINK_TEMPLATE}`}
                     />
                   </div>
                 </div>
