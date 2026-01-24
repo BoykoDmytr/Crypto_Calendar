@@ -105,6 +105,11 @@ const formatNickname = (value) => {
   if (!trimmed) return '';
   return trimmed.startsWith('@') ? trimmed : `@${trimmed}`;
 };
+const normalizeAutoLink = (link) => {
+  if (link === null || link === undefined) return link;
+  const trimmed = String(link).trim();
+  return trimmed.toLowerCase() === 'null' ? '' : link;
+};
 /* ===== Helpers for edit preview (правки) ===== */
 const prettyDate = (type, ts, tz) => {
   if (!ts) return '—';
@@ -694,8 +699,10 @@ const payload = {
     const startLocalTime = isTGE
       ? toLocalInput(ev.start_at, ev.timezone, 'time')
       : '';
+    const normalizedLink = table === 'auto_events_pending' ? normalizeAutoLink(ev?.link) : ev?.link;
     const initial = {
       ...ev,
+      link: normalizedLink,
       // важливо: передаємо в інпут ЛОКАЛЬНИЙ рядок без 'Z'
       start_at: startLocal,
       ...(isTGE && startLocalTime ? { start_time: startLocalTime === '00:00' ? '' : startLocalTime } : {}),
@@ -772,6 +779,7 @@ const payload = {
           <div className="space-y-3">
             {autoPending.map((ev) => {
               const coins = extractCoinEntries(ev);
+              const normalizedLink = normalizeAutoLink(ev?.link);
               return (
                 <article key={ev.id} className="card p-4">
                   {editId === ev.id && editTable === 'auto_events_pending' ? (
@@ -788,8 +796,8 @@ const payload = {
                       <div className="text-sm mt-2 flex flex-wrap items-center gap-2">
                         <TypeBadge type={ev.type} />
                         <span className="event-when">🕒 {formatEventDate(ev)}</span>
-                        {ev.link && (
-                          <a className="underline" href={ev.link} target="_blank" rel="noreferrer">
+                        {normalizedLink && (
+                          <a className="underline" href={normalizedLink} target="_blank" rel="noreferrer">
                             Лінк
                           </a>
                         )}
