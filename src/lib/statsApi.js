@@ -27,7 +27,7 @@ function normalizeMexcSpotSymbol(raw) {
   if (!raw || typeof raw !== 'string') return null;
   const upper = raw.trim().toUpperCase();
   const cleaned = upper.replace(/[^A-Z0-9]/g, '');
-  if (cleaned.length < 6) return null;
+  if (cleaned.length < 5) return null;
   return cleaned;
 }
 
@@ -55,8 +55,8 @@ function parseMexcLink(link) {
   const isFutures = /\/futures\//i.test(s) || /type=linear_swap/i.test(s);
 
   const m =
-    s.match(/\/(futures|exchange)\/([A-Z0-9]{2,}_USDT)/i) ||
-    s.match(/([A-Z0-9]{2,}_USDT)/i);
+    s.match(/\/(futures|exchange)\/([A-Z0-9]{1,}_USDT)/i) ||
+    s.match(/([A-Z0-9]{1,}_USDT)/i);
 
   const pair = m ? m[m.length - 1].toUpperCase() : null;
   if (!pair) return null;
