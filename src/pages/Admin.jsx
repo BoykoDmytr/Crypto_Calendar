@@ -328,10 +328,29 @@ export default function Admin() {
   const [toast, setToast] = useState('');
   const [showAllApproved, setShowAllApproved] = useState(false);
   const [showAllStats, setShowAllStats] = useState(false);
+  const [approvedQuery, setApprovedQuery] = useState('');
 
   const approvedLimit = 5;
   const statsLimit = 5;
-  const approvedVisible = showAllApproved ? approved : approved.slice(0, approvedLimit);
+  const normalizedApprovedQuery = approvedQuery.trim().toLowerCase();
+  const filteredApproved = normalizedApprovedQuery
+    ? approved.filter((ev) => {
+        const haystack = [
+          ev?.title,
+          ev?.description,
+          ev?.type,
+          ev?.nickname,
+        ]
+          .filter(Boolean)
+          .join(' ')
+          .toLowerCase();
+        return haystack.includes(normalizedApprovedQuery);
+      })
+    : approved;
+  const approvedVisible =
+    showAllApproved || normalizedApprovedQuery
+      ? filteredApproved
+      : filteredApproved.slice(0, approvedLimit);
   const statsVisible = showAllStats ? stats : stats.slice(0, statsLimit);
 
   useEffect(() => {
@@ -1024,8 +1043,39 @@ const payload = {
 
       {/* Схвалені події */}
       <section>
-        <h2 className="font-semibold mb-2">Схвалені події</h2>
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+          <h2 className="font-semibold">Схвалені події</h2>
+          <div className="text-xs text-gray-500">
+            {normalizedApprovedQuery
+              ? `Знайдено: ${filteredApproved.length}`
+              : `Всього: ${approved.length}`}
+          </div>
+        </div>
+        <div className="card p-4 mt-2">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+            <label className="flex flex-col gap-1 flex-1">
+              <span className="text-xs text-gray-500">Пошук по схвалених івентах</span>
+              <input
+                className="input"
+                placeholder="Введіть назву, тип або нікнейм"
+                value={approvedQuery}
+                onChange={(e) => setApprovedQuery(e.target.value)}
+              />
+            </label>
+            {approvedQuery && (
+              <button
+                className="btn-secondary w-full sm:w-auto"
+                onClick={() => setApprovedQuery('')}
+              >
+                Очистити
+              </button>
+            )}
+          </div>
+        </div>
         {approved.length === 0 && <p className="text-sm text-gray-600">Поки що немає.</p>}
+        {approved.length > 0 && filteredApproved.length === 0 && (
+          <p className="text-sm text-gray-600 mt-3">Нічого не знайдено за запитом.</p>
+        )}
         <div className="space-y-3">
           {approvedVisible.map((ev) => {
             const coins = extractCoinEntries(ev);
@@ -1072,7 +1122,7 @@ const payload = {
             );
           })}
         </div>
-        {approved.length > approvedLimit && (
+        {!normalizedApprovedQuery && approved.length > approvedLimit && (
           <div className="mt-3 flex justify-start">
             <button
               className="btn-secondary"
