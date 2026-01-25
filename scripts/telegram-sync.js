@@ -938,12 +938,69 @@ export async function run() {
           event_type_slug: ev.event_type_slug,
         };
 
-        // уникаємо дублів
+        // Якщо є source/source_key, перевіряємо чи вже є затверджена подія.
         if (payload.source && payload.source_key) {
-          const r = await upsertPendingBySourceKey(supabase, payload);
-          if (r.action === 'inserted') inserted++;
-          else skipped++;
-        } else {
+          const { data: approved, error: approvedErr } = await supabase
+            .from('events_approved')
+            .select(
+              'id, title, description, start_at, end_at, timezone, type, link, coins, coin_name, coin_quantity, coin_price_link, event_type_slug'
+            )
+            .eq('event_type_slug', payload.event_type_slug)
+            .eq('coin_name', payload.coin_name)
+            .eq('start_at', payload.start_at)
+            .limit(1);
+
+          if (!approvedErr && approved && approved.length) {
+            const existing = approved[0];
+
+            // визначаємо відмінності
+            const fields = [
+              'title',
+              'description',
+              'start_at',
+              'end_at',
+              'timezone',
+              'type',
+              'link',
+              'coins',
+              'coin_name',
+              'coin_quantity',
+              'coin_price_link',
+            ];
+
+            const patch = {};
+            for (const field of fields) {
+              const newVal = payload[field];
+
+              // пропускаємо порожні значення
+              if (
+                newVal !== undefined &&
+                newVal !== null &&
+                newVal !== '' &&
+                existing[field] !== newVal
+              ) {
+                patch[field] = newVal;
+              }
+            }
+
+            // якщо є зміни, записуємо їх в event_edits_pending
+            if (Object.keys(patch).length) {
+              await supabase.from('event_edits_pending').insert({
+                event_id: existing.id,
+                payload: patch,
+              });
+              inserted++;
+            } else {
+              // нічого не змінилося
+              skipped++;
+            }
+          } else {
+            // немає затвердженої події – записуємо у auto_events_pending
+            const r = await upsertPendingBySourceKey(supabase, payload);
+            if (r.action === 'inserted') inserted++;
+            else skipped++;
+          }
+        } else {          
           // якщо немає source_key — все одно upsert по link+start+title (просто пропускаємо)
           const { data: exists } = await supabase
             .from('auto_events_pending')

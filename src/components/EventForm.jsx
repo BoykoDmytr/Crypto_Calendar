@@ -34,6 +34,14 @@ const extractTimeSegment = (value) => {
   return match ? match[1] : '';
 };
 
+const normalizeLinkValue = (value) => {
+  if (value === null || value === undefined) return '';
+  const trimmed = String(value).trim();
+  if (!trimmed) return '';
+  if (trimmed.toLowerCase() === 'null') return '';
+  return trimmed;
+};
+
 const toFormCoin = (coin) => {
   const name = coin?.name || '';
   const hasQuantity = coin && Object.prototype.hasOwnProperty.call(coin, 'quantity');
@@ -89,7 +97,7 @@ export default function EventForm({ onSubmit, loading, initial = {} }) {
       end_at: '',
       start_date: '',
       start_time: '',
-      link: '',
+      link: normalizeLinkValue(initial?.link),
       coins: [],
       tge_exchanges: [],
     };
@@ -101,6 +109,7 @@ export default function EventForm({ onSubmit, loading, initial = {} }) {
     delete merged.coin_quantity;
     delete merged.coin_price_link;
     merged.nickname = merged.nickname || '';
+    merged.link = normalizeLinkValue(merged.link);
     return merged;
   });
 
@@ -239,6 +248,7 @@ export default function EventForm({ onSubmit, loading, initial = {} }) {
       delete next.coin_quantity;
       delete next.coin_price_link;
       next.nickname = next.nickname || '';
+      next.link = normalizeLinkValue(next.link);
       return next;
     });
 
