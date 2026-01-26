@@ -68,14 +68,14 @@ export default function MonthCalendar() {
       {/* Заголовок місяця + навігація */}
       <div className="flex items-center justify-between mt-2 sm:mt-0">
         <button
-          className="px-3 py-2 rounded-xl border border-gray-200 bg-white active:scale-[.98]"
+          className="glass-icon-btn active:scale-[.98]"
           onClick={() => setMonthCursor(m => m.subtract(1, 'month'))}
         >←</button>
         <h1 className="text-lg sm:text-xl font-semibold">
           {monthCursor.format('MMMM YYYY')}
         </h1>
         <button
-          className="px-3 py-2 rounded-xl border border-gray-200 bg-white active:scale-[.98]"
+          className="glass-icon-btn active:scale-[.98]"
           onClick={() => setMonthCursor(m => m.add(1, 'month'))}
         >→</button>
       </div>
@@ -101,17 +101,11 @@ export default function MonthCalendar() {
               key={iso}
               onClick={() => setSelectedISO(iso)}
               className={[
-                'relative rounded-xl border select-none',
+                'calendar-day relative rounded-xl border select-none',
                 'h-12 sm:h-24 p-1 sm:p-3 text-left',
 
                 // усередині поточного місяця
-                inMonth
-                  ? 'bg-white border-gray-200 dark:bg-slate-900/40 dark:border-white/10'
-                  // ПОЗА місяцем — зробимо тьмянішими (і в світлій, і в темній темі)
-                  : [
-                      'bg-gray-50 text-gray-400 border-gray-200/80 opacity-60',
-                      'dark:bg-white/5 dark:text-gray-400/70 dark:border-white/10 dark:opacity-40',
-                    ].join(' '),
+                inMonth ? '' : 'calendar-day--outside text-gray-400 dark:text-gray-400/70',
 
                 // вибраний день — акцентне кільце
                 isSelected

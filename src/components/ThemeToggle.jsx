@@ -30,10 +30,7 @@ export default function ThemeToggle({ className = "" }) {
       aria-label={`Switch to ${theme === "dark" ? "light" : "dark"} theme`}
       title={theme === "dark" ? "Light theme" : "Dark theme"}
       className={[
-        "inline-flex items-center justify-center",
-        "w-9 h-9 rounded-xl border transition",
-        "bg-white hover:bg-gray-50 border-gray-200 text-gray-700",
-        "dark:bg-white/10 dark:hover:bg-white/15 dark:border-white/10 dark:text-gray-200",
+        "glass-icon-btn",
         className
       ].join(" ")}
     >

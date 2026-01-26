@@ -25,8 +25,7 @@ function FilterScroller({ children }) {
       <button
         type="button"
         onClick={() => by(-240)}
-        className="hidden md:flex absolute -left-6 top-1/2 -translate-y-1/2
-                   w-9 h-9 rounded-full border bg-white shadow-sm hover:bg-gray-50
+        className="glass-icon-btn hidden md:flex absolute -left-6 top-1/2 -translate-y-1/2
                    items-center justify-center"
         aria-label="Прокрутити ліворуч"
       >
@@ -35,8 +34,7 @@ function FilterScroller({ children }) {
       <button
         type="button"
         onClick={() => by(240)}
-        className="hidden md:flex absolute -right-6 top-1/2 -translate-y-1/2
-                   w-9 h-9 rounded-full border bg-white shadow-sm hover:bg-gray-50
+        className="glass-icon-btn hidden md:flex absolute -right-6 top-1/2 -translate-y-1/2
                    items-center justify-center"
         aria-label="Прокрутити праворуч"
       >
@@ -419,16 +417,12 @@ export default function Calendar() {
       </section>
 
       {/* --- РЯД ФІЛЬТРІВ + КНОПКА (sticky) --- */}
-      <div className="sticky top-14 z-[5] -mx-3 sm:-mx-4 px-3 sm:px-4 pt-0 pb-0 bg-transparent">
+      <div className="sticky sticky-filters top-14 z-[5] -mx-3 sm:-mx-4 px-3 sm:px-4 pt-0 pb-0">
         <FilterScroller>
           {/* All */}
           <button
             onClick={() => setType('All')}
-            className={`px-3 py-1.5 rounded-full border text-sm whitespace-nowrap ${
-              type === 'All'
-                ? 'bg-brand-600 text-white border-brand-600'
-                : 'bg-white border-gray-200 hover:bg-gray-50'
-            }`}
+            className={`chip ${type === 'All' ? 'chip--active' : ''}`}
           >
             All
           </button>
@@ -438,11 +432,7 @@ export default function Calendar() {
             <button
               key={t.slug}
               onClick={() => setType(t.label)}
-              className={`px-3 py-1.5 rounded-full border text-sm whitespace-nowrap ${
-                type === t.label
-                  ? 'bg-brand-600 text-white border-brand-600'
-                  : 'bg-white border-gray-200 hover:bg-gray-50'
-              }`}
+              className={`chip ${type === t.label ? 'chip--active' : ''}`}
             >
               {t.label}
             </button>

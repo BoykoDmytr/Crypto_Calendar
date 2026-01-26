@@ -22,6 +22,15 @@
     --badge-bg:     #F3F6FC;
     --badge-border: #E3EAF6;
     --badge-text:   #0F172A;
+
+    --page-bg: radial-gradient(circle at 15% 20%, #e0edff 0%, transparent 42%),
+      radial-gradient(circle at 80% 0%, #e9f8ff 0%, transparent 45%),
+      linear-gradient(180deg, #f8fbff 0%, #eef4ff 55%, #e9f0ff 100%);
+    --glass-bg: color-mix(in oklab, #ffffff 72%, transparent);
+    --glass-bg-strong: color-mix(in oklab, #ffffff 86%, transparent);
+    --glass-border: color-mix(in oklab, #dbe7ff 75%, transparent);
+    --glass-shadow: 0 20px 45px -32px rgba(15, 23, 42, 0.35);
+    --glass-highlight: 0 0 0 1px rgba(255, 255, 255, 0.65) inset;
   }
 
   /* Dark (фон #0d1117, картка #181c2b — як просив) */
@@ -39,14 +48,29 @@
     --badge-bg:     #13243C;
     --badge-border: #1C3254;
     --badge-text:   #DBE6FF;
+
+  --page-bg: radial-gradient(circle at 20% 10%, rgba(33, 129, 255, 0.22) 0%, transparent 48%),
+      radial-gradient(circle at 80% 0%, rgba(6, 182, 212, 0.18) 0%, transparent 45%),
+      radial-gradient(circle at 30% 80%, rgba(59, 130, 246, 0.14) 0%, transparent 45%),
+      linear-gradient(180deg, #0b0f16 0%, #0d1420 55%, #0b0f18 100%);
+    --glass-bg: color-mix(in oklab, #101828 60%, transparent);
+    --glass-bg-strong: color-mix(in oklab, #111b2c 72%, transparent);
+    --glass-border: color-mix(in oklab, #3a4b6a 65%, transparent);
+    --glass-shadow: 0 30px 60px -38px rgba(3, 6, 15, 0.65);
+    --glass-highlight: 0 0 0 1px rgba(255, 255, 255, 0.08) inset;
   }
 
-  html, body, #root {
-    background: var(--bg);
+  html, body {
+    background: var(--page-bg);
+    background-attachment: fixed;
+    background-repeat: no-repeat;
+    background-size: cover;
     color: var(--text);
     max-width: 100%;
     overflow-x: hidden;
   }
+
+  #root { background: transparent; }
 
   /* дрібні утиліти */
   button { touch-action: manipulation; }
@@ -60,23 +84,76 @@
   .btn {
     @apply inline-flex items-center gap-2 px-4 py-2 rounded-xl text-white
            active:scale-[.99] transition border border-transparent shadow-sm;
-    background: var(--brand);
+    background: linear-gradient(135deg, color-mix(in oklab, var(--brand) 85%, #ffffff 15%) 0%, var(--brand) 65%);
+    box-shadow: 0 16px 28px -18px rgba(37, 99, 235, 0.7);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
   }
   .btn:hover { background: var(--brand-hov); }
 
   .btn-secondary {
     @apply inline-flex items-center gap-2 px-4 py-2 rounded-xl border;
-    background: var(--bg-alt);
-    color: var(--text);
-    border-color: var(--border);
+    background: var(--glass-bg);
+    color: color-mix(in oklab, var(--text) 88%, transparent);
+    border-color: var(--glass-border);
+    box-shadow: var(--glass-shadow);
+    backdrop-filter: blur(14px);
+    -webkit-backdrop-filter: blur(14px);
   }
   .btn-secondary:hover { filter: brightness(1.03); }
 
+  .glass-icon-btn {
+    @apply inline-flex items-center justify-center;
+    width: 2.25rem;
+    height: 2.25rem;
+    border-radius: 9999px;
+    border: 1px solid var(--glass-border);
+    background: var(--glass-bg);
+    color: color-mix(in oklab, var(--text) 80%, transparent);
+    box-shadow: var(--glass-shadow);
+    backdrop-filter: blur(14px);
+    -webkit-backdrop-filter: blur(14px);
+    transition: background-color .2s ease, border-color .2s ease, color .2s ease, transform .2s ease;
+  }
+  .glass-icon-btn:hover {
+    background: var(--glass-bg-strong);
+    color: color-mix(in oklab, var(--text) 92%, transparent);
+    transform: translateY(-1px);
+  }
+  .glass-icon-btn:focus-visible {
+    outline: 2px solid var(--brand);
+    outline-offset: 2px;
+  }
+
+  .calendar-day {
+    background: var(--glass-bg);
+    border: 1px solid var(--glass-border);
+    box-shadow: var(--glass-shadow);
+    backdrop-filter: blur(14px);
+    -webkit-backdrop-filter: blur(14px);
+    color: color-mix(in oklab, var(--text) 88%, transparent);
+    transition: border-color .2s ease, transform .2s ease, background-color .2s ease;
+  }
+  .calendar-day:hover {
+    background: var(--glass-bg-strong);
+    border-color: color-mix(in oklab, var(--glass-border) 80%, transparent);
+    transform: translateY(-1px);
+  }
+  .calendar-day--outside {
+    opacity: .45;
+  }
+  html.dark .calendar-day--outside {
+    opacity: .3;
+  }
+
   .input {
     @apply w-full rounded-xl px-4 py-2 outline-none transition;
-    background: var(--card);
+    background: var(--glass-bg);
     color: var(--text);
-    border: 1px solid var(--border);
+    border: 1px solid var(--glass-border);
+    box-shadow: var(--glass-shadow);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
   }
   .input:focus { box-shadow: 0 0 0 2px var(--brand); border-color: var(--brand); }
 
@@ -84,26 +161,30 @@
 
   .card {
     @apply rounded-2xl;
-    background: var(--card);
-    border: 1px solid var(--border);
-    box-shadow: 0 1px 0 rgba(15, 23, 42, 0.02);
+    background: var(--glass-bg-strong);
+    border: 1px solid var(--glass-border);
+    box-shadow: var(--glass-shadow), var(--glass-highlight);
+    backdrop-filter: blur(18px);
+    -webkit-backdrop-filter: blur(18px);
   }
 
   .token-panel {
     border-radius: 1rem;
     padding: 0.875rem 1rem;
-    background: color-mix(in oklab, var(--card) 96%, transparent);
-    border: 1px solid color-mix(in oklab, var(--border) 94%, transparent);
-    box-shadow: 0 14px 34px color-mix(in oklab, var(--bg) 74%, transparent);
+    background: var(--glass-bg-strong);
+    border: 1px solid var(--glass-border);
+    box-shadow: var(--glass-shadow);
+    backdrop-filter: blur(18px);
+    -webkit-backdrop-filter: blur(18px);
     color: color-mix(in oklab, var(--text) 90%, transparent);
     font-size: 0.9375rem;
     line-height: 1.5;
   }
 
   html.dark .token-panel {
-    background: color-mix(in oklab, var(--card) 90%, transparent);
-    border-color: color-mix(in oklab, var(--border) 96%, transparent);
-    box-shadow: 0 18px 40px rgba(8, 13, 25, 0.55);
+    background: var(--glass-bg-strong);
+    border-color: var(--glass-border);
+    box-shadow: var(--glass-shadow);
     color: color-mix(in oklab, var(--text) 94%, transparent);
   }
 
@@ -190,10 +271,11 @@
   }
 
   .sticky-filters {
-    background: var(--bg);
-    backdrop-filter: blur(6px);
-    -webkit-backdrop-filter: blur(6px);
-    border-bottom: 1px solid var(--border);
+    background: var(--glass-bg);
+    backdrop-filter: blur(14px);
+    -webkit-backdrop-filter: blur(14px);
+    border-bottom: 1px solid var(--glass-border);
+    box-shadow: var(--glass-shadow);
   }
 
   .divider { height: 1px; background: var(--border); }
@@ -272,18 +354,18 @@ html.dark{
 
 /* Хедер / стікі */
 .site-header{
-  background-color: color-mix(in oklab, var(--bg) 92%, transparent);
-  border-color: color-mix(in oklab, var(--border) 92%, transparent);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-  transition: background-color .2s ease, border-color .2s ease;
+background-color: var(--glass-bg);
+border-color: var(--glass-border);
+backdrop-filter: blur(16px);
+-webkit-backdrop-filter: blur(16px);
+transition: background-color .2s ease, border-color .2s ease;
 }
 html.dark .site-header,
 html.dark .sticky,
 html.dark .sticky-filters,
 html.dark .page-header{
-  background-color: color-mix(in oklab, var(--bg) 86%, transparent) !important;
-  border-color: color-mix(in oklab, var(--border) 96%, transparent) !important;
+  background-color: var(--glass-bg) !important;
+  border-color: var(--glass-border) !important;
 }
 
 /* Витоки світлих утиліт */
@@ -297,8 +379,9 @@ html.dark .text-gray-900 { color: var(--text) !important; }
   align-items: center;
   gap: 0.25rem;
   border-radius: 0.75rem;
-  border: 1px solid color-mix(in oklab, var(--border) 60%, transparent);
-  background-color: color-mix(in oklab, var(--bg) 96%, transparent);
+  border: 1px solid var(--glass-border);
+  background-color: var(--glass-bg);
+  box-shadow: var(--glass-shadow);
   color: color-mix(in oklab, var(--text) 82%, transparent);
   transition: background-color .18s ease, color .18s ease, border-color .18s ease, box-shadow .18s ease;
 }
@@ -363,8 +446,8 @@ html.dark .text-gray-900 { color: var(--text) !important; }
 }
 
 .nav-link:hover{
-  background-color: color-mix(in oklab, var(--bg-alt) 88%, transparent);
-  border-color: color-mix(in oklab, var(--border) 88%, transparent);
+  background-color: var(--glass-bg-strong);
+  border-color: color-mix(in oklab, var(--glass-border) 80%, transparent);
   color: var(--text);
 }
 
@@ -387,13 +470,13 @@ html.dark .text-gray-900 { color: var(--text) !important; }
 }
 
 html.dark .nav-link{
-  background-color: color-mix(in oklab, var(--bg) 84%, transparent);
-  border-color: color-mix(in oklab, var(--border) 78%, transparent);
+  background-color: var(--glass-bg);
+  border-color: var(--glass-border);
   color: color-mix(in oklab, var(--text) 68%, transparent);
 }
 html.dark .nav-link:hover{
-  background-color: color-mix(in oklab, var(--bg-alt) 82%, transparent);
-  border-color: color-mix(in oklab, var(--border) 90%, transparent);
+  background-color: var(--glass-bg-strong);
+  border-color: color-mix(in oklab, var(--glass-border) 80%, transparent);
   color: color-mix(in oklab, var(--text) 94%, transparent);
 }
 
@@ -529,8 +612,11 @@ html.dark .event-card--past .event-accent {
   font-size:.8rem; line-height:1;
   padding: 6px 10px;
   border-radius: 9999px;
-  background: var(--bg-alt);
-  border: 1px solid var(--border);
+  background: var(--glass-bg);
+  border: 1px solid var(--glass-border);
+  box-shadow: var(--glass-shadow);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
 }
 
 /* ліва колонка з датою */
@@ -583,8 +669,11 @@ html.dark .weekday-chip{
   width: 100%;
   border-radius: 1.5rem;
   padding: 1rem 1.25rem;
-  background: color-mix(in oklab, var(--bg-alt) 90%, transparent);
-  border: 1px dashed color-mix(in oklab, var(--border) 80%, transparent);
+  background: var(--glass-bg);
+  border: 1px dashed var(--glass-border);
+  box-shadow: var(--glass-shadow);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
   color: color-mix(in oklab, var(--text) 72%, transparent);
   text-align: center;
   text-transform: uppercase;
@@ -648,8 +737,8 @@ html.dark .weekday-chip{
   transform: translateY(-2px);
 }
 html.dark .past-pull-hint {
-  background: color-mix(in oklab, var(--bg-alt) 82%, transparent);
-  border-color: color-mix(in oklab, var(--border) 88%, transparent);
+  background: var(--glass-bg);
+  border-color: var(--glass-border);
   color: color-mix(in oklab, var(--text) 70%, transparent);
 }
 html.dark .past-pull-hint__sub {
@@ -666,8 +755,11 @@ html.dark .past-pull-hint__icon {
   opacity: 0;
   pointer-events: none;
   border-radius: 1.5rem;
-  border: 1px solid color-mix(in oklab, var(--border) 88%, transparent);
-  background: color-mix(in oklab, var(--card) 86%, transparent);
+  border: 1px solid var(--glass-border);
+  background: var(--glass-bg-strong);
+  box-shadow: var(--glass-shadow);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
   margin-top: 0;
   padding: 0 1.25rem;
   transition: max-height .45s ease, opacity .3s ease, margin-top .45s ease, padding .45s ease, box-shadow .45s ease;
@@ -682,8 +774,8 @@ html.dark .past-pull-hint__icon {
   box-shadow: 0 28px 44px color-mix(in oklab, var(--bg) 70%, transparent);
 }
 html.dark .past-events-panel {
-  background: color-mix(in oklab, var(--card) 70%, transparent);
-  border-color: color-mix(in oklab, var(--border) 96%, transparent);
+  background: var(--glass-bg-strong);
+  border-color: var(--glass-border);
 }
 html.dark .past-events-panel--open {
   box-shadow: 0 34px 60px rgba(5, 9, 18, 0.55);
@@ -719,7 +811,11 @@ html.dark .past-events-panel--open {
   border: 1px solid transparent;
   border-radius: 9999px;
   padding: 0.35rem 0.85rem;
-  background: color-mix(in oklab, var(--bg-alt) 86%, transparent);
+  background: var(--glass-bg);
+  border-color: var(--glass-border);
+  box-shadow: var(--glass-shadow);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
   transition: filter .2s ease, color .2s ease, border-color .2s ease;
 }
 .past-events-panel__close:hover,
@@ -736,7 +832,7 @@ html.dark .past-events-panel__subtitle {
   color: color-mix(in oklab, var(--text) 58%, transparent);
 }
 html.dark .past-events-panel__close {
-  background: color-mix(in oklab, var(--bg-alt) 70%, transparent);
+  background: var(--glass-bg);
   color: color-mix(in oklab, var(--text) 70%, transparent);
 }
 html.dark .past-events-panel__close:hover,
@@ -748,11 +844,14 @@ html.dark .past-events-panel__close:focus-visible {
 /* БАЗОВИЙ чип (світла тема) */
 .chip{
   @apply rounded-full border text-sm whitespace-nowrap px-3 py-1.5 transition;
-  background: #fff;
-  border-color: #e5e7eb; /* border-gray-200 */
-  color: #0f172a;
+  background: var(--glass-bg);
+  border-color: var(--glass-border);
+  color: color-mix(in oklab, var(--text) 85%, transparent);
+  box-shadow: var(--glass-shadow);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
 }
-.chip:hover{ background: #f9fafb; }
+.chip:hover{ background: var(--glass-bg-strong); }
 
 /* Активний чип (світла тема) */
 .chip--active{
@@ -763,12 +862,12 @@ html.dark .past-events-panel__close:focus-visible {
 
 /* ───────── DARK ───────── */
 html.dark .chip{
-  background: #0f172a !important;
-  border-color: #22314a !important;
-  color: #e6ecf3 !important;
+  background: var(--glass-bg) !important;
+  border-color: var(--glass-border) !important;
+  color: color-mix(in oklab, var(--text) 85%, transparent) !important;
 }
 html.dark .chip:hover{
-  background: #141e33 !important;
+  background: var(--glass-bg-strong) !important;
 }
 html.dark .chip--active{
   background: var(--brand) !important;

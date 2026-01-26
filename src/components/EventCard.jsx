@@ -79,11 +79,10 @@ export default function EventCard({ ev, isPast = false }) {
         to={`/suggest/${ev.id}`}
         aria-label="Запропонувати правку"
         title="Запропонувати правку"
-        className="absolute top-2 right-2 inline-flex items-center justify-center w-9 h-9 rounded-full border border-gray-200 bg-white shadow-sm hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-brand-500"
-      >
+        className="glass-icon-btn absolute top-2 right-2 focus:outline-none focus:ring-2 focus:ring-brand-500"      >
         <svg
           viewBox="0 0 24 24"
-          className="w-4 h-4 text-gray-600"
+          className="w-4 h-4 text-current"
           fill="none"
           stroke="currentColor"
           strokeWidth="2"

@@ -24,9 +24,8 @@ function FilterScroller({ children }) {
       <button
         type="button"
         onClick={() => by(-240)}
-        className="hidden md:flex absolute -left-6 top-1/2 -translate-y-1/2
-                   w-9 h-9 rounded-full border bg-white shadow-sm hover:bg-gray-50
-                   items-center justify-center dark:border-white/10 dark:bg-slate-900/80 dark:hover:bg-slate-900"
+        className="glass-icon-btn hidden md:flex absolute -left-6 top-1/2 -translate-y-1/2
+                   items-center justify-center"
         aria-label="Прокрутити ліворуч"
       >
         ‹
@@ -34,9 +33,8 @@ function FilterScroller({ children }) {
       <button
         type="button"
         onClick={() => by(240)}
-        className="hidden md:flex absolute -right-6 top-1/2 -translate-y-1/2
-                   w-9 h-9 rounded-full border bg-white shadow-sm hover:bg-gray-50
-                   items-center justify-center dark:border-white/10 dark:bg-slate-900/80 dark:hover:bg-slate-900"
+        className="glass-icon-btn hidden md:flex absolute -right-6 top-1/2 -translate-y-1/2
+                   items-center justify-center"
         aria-label="Прокрутити праворуч"
       >
         ›
@@ -232,17 +230,13 @@ export default function Stats() {
         {jobError && <p className="relative mt-3 text-sm text-red-600 dark:text-red-400">{jobError}</p>}
       </header>
       
-      <section className="rounded-2xl p-4">
+      <section className="rounded-2xl p-4 card">
         <FilterScroller>
           {typeOptions.map((option) => (
             <button
               key={option}
               onClick={() => setTypeFilter(option)}
-              className={`px-3 py-1.5 rounded-full border text-sm whitespace-nowrap ${
-                typeFilter === option
-                  ? 'bg-brand-600 text-white border-brand-600'
-                  : 'bg-white border-gray-200 hover:bg-gray-50 dark:bg-slate-900/70 dark:border-white/10 dark:text-white/90 dark:hover:bg-slate-900'
-              }`}
+              className={`chip ${typeFilter === option ? 'chip--active' : ''}`}
             >
               {option}
             </button>
