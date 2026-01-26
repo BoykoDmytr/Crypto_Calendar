@@ -6,73 +6,82 @@ import { getAnonId } from '../utils/anon';
 export function useEventReaction(eventId) {
   const [counts, setCounts] = useState({ like: 0, dislike: 0 });
   const [userReaction, setUserReaction] = useState(null);
+  const [loading, setLoading] = useState(false);
 
-  useEffect(() => {
+  const refresh = useCallback(async () => {
     if (!eventId) return;
-    let cancelled = false;
+
+    setLoading(true);
     const anon = getAnonId();
-    async function load() {
-      // реакція поточного користувача
-      const { data: selfData, error: selfError } = await supabase
+
+    // 1) реакція поточного користувача
+    const { data: selfData } = await supabase
+      .from('event_reactions')
+      .select('reaction')
+      .eq('event_id', eventId)
+      .eq('anon_id', anon)
+      .maybeSingle();
+
+    setUserReaction(selfData?.reaction ?? null);
+
+    // 2) лічильники (2 запити, зате завжди коректно)
+    const [{ count: likeCount }, { count: dislikeCount }] = await Promise.all([
+      supabase
         .from('event_reactions')
-        .select('reaction')
+        .select('*', { head: true, count: 'exact' })
         .eq('event_id', eventId)
-        .eq('anon_id', anon)
-        .maybeSingle();
-      if (!cancelled) {
-        setUserReaction(selfError ? null : selfData?.reaction ?? null);
-      }
-      // агрегація лічильників
-      const { data: aggData } = await supabase
+        .eq('reaction', 'like'),
+      supabase
         .from('event_reactions')
-        .select('reaction, count')
+        .select('*', { head: true, count: 'exact' })
         .eq('event_id', eventId)
-        .group('reaction');
-      if (!cancelled) {
-        const next = { like: 0, dislike: 0 };
-        (aggData || []).forEach((row) => {
-          if (row.reaction === 'like') next.like = row.count;
-          if (row.reaction === 'dislike') next.dislike = row.count;
-        });
-        setCounts(next);
-      }
-    }
-    load();
-    return () => { cancelled = true; };
+        .eq('reaction', 'dislike'),
+    ]).then((res) => res.map((r) => r));
+
+    setCounts({
+      like: likeCount ?? 0,
+      dislike: dislikeCount ?? 0,
+    });
+
+    setLoading(false);
   }, [eventId]);
 
-  const updateReaction = useCallback(async (reactionType) => {
-    if (!eventId) return;
-    const anon = getAnonId();
-    // якщо користувач повторно натиснув ту ж кнопку — видаляємо реакцію
-    if (userReaction === reactionType) {
-      await supabase
-        .from('event_reactions')
-        .delete()
-        .eq('event_id', eventId)
-        .eq('anon_id', anon);
-      setUserReaction(null);
-    } else {
-      // upsert за унікальним ключем (event_id, anon_id)
-      await supabase
-        .from('event_reactions')
-        .upsert({ event_id: eventId, anon_id: anon, reaction: reactionType },
-                { onConflict: 'event_id, anon_id' });
-      setUserReaction(reactionType);
-    }
-    // перерахунок лічильників
-    const { data: aggData } = await supabase
-      .from('event_reactions')
-      .select('reaction, count')
-      .eq('event_id', eventId)
-      .group('reaction');
-    const next = { like: 0, dislike: 0 };
-    (aggData || []).forEach((row) => {
-      if (row.reaction === 'like') next.like = row.count;
-      if (row.reaction === 'dislike') next.dislike = row.count;
-    });
-    setCounts(next);
-  }, [eventId, userReaction]);
+  useEffect(() => {
+    refresh();
+  }, [refresh]);
 
-  return { counts, userReaction, updateReaction };
+  const updateReaction = useCallback(
+    async (reactionType) => {
+      if (!eventId) return;
+
+      const anon = getAnonId();
+
+      // toggle: якщо клік по тій самій реакції — видаляємо
+      if (userReaction === reactionType) {
+        await supabase
+          .from('event_reactions')
+          .delete()
+          .eq('event_id', eventId)
+          .eq('anon_id', anon);
+
+        setUserReaction(null);
+      } else {
+        // upsert по унікальному ключу
+        await supabase
+          .from('event_reactions')
+          .upsert(
+            { event_id: eventId, anon_id: anon, reaction: reactionType },
+            { onConflict: 'event_id,anon_id' } // важливо: без пробілу
+          );
+
+        setUserReaction(reactionType);
+      }
+
+      // після зміни — перерахунок лічильників
+      await refresh();
+    },
+    [eventId, userReaction, refresh]
+  );
+
+  return { counts, userReaction, updateReaction, loading, refresh };
 }
