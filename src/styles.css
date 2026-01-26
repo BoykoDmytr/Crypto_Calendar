@@ -62,12 +62,20 @@
 
   html, body {
     background: var(--page-bg);
+    background-color: var(--bg);
     background-attachment: fixed;
     background-repeat: no-repeat;
     background-size: cover;
     color: var(--text);
+    min-height: 100%;
     max-width: 100%;
     overflow-x: hidden;
+  }
+
+  @media (max-width: 768px) {
+    html, body {
+      background-attachment: scroll;
+    }
   }
 
   #root { background: transparent; }
