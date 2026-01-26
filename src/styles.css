@@ -359,6 +359,8 @@ border-color: var(--glass-border);
 backdrop-filter: blur(16px);
 -webkit-backdrop-filter: blur(16px);
 transition: background-color .2s ease, border-color .2s ease;
+border-radius: 18px;      /* або 16/20/24 */
+  overflow: hidden;  
 }
 html.dark .site-header,
 html.dark .page-header{
