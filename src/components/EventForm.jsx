@@ -655,12 +655,12 @@ export default function EventForm({ onSubmit, loading, initial = {} }) {
                     />
                   </div>
                   <div>
-                    <label className="label">Посилання на ціну (Debot/MEXC)</label>
+                    <label className="label">Посилання на ціну MEXC</label>
                     <input
                       className="input"
                       value={coin?.price_link || ''}
                       onChange={(e) => updateCoin(index, 'price_link', e.target.value)}
-                      placeholder={`https://debot.ai/token/... або ${MEXC_PRICE_LINK_TEMPLATE}`}
+                      placeholder={`${MEXC_PRICE_LINK_TEMPLATE}`}
                     />
                   </div>
                 </div>
