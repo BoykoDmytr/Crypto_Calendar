@@ -22,6 +22,10 @@ if (import.meta.env.PROD) {
   injectSpeedInsights();
 }
 
+const root = document.documentElement;
+root.classList.add('dark');
+localStorage.setItem('theme', 'dark');
+
 ReactDOM.createRoot(document.getElementById('root')).render(<App />)
 
 

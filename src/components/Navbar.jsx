@@ -1,5 +1,4 @@
 import { Link, useLocation } from 'react-router-dom';
-import ThemeToggle from '../components/ThemeToggle'
 export default function Navbar() {
   const { pathname } = useLocation();
   const is = (p) => (p === '/' ? pathname === '/' : pathname.startsWith(p));
@@ -56,13 +55,9 @@ export default function Navbar() {
               </Link>
             </nav>
           </div>
-          <ThemeToggle />
-
         </div>
       </div>
       
     </header>
   );
 }
-
-//<Link className={`px-3 py-1 rounded-lg ${is('/airdrop') ? 'bg-gray-100' : ''}`} to="/airdrop">Ейрдроп</Link>

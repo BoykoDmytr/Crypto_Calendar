@@ -271,11 +271,11 @@
   }
 
   .sticky-filters {
-    background: var(--glass-bg);
-    backdrop-filter: blur(14px);
-    -webkit-backdrop-filter: blur(14px);
-    border-bottom: 1px solid var(--glass-border);
-    box-shadow: var(--glass-shadow);
+    background: transparent;
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+    border-bottom: none;
+    box-shadow: none;
   }
 
   .divider { height: 1px; background: var(--border); }
@@ -361,8 +361,6 @@ backdrop-filter: blur(16px);
 transition: background-color .2s ease, border-color .2s ease;
 }
 html.dark .site-header,
-html.dark .sticky,
-html.dark .sticky-filters,
 html.dark .page-header{
   background-color: var(--glass-bg) !important;
   border-color: var(--glass-border) !important;
