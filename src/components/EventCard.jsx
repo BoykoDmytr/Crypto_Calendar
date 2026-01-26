@@ -140,7 +140,7 @@ export default function EventCard({ ev, isPast = false }) {
               className="flex items-center gap-1 px-2 py-1 rounded-md hover:bg-black/5 dark:hover:bg-white/10"
             >
               <img
-                src="/dislike.png"
+                src="/dislikef.png"
                 alt="Dislike"
                 className={`w-4 h-4 ${
                   userReaction === 'dislike' ? 'opacity-100' : 'opacity-40'
@@ -157,7 +157,7 @@ export default function EventCard({ ev, isPast = false }) {
               className="flex items-center gap-1 px-2 py-1 rounded-md hover:bg-black/5 dark:hover:bg-white/10"
             >
               <img
-                src="/like.png"
+                src="/likef.png"
                 alt="Like"
                 className={`w-4 h-4 ${
                   userReaction === 'like' ? 'opacity-100' : 'opacity-40'
