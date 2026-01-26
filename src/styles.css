@@ -893,3 +893,10 @@ html.dark .admin-page .card .chips > *:first-child {
   color: #FFD55E !important;
   box-shadow: 0 0 0 1px rgba(255,213,94,.06) inset;
 }
+
+.event-reactions {
+  display: flex;
+  gap: 6px;
+  align-self: center;
+  margin-left: auto;
+}
