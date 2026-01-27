@@ -657,7 +657,10 @@ export function parseTsBybit(message, channel) {
   const ticker = (t1?.[1] || t2?.[1] || '').toUpperCase() || null;
 
   const normalizedFirstLine = normalizeSpaces(firstLine);
-  const title = normalizedFirstLine || (ticker ? `Token splash: $${ticker}` : 'Token splash');
+  const cleanedFirstLine = normalizedFirstLine
+    .replace(/^!+\s*/g, '')
+    .replace(/^New\s+token\s+splash:/i, 'Token splash:');
+  const title = cleanedFirstLine || (ticker ? `Token splash: $${ticker}` : 'Token splash');
 
 
   // Pool line
