@@ -1090,7 +1090,10 @@ export async function run() {
             }
           } else {
             // немає затвердженої події – записуємо у auto_events_pending
-            const r = await upsertPendingBySourceKey(supabase, payload);
+            const r =
+              payload.event_type_slug === 'binance-alpha' && payload.coin_name
+                ? await upsertPendingByCoinWindow(supabase, payload, 3)
+                : await upsertPendingBySourceKey(supabase, payload);
             if (r.action === 'inserted') inserted++;
             else skipped++;
           }
