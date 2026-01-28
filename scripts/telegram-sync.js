@@ -707,7 +707,7 @@ export function parseTsBybit(message, channel) {
     coins,
     coin_name,
     coin_quantity,
-    type: 'TS BYBIT',
+    type: 'TS Bybit',
     event_type_slug: 'ts-bybit',
     source,
     source_key,
