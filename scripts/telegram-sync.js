@@ -755,6 +755,65 @@ async function upsertPendingBySourceKey(supabase, payload) {
   return { action: 'inserted', id: ins.id };
 }
 
+function buildStartAtWindow(startAtIso, days = 5) {
+  if (!startAtIso) return null;
+  const base = dayjs(startAtIso);
+  if (!base.isValid()) return null;
+  return {
+    from: base.subtract(days, 'day').toISOString(),
+    to: base.add(days, 'day').toISOString(),
+    target: base,
+  };
+}
+
+function pickClosestByStartAt(events, target) {
+  if (!events?.length || !target) return null;
+  let closest = null;
+  let closestDiff = null;
+  for (const item of events) {
+    const startAt = item?.start_at ? dayjs(item.start_at) : null;
+    if (!startAt || !startAt.isValid()) continue;
+    const diff = Math.abs(startAt.diff(target, 'minute'));
+    if (closestDiff === null || diff < closestDiff) {
+      closest = item;
+      closestDiff = diff;
+    }
+  }
+  return closest;
+}
+
+async function upsertPendingByCoinWindow(supabase, payload, days = 3) {
+  const window = buildStartAtWindow(payload.start_at, days);
+  if (!window) return upsertPendingBySourceKey(supabase, payload);
+
+  const { data: existing, error: findErr } = await supabase
+    .from('auto_events_pending')
+    .select('id, start_at')
+    .eq('event_type_slug', payload.event_type_slug)
+    .eq('coin_name', payload.coin_name)
+    .gte('start_at', window.from)
+    .lte('start_at', window.to);
+
+  if (findErr) throw findErr;
+
+  const closest = pickClosestByStartAt(existing, window.target);
+  if (closest?.id) {
+    const patch = cleanPayload(payload);
+    const { error: updErr } = await supabase.from('auto_events_pending').update(patch).eq('id', closest.id);
+    if (updErr) throw updErr;
+    return { action: 'updated', id: closest.id };
+  }
+
+  const { data: ins, error: insErr } = await supabase
+    .from('auto_events_pending')
+    .insert(cleanPayload(payload))
+    .select('id')
+    .single();
+
+  if (insErr) throw insErr;
+  return { action: 'inserted', id: ins.id };
+}
+
 async function getLastMessageId(supabase, channel) {
   const { data, error } = await supabase
     .from('telegram_ingest_state')
@@ -947,15 +1006,43 @@ export async function run() {
 
         // Якщо є source/source_key, перевіряємо чи вже є затверджена подія.
         if (payload.source && payload.source_key) {
-          const { data: approved, error: approvedErr } = await supabase
-            .from('events_approved')
-            .select(
-              'id, title, description, start_at, end_at, timezone, type, link, coins, coin_name, coin_quantity, coin_price_link, event_type_slug'
-            )
-            .eq('event_type_slug', payload.event_type_slug)
-            .eq('coin_name', payload.coin_name)
-            .eq('start_at', payload.start_at)
-            .limit(1);
+          const isBinanceAlpha = payload.event_type_slug === 'binance-alpha';
+          const baseSelect =
+            'id, title, description, start_at, end_at, timezone, type, link, coins, coin_name, coin_quantity, coin_price_link, event_type_slug';
+
+          let approved = null;
+          let approvedErr = null;
+
+          if (isBinanceAlpha && payload.coin_name) {
+            const window = buildStartAtWindow(payload.start_at, 5);
+            if (window) {
+              const { data, error } = await supabase
+                .from('events_approved')
+                .select(baseSelect)
+                .eq('event_type_slug', payload.event_type_slug)
+                .eq('coin_name', payload.coin_name)
+                .gte('start_at', window.from)
+                .lte('start_at', window.to);
+              approved = data;
+              approvedErr = error;
+              if (!approvedErr) {
+                const closest = pickClosestByStartAt(approved, window.target);
+                approved = closest ? [closest] : [];
+              }
+            }
+          }
+
+          if (!approvedErr && (!approved || approved.length === 0)) {
+            const { data, error } = await supabase
+              .from('events_approved')
+              .select(baseSelect)
+              .eq('event_type_slug', payload.event_type_slug)
+              .eq('coin_name', payload.coin_name)
+              .eq('start_at', payload.start_at)
+              .limit(1);
+            approved = data;
+            approvedErr = error;
+          }
 
           if (!approvedErr && approved && approved.length) {
             const existing = approved[0];
