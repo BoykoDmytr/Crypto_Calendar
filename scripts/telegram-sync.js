@@ -656,11 +656,10 @@ export function parseTsBybit(message, channel) {
   const t2 = firstLine.match(/token\s+splash:\s*\$?([A-Z0-9]{2,20})/i);
   const ticker = (t1?.[1] || t2?.[1] || '').toUpperCase() || null;
 
-  const normalizedFirstLine = normalizeSpaces(firstLine);
-  const cleanedFirstLine = normalizedFirstLine
+  const normalizedFirstLine = normalizeSpaces(firstLine)
     .replace(/^!+\s*/g, '')
     .replace(/^New\s+token\s+splash:/i, 'Token splash:');
-  const title = cleanedFirstLine || (ticker ? `Token splash: $${ticker}` : 'Token splash');
+  const title = ticker ? `Token Splash: $${ticker}` : 'Token Splash';
 
 
   // Pool line
@@ -691,9 +690,14 @@ export function parseTsBybit(message, channel) {
   const description = poolLine ? poolLine : null;
 
   const source = 'ts_bybit';
-  const source_key = ticker
-    ? `TS|${ticker}|${dayjs(endIso).utc().format('YYYY-MM-DD HH:mm')}`
-    : `TS|${dayjs(endIso).utc().format('YYYY-MM-DD HH:mm')}`;
+  const sourceKeyParts = ['TS', ticker || ''];
+  sourceKeyParts.push(dayjs(endIso).utc().format('YYYY-MM-DD HH:mm'));
+  if (coin_quantity) {
+    sourceKeyParts.push(`POOL:${coin_quantity}`);
+  } else if (normalizedFirstLine) {
+    sourceKeyParts.push(`LINE:${normalizedFirstLine}`);
+  }
+  const source_key = sourceKeyParts.filter(Boolean).join('|');
 
   return [{
     title,
