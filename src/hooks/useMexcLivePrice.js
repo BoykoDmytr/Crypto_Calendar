@@ -2,28 +2,45 @@
 import { useEffect, useMemo, useState } from 'react';
 import { fetchMexcTickerPrice, buildMexcTickerUrl } from '../utils/fetchMexcTicker';
 
-// source: або повний mexc-лінк, або symbol типу "BTCUSDT"
+// source: або повний mexc-лінк, або symbol типу "BTCUSDT" (spot) чи "BTC_USDT" (futures)
 function normalizeMexcSymbol(source) {
   if (!source || typeof source !== 'string') return null;
-  const trimmed = source.trim().toUpperCase();
+  const raw = source.trim();
+  if (!raw) return null;
+
+  const upper = raw.toUpperCase();
 
   // URL
-  if (/^https?:\/\//i.test(trimmed)) {
-    const spotMatch = trimmed.match(/\/exchange\/([A-Z0-9]+)_([A-Z0-9]+)/i);
-    if (spotMatch) {
-      return { symbol: `${spotMatch[1].toUpperCase()}${spotMatch[2].toUpperCase()}`, market: 'spot' };
-    }
+  if (/^https?:\/\//i.test(raw)) {
+    const isFutures = /\/futures\//i.test(raw) || /type=linear_swap/i.test(raw);
 
-    const futuresMatch = trimmed.match(/\/futures\/([A-Z0-9]+)_([A-Z0-9]+)/i);
-    if (futuresMatch) {
-      return { symbol: `${futuresMatch[1].toUpperCase()}_${futuresMatch[2].toUpperCase()}`, market: 'futures' };
-    }
+    // пробуємо знайти пару у форматі XXX_YYY (підтримує uk-UA / інші префікси)
+    const m =
+      raw.match(/\/(futures|exchange)\/([A-Z0-9]+)_([A-Z0-9]+)/i) ||
+      raw.match(/([A-Z0-9]+)_([A-Z0-9]+)/i);
 
-    return null;
+    if (!m) return null;
+
+    const base = (m[m.length - 2] || '').toUpperCase();
+    const quote = (m[m.length - 1] || '').toUpperCase();
+    if (!base || !quote) return null;
+
+    if (isFutures) {
+      return { symbol: `${base}_${quote}`, market: 'futures' }; // BTC_USDT
+    }
+    return { symbol: `${base}${quote}`, market: 'spot' }; // BTCUSDT
   }
 
   // вже symbol
-  if (/^[A-Z0-9]{5,20}$/.test(trimmed)) return { symbol: trimmed, market: 'spot' };
+  // futures символ зазвичай з "_" (BTC_USDT)
+  if (/^[A-Z0-9]{2,20}_[A-Z0-9]{2,10}$/.test(upper)) {
+    return { symbol: upper, market: 'futures' };
+  }
+
+  // spot символ без "_" (BTCUSDT)
+  if (/^[A-Z0-9]{5,20}$/.test(upper)) {
+    return { symbol: upper, market: 'spot' };
+  }
 
   return null;
 }
@@ -56,16 +73,14 @@ export function useMexcLivePrice(source) {
         const urlCandidates = buildMexcTickerUrl(normalized.symbol, { market: normalized.market });
         const { price } = await fetchMexcTickerPrice(normalized.symbol, { market: normalized.market });
 
-         console.debug('[MEXC] fetched ticker', {
+        console.debug('[MEXC] fetched ticker', {
           ...urlCandidates,
           symbol: normalized.symbol,
           market: normalized.market,
           price,
         });
 
-        if (!cancelled) {
-          setPrice(price);
-        }
+        if (!cancelled) setPrice(price);
       } catch (e) {
         if (!cancelled) {
           console.error('[MEXC] fetch error', e);
@@ -73,20 +88,18 @@ export function useMexcLivePrice(source) {
           setPrice(null);
         }
       } finally {
-        if (!cancelled) {
-          setLoading(false);
-        }
+        if (!cancelled) setLoading(false);
       }
     }
 
-    fetchPrice();                         // перший запит
-    timerId = setInterval(fetchPrice, 60_000); // далі раз на хвилину
+    fetchPrice(); // перший запит
+    timerId = setInterval(fetchPrice, 60_000);
 
     return () => {
       cancelled = true;
       if (timerId) clearInterval(timerId);
     };
-  }, [normalized]);
+  }, [normalized?.symbol, normalized?.market]);
 
   return { price, loading, error, symbol: normalized?.symbol };
 }

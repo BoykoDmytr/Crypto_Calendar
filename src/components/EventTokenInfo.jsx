@@ -16,27 +16,34 @@ function formatCurrency(value) {
   return new Intl.NumberFormat('en-US', opts).format(num);
 }
 
-// Витягуємо BTCUSDT із лінка типу https://www.mexc.com/exchange/BTC_USDT
+// Підтримує:
+// - https://www.mexc.com/exchange/BTC_USDT
+// - https://www.mexc.com/uk-UA/exchange/BTC_USDT#token-info
+// - https://www.mexc.com/uk-UA/futures/RIVER_USDT
 function extractMexcSymbolFromLink(link) {
   if (!link || typeof link !== 'string') return null;
-  const trimmed = link.trim().toUpperCase();
+  const raw = link.trim();
+  if (!raw) return null;
 
-  if (!/^https?:\/\//i.test(trimmed)) return null;
-  const spotMatch = trimmed.match(/\/EXCHANGE\/([A-Z0-9]+)_([A-Z0-9]+)/i);
-  if (spotMatch) {
-    const base = spotMatch[1].toUpperCase();
-    const quote = spotMatch[2].toUpperCase();
-    return { symbol: `${base}${quote}`, market: 'spot' }; // BTCUSDT
-  }
+  if (!/^https?:\/\//i.test(raw)) return null;
 
-  const futuresMatch = trimmed.match(/\/FUTURES\/([A-Z0-9]+)_([A-Z0-9]+)/i);
-  if (futuresMatch) {
-    const base = futuresMatch[1].toUpperCase();
-    const quote = futuresMatch[2].toUpperCase();
+  const isFutures = /\/futures\//i.test(raw) || /type=linear_swap/i.test(raw);
+
+  const m =
+    raw.match(/\/(futures|exchange)\/([A-Z0-9]+)_([A-Z0-9]+)/i) ||
+    raw.match(/([A-Z0-9]+)_([A-Z0-9]+)/i);
+
+  if (!m) return null;
+
+  const base = (m[m.length - 2] || '').toUpperCase();
+  const quote = (m[m.length - 1] || '').toUpperCase();
+  if (!base || !quote) return null;
+
+  if (isFutures) {
     return { symbol: `${base}_${quote}`, market: 'futures' }; // BTC_USDT
   }
 
-  return null;
+  return { symbol: `${base}${quote}`, market: 'spot' }; // BTCUSDT
 }
 
 function TokenRow({ coin }) {
@@ -49,11 +56,7 @@ function TokenRow({ coin }) {
   const mexcMeta = isMexc ? extractMexcSymbolFromLink(link) : null;
 
   // 🔹 Debot — усе, що НЕ MEXC
-  const {
-    price: debotPrice,
-    loading: debotLoading,
-    error: debotError,
-  } = useTokenPrice(!isMexc ? link : null);
+  const { price: debotPrice, loading: debotLoading, error: debotError } = useTokenPrice(!isMexc ? link : null);
 
   // 🔹 MEXC — локальний стейт
   const [mexcPrice, setMexcPrice] = useState(null);
@@ -82,16 +85,14 @@ function TokenRow({ coin }) {
         const { price } = await fetchMexcTickerPrice(mexcMeta.symbol, { market: mexcMeta.market });
 
         console.debug('[MEXC] fetched ticker', {
-            ...urlCandidates,
+          ...urlCandidates,
           mexcSymbol: mexcMeta.symbol,
           market: mexcMeta.market,
           name,
           price,
         });
 
-        if (!cancelled) {
-          setMexcPrice(price);
-        }
+        if (!cancelled) setMexcPrice(price);
       } catch (e) {
         if (!cancelled) {
           console.error('[MEXC] fetch error', e);
@@ -99,15 +100,11 @@ function TokenRow({ coin }) {
           setMexcPrice(null);
         }
       } finally {
-        if (!cancelled) {
-          setMexcLoading(false);
-        }
+        if (!cancelled) setMexcLoading(false);
       }
     }
 
-    // перший запит
     fetchPrice();
-    // оновлюємо раз на хвилину
     timerId = setInterval(fetchPrice, 60_000);
 
     return () => {
@@ -139,12 +136,12 @@ function TokenRow({ coin }) {
   const totalLabel = useMemo(() => formatCurrency(total), [total]);
   const showPriceInfo = hasQuantity && Boolean(link);
 
-  // DEBUG: що реально приходить у рядок
   console.debug('[EventTokenInfo:TokenRow]', {
     name,
     link,
     isMexc,
     mexcSymbol: mexcMeta?.symbol,
+    market: mexcMeta?.market,
     hasQuantity,
     quantityValue,
     price,
@@ -157,9 +154,7 @@ function TokenRow({ coin }) {
   return (
     <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-sm sm:text-base">
       <div className="inline-flex items-center gap-1 sm:gap-1.5 whitespace-nowrap">
-        {hasQuantity && quantityLabel && (
-          <span className="token-panel__value">{quantityLabel}</span>
-        )}
+        {hasQuantity && quantityLabel && <span className="token-panel__value">{quantityLabel}</span>}
         {name && <span className="token-panel__name">{name}</span>}
       </div>
 
