@@ -20,7 +20,7 @@ function formatCurrency(value) {
 // - https://www.mexc.com/exchange/BTC_USDT
 // - https://www.mexc.com/uk-UA/exchange/BTC_USDT#token-info
 // - https://www.mexc.com/uk-UA/futures/RIVER_USDT
-const MEXC_REFRESH_INTERVAL_MS = 20_000;
+const MEXC_REFRESH_INTERVAL_MS = 600_000;
 
 function isMexcFuturesLink(raw) {
   if (!raw || typeof raw !== 'string') return false;

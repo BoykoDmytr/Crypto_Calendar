@@ -2,7 +2,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { fetchMexcTickerPrice, buildMexcTickerUrl } from '../utils/fetchMexcTicker';
 
-const MEXC_REFRESH_INTERVAL_MS = 20_000;
+const MEXC_REFRESH_INTERVAL_MS = 600_000;
 
 function isMexcFuturesLink(raw) {
   if (!raw || typeof raw !== 'string') return false;
