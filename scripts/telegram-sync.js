@@ -663,31 +663,62 @@ export function parseTsBybit(message, channel) {
 
 
   // Pool line
-  const mPool =
+  const mTotalReward =
     decoded.match(/Общая\s+наград(?:а|ы):\s*([0-9][0-9\s,.]*)\s*\$?([A-Z0-9_-]{2,})/i) ||
     null;
+  const mSlots =
+    decoded.match(/(\d[\d\s,.]*)\s*мест/i) ||
+    decoded.match(/Місць:\s*(\d[\d\s,.]*)/i) ||
+    null;
+  const mPerUser =
+    decoded.match(/по\s*([0-9][0-9\s,.]*)\s*\$?([A-Z0-9_-]{2,})/i) ||
+    null;
 
-  let poolLine = null;
+  const descriptionParts = [];
+  const coinEntries = [];
   let coin_name = null;
   let coin_quantity = null;
-  let coins = null;
+  
 
-  if (mPool) {
-    const qtyDisplay = mPool[1].trim().replace(/\u00A0/g, ' ');
-    const token = (mPool[2] || '').replace(/\$/g, '').toUpperCase();
-    poolLine = `Pool: ${qtyDisplay} $${token}`;
+  if (mTotalReward) {
+    const qtyDisplay = mTotalReward[1].trim().replace(/\u00A0/g, ' ');
+    const token = (mTotalReward[2] || '').replace(/\$/g, '').toUpperCase();
+    descriptionParts.push(`${qtyDisplay} $${token}`);
 
     const qtyNumStr = qtyDisplay.replace(/\s+/g, '').replace(/,/g, '');
     const qtyNum = Number(qtyNumStr);
     if (Number.isFinite(qtyNum)) {
       coin_name = token;
       coin_quantity = qtyNum;
-      coins = buildCoins(coin_name, coin_quantity);
+      coinEntries.push({ name: token, quantity: qtyNum });
     }
   }
 
+  if (mSlots) {
+    const slotsDisplay = mSlots[1].trim().replace(/\u00A0/g, ' ');
+    const slotsNum = slotsDisplay.replace(/\s+/g, '').replace(/,/g, '');
+    descriptionParts.push(`Місць: ${slotsNum}`);
+  }
+
+  if (mPerUser) {
+    const qtyDisplay = mPerUser[1].trim().replace(/\u00A0/g, ' ');
+    const token = (mPerUser[2] || '').replace(/\$/g, '').toUpperCase();
+    descriptionParts.push(`Нагорода на особу: ${qtyDisplay} $${token}`);
+
+    const qtyNumStr = qtyDisplay.replace(/\s+/g, '').replace(/,/g, '');
+    const qtyNum = Number(qtyNumStr);
+    if (Number.isFinite(qtyNum)) {
+      coinEntries.push({ name: token, quantity: qtyNum });
+    }
+  }
+
+  if (!coin_name && coinEntries.length) {
+    coin_name = coinEntries[0]?.name || null;
+  }
+
+  const coins = coinEntries.length ? coinEntries : null;
   // ✅ Description WITHOUT Date range
-  const description = poolLine ? poolLine : null;
+  const description = descriptionParts.length ? descriptionParts.join('\n') : null;
 
   const source = 'ts_bybit';
   const sourceKeyParts = ['TS', ticker || ''];
