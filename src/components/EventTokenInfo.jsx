@@ -20,6 +20,28 @@ function formatCurrency(value) {
 // - https://www.mexc.com/exchange/BTC_USDT
 // - https://www.mexc.com/uk-UA/exchange/BTC_USDT#token-info
 // - https://www.mexc.com/uk-UA/futures/RIVER_USDT
+const MEXC_REFRESH_INTERVAL_MS = 20_000;
+
+function isMexcFuturesLink(raw) {
+  if (!raw || typeof raw !== 'string') return false;
+  try {
+    const url = new URL(raw);
+    const host = url.hostname.toLowerCase();
+    if (host.startsWith('futures.') || host.startsWith('contract.')) return true;
+    if (host.includes('futures') || host.includes('contract')) return true;
+
+    const path = url.pathname.toLowerCase();
+    if (path.includes('/futures/') || path.includes('/contract/') || path.includes('/swap/')) return true;
+
+    const type = url.searchParams.get('type');
+    if (type && type.toLowerCase() === 'linear_swap') return true;
+  } catch {
+    // ignore URL parse errors
+  }
+
+  return /\/futures\//i.test(raw) || /type=linear_swap/i.test(raw);
+}
+
 function extractMexcSymbolFromLink(link) {
   if (!link || typeof link !== 'string') return null;
   const raw = link.trim();
@@ -27,7 +49,7 @@ function extractMexcSymbolFromLink(link) {
 
   if (!/^https?:\/\//i.test(raw)) return null;
 
-  const isFutures = /\/futures\//i.test(raw) || /type=linear_swap/i.test(raw);
+  const isFutures = isMexcFuturesLink(raw);
 
   const m =
     raw.match(/\/(futures|exchange)\/([A-Z0-9]+)_([A-Z0-9]+)/i) ||
@@ -73,6 +95,7 @@ function TokenRow({ coin }) {
 
     let cancelled = false;
     let timerId;
+    let visibilityHandler;
 
     async function fetchPrice() {
       if (cancelled) return;
@@ -105,11 +128,23 @@ function TokenRow({ coin }) {
     }
 
     fetchPrice();
-    timerId = setInterval(fetchPrice, 60_000);
+    timerId = setInterval(fetchPrice, MEXC_REFRESH_INTERVAL_MS);
+
+    if (typeof document !== 'undefined') {
+      visibilityHandler = () => {
+        if (document.visibilityState === 'visible') {
+          fetchPrice();
+        }
+      };
+      document.addEventListener('visibilitychange', visibilityHandler);
+    }
 
     return () => {
       cancelled = true;
       if (timerId) clearInterval(timerId);
+      if (visibilityHandler && typeof document !== 'undefined') {
+        document.removeEventListener('visibilitychange', visibilityHandler);
+      }
     };
   }, [isMexc, mexcMeta?.symbol, mexcMeta?.market, name]);
 

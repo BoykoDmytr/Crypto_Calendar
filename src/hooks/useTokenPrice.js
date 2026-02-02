@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 
-const MINUTE = 60_000;
+const REFRESH_INTERVAL_MS = 30_000;
+const FETCH_TIMEOUT_MS = 8_000;
 
 const stores = new Map();
 
@@ -1007,6 +1008,30 @@ function extractFromHtml(text) {
   return null;
 }
 
+function createTimeoutController(signal, timeoutMs) {
+  const controller = new AbortController();
+  const timerId = setTimeout(() => controller.abort(), timeoutMs);
+
+  const cleanup = () => clearTimeout(timerId);
+  if (signal) {
+    if (signal.aborted) {
+      controller.abort();
+      cleanup();
+    } else {
+      signal.addEventListener(
+        'abort',
+        () => {
+          controller.abort();
+          cleanup();
+        },
+        { once: true }
+      );
+    }
+  }
+
+  return { controller, cleanup };
+}
+
 async function fetchEndpoint(entry, signal) {
   const { url, parser, headers: extraHeaders } =
     typeof entry === 'string'
@@ -1021,12 +1046,13 @@ async function fetchEndpoint(entry, signal) {
     Accept: 'application/json,text/plain,*/*',
     ...(extraHeaders || {}),
   };
-
+  const { controller, cleanup } = createTimeoutController(signal, FETCH_TIMEOUT_MS);
   const response = await fetch(url, {
-    signal,
+    signal: controller.signal,
     cache: 'no-store',
     headers,
-  });
+  }).finally(cleanup);
+
 
   if (!response.ok) {
     throw new Error(`HTTP ${response.status}`);
@@ -1155,6 +1181,7 @@ function getStore(link) {
       timer: null,
       controller: null,
       inFlight: null,
+      visibilityListener: null,
     };
     stores.set(link, store);
   }
@@ -1214,7 +1241,16 @@ function subscribe(link, listener) {
     runFetch(store);
     store.timer = setInterval(() => {
       runFetch(store);
-    }, MINUTE);
+    }, REFRESH_INTERVAL_MS);
+  }
+
+  if (typeof document !== 'undefined' && !store.visibilityListener) {
+    store.visibilityListener = () => {
+      if (document.visibilityState === 'visible') {
+        runFetch(store);
+      }
+    };
+    document.addEventListener('visibilitychange', store.visibilityListener);
   }
 
   return () => {
@@ -1223,6 +1259,10 @@ function subscribe(link, listener) {
       if (store.timer) {
         clearInterval(store.timer);
         store.timer = null;
+      }
+      if (store.visibilityListener && typeof document !== 'undefined') {
+        document.removeEventListener('visibilitychange', store.visibilityListener);
+        store.visibilityListener = null;
       }
       if (store.controller) {
         store.controller.abort();

@@ -2,6 +2,28 @@
 import { useEffect, useMemo, useState } from 'react';
 import { fetchMexcTickerPrice, buildMexcTickerUrl } from '../utils/fetchMexcTicker';
 
+const MEXC_REFRESH_INTERVAL_MS = 20_000;
+
+function isMexcFuturesLink(raw) {
+  if (!raw || typeof raw !== 'string') return false;
+  try {
+    const url = new URL(raw);
+    const host = url.hostname.toLowerCase();
+    if (host.startsWith('futures.') || host.startsWith('contract.')) return true;
+    if (host.includes('futures') || host.includes('contract')) return true;
+
+    const path = url.pathname.toLowerCase();
+    if (path.includes('/futures/') || path.includes('/contract/') || path.includes('/swap/')) return true;
+
+    const type = url.searchParams.get('type');
+    if (type && type.toLowerCase() === 'linear_swap') return true;
+  } catch {
+    // ignore URL parse errors
+  }
+
+  return /\/futures\//i.test(raw) || /type=linear_swap/i.test(raw);
+}
+
 // source: або повний mexc-лінк, або symbol типу "BTCUSDT" (spot) чи "BTC_USDT" (futures)
 function normalizeMexcSymbol(source) {
   if (!source || typeof source !== 'string') return null;
@@ -12,8 +34,7 @@ function normalizeMexcSymbol(source) {
 
   // URL
   if (/^https?:\/\//i.test(raw)) {
-    const isFutures = /\/futures\//i.test(raw) || /type=linear_swap/i.test(raw);
-
+    const isFutures = isMexcFuturesLink(raw);
     // пробуємо знайти пару у форматі XXX_YYY (підтримує uk-UA / інші префікси)
     const m =
       raw.match(/\/(futures|exchange)\/([A-Z0-9]+)_([A-Z0-9]+)/i) ||
@@ -62,6 +83,7 @@ export function useMexcLivePrice(source) {
 
     let cancelled = false;
     let timerId;
+    let visibilityHandler;
 
     async function fetchPrice() {
       if (cancelled) return;
@@ -93,11 +115,23 @@ export function useMexcLivePrice(source) {
     }
 
     fetchPrice(); // перший запит
-    timerId = setInterval(fetchPrice, 60_000);
+    timerId = setInterval(fetchPrice, MEXC_REFRESH_INTERVAL_MS);
+
+    if (typeof document !== 'undefined') {
+      visibilityHandler = () => {
+        if (document.visibilityState === 'visible') {
+          fetchPrice();
+        }
+      };
+      document.addEventListener('visibilitychange', visibilityHandler);
+    }
 
     return () => {
       cancelled = true;
       if (timerId) clearInterval(timerId);
+      if (visibilityHandler && typeof document !== 'undefined') {
+        document.removeEventListener('visibilitychange', visibilityHandler);
+      }
     };
   }, [normalized?.symbol, normalized?.market]);
 

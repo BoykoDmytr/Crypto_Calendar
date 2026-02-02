@@ -48,11 +48,31 @@ function normalizeMexcFuturesSymbol(raw) {
  *  - .../futures/BTC_USDT?...  -> BTC_USDT, market=futures
  *  - .../exchange/BTC_USDT     -> BTC_USDT, market=spot
  */
+function isMexcFuturesLink(link) {
+  if (!link || typeof link !== 'string') return false;
+  try {
+    const url = new URL(link);
+    const host = url.hostname.toLowerCase();
+    if (host.startsWith('futures.') || host.startsWith('contract.')) return true;
+    if (host.includes('futures') || host.includes('contract')) return true;
+
+    const path = url.pathname.toLowerCase();
+    if (path.includes('/futures/') || path.includes('/contract/') || path.includes('/swap/')) return true;
+
+    const type = url.searchParams.get('type');
+    if (type && type.toLowerCase() === 'linear_swap') return true;
+  } catch {
+    // ignore URL parse errors
+  }
+
+  return /\/futures\//i.test(link) || /type=linear_swap/i.test(link);
+}
+
 function parseMexcLink(link) {
   if (!link || typeof link !== 'string') return null;
   const s = link.trim();
 
-  const isFutures = /\/futures\//i.test(s) || /type=linear_swap/i.test(s);
+  const isFutures = isMexcFuturesLink(s);
 
   const m =
     s.match(/\/(futures|exchange)\/([A-Z0-9]{1,}_USDT)/i) ||
@@ -113,7 +133,7 @@ function pickMexcMarket(event) {
 
   if (entry?.pair) {
     const pair = String(entry.pair).toUpperCase();
-    const isFutures = /futures/i.test(event.coin_price_link || '');
+    const isFutures = isMexcFuturesLink(event.coin_price_link || '');
     const market = isFutures ? 'futures' : 'spot';
 
     return {
