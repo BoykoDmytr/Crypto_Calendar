@@ -1,8 +1,9 @@
 // src/utils/fetchMexcTicker.js
 
 const DEFAULT_TIMEOUT_MS = 10_000;
-const SPOT_BASE_URL = 'https://api.mexc.com/api/v3/ticker/price';
-const FUTURES_BASE_URL = 'https://contract.mexc.com/api/v1/contract/ticker';
+
+// ✅ ЄДИНЕ джерело на фронті — твій same-origin endpoint (без CORS)
+const INTERNAL_PROXY_PATH = '/api/mexc-ticker';
 
 function createAbortController(timeoutMs) {
   const controller = new AbortController();
@@ -18,48 +19,39 @@ async function fetchWithTimeout(url, timeoutMs) {
   const { controller, cleanup } = createAbortController(timeoutMs);
 
   try {
-    return await fetch(url, { signal: controller.signal });
+    return await fetch(url, {
+      signal: controller.signal,
+      headers: { Accept: 'application/json' },
+    });
   } finally {
     cleanup();
   }
 }
 
-function buildCandidates(symbol, { market }) {
-  const baseUrl = market === 'futures' ? FUTURES_BASE_URL : SPOT_BASE_URL;
-  const originalUrl = `${baseUrl}?symbol=${encodeURIComponent(symbol)}&_=${Date.now()}`;
+/**
+ * ✅ Будує URL до твого API-проксі.
+ * Очікується, що бекенд повертає JSON: { ok: true, price: number, ... }
+ */
+function buildProxyUrl(symbol, { market }) {
+  const m = market === 'futures' ? 'futures' : 'spot';
+  const params = new URLSearchParams({
+    symbol: String(symbol || '').trim(),
+    market: m,
+  });
 
-  // CORS-friendly proxies first, then direct fetch
-  return [
-    {
-      label: 'corsproxy.io',
-      url: `https://corsproxy.io/?${encodeURIComponent(originalUrl)}`,
-    },
-    {
-      label: 'allorigins',
-      url: `https://api.allorigins.win/raw?url=${encodeURIComponent(originalUrl)}`,
-    },
-    {
-      label: 'codetabs',
-      url: `https://api.codetabs.com/v1/proxy/?quest=${encodeURIComponent(originalUrl)}`,
-    },
-    {
-      label: 'direct',
-      url: originalUrl,
-    },
-  ];
+  // важливо: same-origin
+  return `${INTERNAL_PROXY_PATH}?${params.toString()}`;
 }
 
 function parsePrice(data) {
+  // Ми очікуємо { ok: true, price: <number> }
+  // Але залишаємо кілька фолбеків на випадок змін.
   const candidates = [
     data?.price,
-    data?.lastPrice,
-    data?.fairPrice,
     data?.data?.price,
     data?.data?.lastPrice,
-    data?.data?.fairPrice,
-    Array.isArray(data?.data) ? data?.data?.[0]?.price : null,
-    Array.isArray(data?.data) ? data?.data?.[0]?.lastPrice : null,
-    Array.isArray(data?.data) ? data?.data?.[0]?.fairPrice : null,
+    data?.lastPrice,
+    data?.fairPrice,
   ];
 
   for (const candidate of candidates) {
@@ -71,53 +63,65 @@ function parsePrice(data) {
 }
 
 /**
- * Отримати ціну MEXC для символу типу "BTCUSDT" з таймаутом та фолбеком.
+ * ✅ Отримати ціну MEXC для символу:
+ * - spot: "BTCUSDT"
+ * - futures: "BTC_USDT"
+ *
+ * На фронті запит іде ТІЛЬКИ на /api/mexc-ticker (без CORS).
  */
 export async function fetchMexcTickerPrice(
   symbol,
   { timeoutMs = DEFAULT_TIMEOUT_MS, market = 'spot' } = {}
 ) {
-  const candidates = buildCandidates(symbol, { market });
-  let lastError = null;
+  const url = buildProxyUrl(symbol, { market });
 
-  for (const candidate of candidates) {
-    try {
-      const res = await fetchWithTimeout(candidate.url, timeoutMs);
-      if (!res.ok) {
-        const body = await res.text().catch(() => '');
-        throw new Error(`MEXC status ${res.status}: ${body.slice(0, 200)}`);
-      }
-      const rawBody = await res.text();
-      let data;
-      try {
-        data = JSON.parse(rawBody);
-      } catch (parseError) {
-        throw new Error(
-          `Invalid JSON from ${candidate.label}: ${parseError.message}; body: ${rawBody.slice(0, 200)}`
-        );
-      }
-      const price = parsePrice(data);
+  try {
+    const res = await fetchWithTimeout(url, timeoutMs);
 
-      if (price === null) {
-        throw new Error('Invalid MEXC price payload');
-      }
-
-      return { price, source: candidate.label };
-    } catch (error) {
-      lastError = error;
-      console.error('[MEXC] fetch candidate failed', candidate.label, error);
+    if (!res.ok) {
+      const body = await res.text().catch(() => '');
+      throw new Error(`Proxy status ${res.status}: ${body.slice(0, 200)}`);
     }
-  }
 
-  throw lastError ?? new Error('Failed to fetch MEXC price');
+    const rawBody = await res.text();
+    let data;
+    try {
+      data = JSON.parse(rawBody);
+    } catch (parseError) {
+      throw new Error(
+        `Invalid JSON from proxy: ${parseError.message}; body: ${rawBody.slice(0, 200)}`
+      );
+    }
+
+    // якщо твій бекенд повертає ok=false — піднімаємо помилку
+    if (data && data.ok === false) {
+      const msg = data.error ? String(data.error) : 'Proxy returned ok=false';
+      throw new Error(msg);
+    }
+
+    const price = parsePrice(data);
+
+    if (price === null) {
+      throw new Error('Invalid price payload from proxy');
+    }
+
+    return { price, source: 'internal-proxy' };
+  } catch (error) {
+    console.error('[MEXC] proxy fetch failed', error);
+    throw error;
+  }
 }
 
+/**
+ * ✅ Для дебагу — які URL-и використовуються.
+ */
 export function buildMexcTickerUrl(symbol, { market = 'spot' } = {}) {
-  const candidates = buildCandidates(symbol, { market });
+  const proxyUrl = buildProxyUrl(symbol, { market });
+
   return {
-    corsproxy: candidates.find((c) => c.label === 'corsproxy.io')?.url,
-    original: candidates.find((c) => c.label === 'direct')?.url,
-    proxy: candidates.find((c) => c.label === 'allorigins')?.url,
-    codetabs: candidates.find((c) => c.label === 'codetabs')?.url,
+    proxy: proxyUrl,     // /api/mexc-ticker?symbol=...&market=...
+    original: null,      // навмисно прибрано (CORS)
+    corsproxy: null,     // прибрано
+    codetabs: null,      // прибрано
   };
 }
