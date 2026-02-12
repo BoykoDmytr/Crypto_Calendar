@@ -546,28 +546,37 @@ export async function triggerPriceReactionJob() {
     }
 
     // 5) ✅ Один запит до MEXC за 1m klines (±30m)
+    // 5) ✅ Один запит до MEXC за 1m klines (±30m)
     try {
-      const startTs = t0Time.subtract(30, 'minute').valueOf();
-      const endTs = t0Time.add(30, 'minute').valueOf();
+      // ✅ фіксуємо правило "T0 minute" = floor до хвилини
+      const t0Minute = t0Time.startOf('minute');
+
+      const startTs = t0Minute.subtract(30, 'minute').valueOf();
+
+      // ✅ ВАЖЛИВО: +31m, щоб гарантовано включити свічку +30
+      const endTs = t0Minute.add(31, 'minute').valueOf();
 
       const url = new URL('https://api.mexc.com/api/v3/klines');
       url.searchParams.set('symbol', market.apiPair);
       url.searchParams.set('interval', '1m');
       url.searchParams.set('startTime', String(startTs));
       url.searchParams.set('endTime', String(endTs));
+      url.searchParams.set('limit', '1000');
 
       const resp = await fetch(url.toString());
       if (!resp.ok) throw new Error(`MEXC klines failed: ${resp.status}`);
       const candles = await resp.json(); // [[ts, open, high, low, close, ...], ...]
 
-      // серії індексуємо як index 0 => -30m, index 30 => T0, index 60 => +30m
       const closeSeries = new Array(SERIES_TOTAL_POINTS).fill(null);
       const highSeries = new Array(SERIES_TOTAL_POINTS).fill(null);
       const lowSeries = new Array(SERIES_TOTAL_POINTS).fill(null);
 
       for (const c of candles || []) {
         const [ts, _open, high, low, close] = c;
-        const off = Math.round((Number(ts) - startTs) / 60_000);
+
+        // ✅ floor замість round, щоб не ловити зсуви на межі мс/сек
+        const off = Math.floor((Number(ts) - startTs) / 60_000);
+
         if (off >= 0 && off < SERIES_TOTAL_POINTS) {
           closeSeries[off] = Number(close);
           highSeries[off] = Number(high);
@@ -575,32 +584,26 @@ export async function triggerPriceReactionJob() {
         }
       }
 
-      // KPI
       const priceNeg30 = closeSeries[0];
       const priceT0 = closeSeries[SERIES_CENTER_INDEX];
       const pricePos30 = closeSeries[SERIES_TOTAL_POINTS - 1];
 
-      const preReturn30m = calcReturn(priceNeg30, priceT0);      // -30 -> 0
-      const postReturn30m = calcReturn(priceT0, pricePos30);     // 0 -> +30
-      const netReturn60m = calcReturn(priceNeg30, pricePos30);   // -30 -> +30
+      const preReturn30m = calcReturn(priceNeg30, priceT0);
+      const postReturn30m = calcReturn(priceT0, pricePos30);
+      const netReturn60m = calcReturn(priceNeg30, pricePos30);
 
-      // MAX/MIN (по high/low якщо є)
       let maxIdx = 0;
       let minIdx = 0;
       for (let i = 0; i < SERIES_TOTAL_POINTS; i++) {
-        if (highSeries[i] != null && (highSeries[maxIdx] == null || highSeries[i] > highSeries[maxIdx])) {
-          maxIdx = i;
-        }
-        if (lowSeries[i] != null && (lowSeries[minIdx] == null || lowSeries[i] < lowSeries[minIdx])) {
-          minIdx = i;
-        }
+        if (highSeries[i] != null && (highSeries[maxIdx] == null || highSeries[i] > highSeries[maxIdx])) maxIdx = i;
+        if (lowSeries[i] != null && (lowSeries[minIdx] == null || lowSeries[i] < lowSeries[minIdx])) minIdx = i;
       }
+
       const maxPrice = highSeries[maxIdx] ?? null;
       const minPrice = lowSeries[minIdx] ?? null;
-      const maxOffset = maxIdx - SERIES_CENTER_INDEX; // -30..+30
+      const maxOffset = maxIdx - SERIES_CENTER_INDEX;
       const minOffset = minIdx - SERIES_CENTER_INDEX;
 
-      // % of MCAP
       let eventPctMcap = null;
       if (event.event_usd_value != null && event.mcap_usd != null) {
         const evUsd = Number(event.event_usd_value);
@@ -614,16 +617,13 @@ export async function triggerPriceReactionJob() {
         series_close: closeSeries,
         series_high: highSeries,
         series_low: lowSeries,
-
         pre_return_30m: preReturn30m,
         post_return_30m: postReturn30m,
         net_return_60m: netReturn60m,
-
         max_price: maxPrice,
         max_offset: maxOffset,
         min_price: minPrice,
         min_offset: minOffset,
-
         event_pct_mcap: eventPctMcap,
       };
 
@@ -639,6 +639,7 @@ export async function triggerPriceReactionJob() {
       console.error('[stats] fetch ±30m series failed', event.id, error);
       summary.errors += 1;
     }
+
   }
 
   return summary;

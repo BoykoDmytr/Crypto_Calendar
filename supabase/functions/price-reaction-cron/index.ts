@@ -60,9 +60,13 @@ function parseMexcLink(link: string | null) {
   if (!link) return null;
   const s = link.trim();
   const futures = isMexcFuturesLink(s);
-  const m = s.match(/\/(futures|exchange)\/([A-Z0-9]{1,}_USDT)/i) || s.match(/([A-Z0-9]{1,}_USDT)/i);
+  const m =
+    s.match(/\/(futures|exchange)\/([A-Z0-9]{1,}_USDT)/i) ||
+    s.match(/([A-Z0-9]{1,}_USDT)/i);
+
   const pair = m ? m[m.length - 1].toUpperCase() : null;
   if (!pair) return null;
+
   const market = futures ? "futures" : "spot";
   return {
     pair,
@@ -81,6 +85,7 @@ function pickMexcMarket(ev: any) {
       market: fromLink.market,
     };
   }
+
   // 2) from coin_name (e.g. BREV -> BREV_USDT)
   if (ev.coin_name) {
     const sym = String(ev.coin_name).trim().toUpperCase().replace(/[^A-Z0-9]/g, "");
@@ -93,9 +98,12 @@ function pickMexcMarket(ev: any) {
       };
     }
   }
+
   // 3) from tge_exchanges list
   const exchanges = Array.isArray(ev.tge_exchanges) ? ev.tge_exchanges : [];
-  const entry = exchanges.find((x) => x?.pair && String(x.pair).toUpperCase().includes("USDT")) || exchanges[0];
+  const entry =
+    exchanges.find((x) => x?.pair && String(x.pair).toUpperCase().includes("USDT")) || exchanges[0];
+
   if (entry?.pair) {
     const pair = String(entry.pair).toUpperCase();
     const market = isMexcFuturesLink(ev.coin_price_link || ev.link || "") ? "futures" : "spot";
@@ -105,10 +113,15 @@ function pickMexcMarket(ev: any) {
       market,
     };
   }
+
   return null;
 }
 
-function shouldCapture(nowUtc: dayjs.Dayjs, targetTimeUtc: dayjs.Dayjs, windowMinutes = CAPTURE_WINDOW_MINUTES) {
+function shouldCapture(
+  nowUtc: dayjs.Dayjs,
+  targetTimeUtc: dayjs.Dayjs,
+  windowMinutes = CAPTURE_WINDOW_MINUTES,
+) {
   const diffSec = nowUtc.diff(targetTimeUtc, "second");
   return diffSec >= 0 && diffSec <= windowMinutes * 60;
 }
@@ -142,7 +155,9 @@ async function fetchMexcSeries(apiPair: string, startTs: number, endTs: number) 
     url.searchParams.set("interval", "1m");
     url.searchParams.set("startTime", String(startTs));
     url.searchParams.set("endTime", String(endTs));
+    url.searchParams.set("limit", "1000");
     const res = await fetch(url.toString());
+    if (!res.ok) return [];
     const candles = await res.json();
     return candles;
   } catch {
@@ -150,43 +165,54 @@ async function fetchMexcSeries(apiPair: string, startTs: number, endTs: number) 
   }
 }
 
-serve(async (req: Request) => {
+serve(async (_req: Request) => {
   const SUPABASE_URL = Deno.env.get("SUPABASE_URL") ?? Deno.env.get("PROJECT_URL") ?? "";
   const SUPABASE_SERVICE_ROLE_KEY =
     Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ??
     Deno.env.get("SERVICE_ROLE_KEY") ??
     Deno.env.get("SUPABASE_ANON_KEY") ??
     "";
+
   if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
     return new Response(
       JSON.stringify({ ok: false, error: "Missing SUPABASE_URL or service key" }),
       { status: 500, headers: { "content-type": "application/json" } },
     );
   }
-  const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, { auth: { persistSession: false } });
+
+  const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
+    auth: { persistSession: false },
+  });
+
   const nowUtc = dayjs.utc();
   const windowStart = nowUtc.subtract(1, "day").toISOString();
   const windowEnd = nowUtc.add(LOOKAHEAD_DAYS, "day").toISOString();
+
   // 1) fetch types to track
   const { data: types, error: typesErr } = await supabase
     .from("event_types")
     .select("slug,name,label,track_in_stats,active")
     .eq("track_in_stats", true)
     .eq("active", true);
+
   if (typesErr) {
     return new Response(JSON.stringify({ ok: false, error: String(typesErr.message) }), { status: 500 });
   }
+
   const slugs = new Set<string>();
   const names = new Set<string>();
+
   (types ?? []).forEach((t: any) => {
     if (t.slug) slugs.add(t.slug);
     if (t.name) names.add(t.name);
     if (t.label) names.add(t.label);
   });
+
   if (slugs.size === 0 && names.size === 0) {
     ["binance_tournament", "ts_bybit", "booster"].forEach((s) => slugs.add(s));
     ["Binance Tournaments", "TS Bybit", "Booster"].forEach((n) => names.add(n));
   }
+
   // 2) fetch events in window
   const { data: events, error: eventsErr } = await supabase
     .from("events_approved")
@@ -194,56 +220,71 @@ serve(async (req: Request) => {
     .gte("start_at", windowStart)
     .lte("start_at", windowEnd)
     .not("start_at", "is", null);
+
   if (eventsErr) {
     return new Response(JSON.stringify({ ok: false, error: String(eventsErr.message) }), { status: 500 });
   }
+
   const tracked = (events ?? []).filter((ev: any) => {
     const okSlug = ev.event_type_slug && slugs.has(ev.event_type_slug);
     const okType = ev.type && names.has(ev.type);
     return okSlug || okType;
   });
+
   const ids = tracked.map((e: any) => e.id);
+
   // fetch existing reaction rows
   const { data: existing, error: existingErr } = await supabase
     .from("event_price_reaction")
     .select("*")
     .in("event_id", ids.length ? ids : ["00000000-0000-0000-0000-000000000000"]);
+
   if (existingErr) {
     return new Response(JSON.stringify({ ok: false, error: String(existingErr.message) }), { status: 500 });
   }
+
   const map = new Map<string, any>();
   (existing ?? []).forEach((r: any) => map.set(r.event_id, r));
+
   let inserted = 0;
   let updated = 0;
   let skipped = 0;
   let errors = 0;
+
   for (const ev of tracked) {
     try {
       const t0 = dayjs.utc(ev.start_at);
       const t5 = t0.add(5, "minute");
       const t15 = t0.add(15, "minute");
+
       const market = pickMexcMarket(ev);
       if (!market?.apiPair) {
         skipped++;
         continue;
       }
+
       const row = map.get(ev.id);
+
       // insert stub if not exists
       if (!row) {
         const payload: any = {
           event_id: ev.id,
           coin_name: ev.coin_name ?? null,
           pair: market.pair,
-          exchange: market.market === "futures" ? "MEXC" : "MEXC",
+          exchange: "MEXC",
+
           t0_time: t0.toISOString(),
           t0_price: null,
           t0_percent: 0,
+
           t_plus_5_time: t5.toISOString(),
           t_plus_5_price: null,
           t_plus_5_percent: null,
+
           t_plus_15_time: t15.toISOString(),
           t_plus_15_price: null,
           t_plus_15_percent: null,
+
           // new fields for ±30m
           series_close: null,
           series_high: null,
@@ -257,14 +298,18 @@ serve(async (req: Request) => {
           min_offset: null,
           event_pct_mcap: null,
         };
+
         const { error } = await supabase.from("event_price_reaction").insert(payload);
         if (error) throw error;
+
         inserted++;
         map.set(ev.id, payload);
         continue;
       }
+
       // update T0, +5, +15 if needed
       const patch: any = {};
+
       // capture T0
       if (row.t0_price == null && shouldCapture(nowUtc, t0)) {
         const p0 = await fetchMexcTicker(market.apiPair!);
@@ -273,7 +318,9 @@ serve(async (req: Request) => {
           patch.t0_percent = 0;
         }
       }
+
       const base = patch.t0_price ?? row.t0_price;
+
       // capture +5
       if (row.t_plus_5_price == null && base != null && shouldCapture(nowUtc, t5)) {
         const p5 = await fetchMexcTicker(market.apiPair!);
@@ -282,6 +329,7 @@ serve(async (req: Request) => {
           patch.t_plus_5_percent = calcPercent(base, p5);
         }
       }
+
       // capture +15
       if (row.t_plus_15_price == null && base != null && shouldCapture(nowUtc, t15)) {
         const p15 = await fetchMexcTicker(market.apiPair!);
@@ -290,48 +338,76 @@ serve(async (req: Request) => {
           patch.t_plus_15_percent = calcPercent(base, p15);
         }
       }
+
       // update simple fields if any patch
       if (Object.keys(patch).length) {
         const { error } = await supabase
           .from("event_price_reaction")
           .update(patch)
           .eq("event_id", ev.id);
+
         if (error) throw error;
         updated++;
       }
+
       // if series already computed, skip heavy fetch
       if (row.series_close && Array.isArray(row.series_close) && row.series_close.length === 61) {
         skipped++;
         continue;
       }
+
       // Wait until +35m after T0 to fetch ±30m series
       const cutoff = t0.add(SERIES_CUTOFF_MINUTES, "minute");
       if (nowUtc.isBefore(cutoff)) {
         skipped++;
         continue;
       }
-      // Fetch 1m candles
-      const startTs = t0.subtract(30, "minute").valueOf();
-      const endTs = t0.add(30, "minute").valueOf();
+
+      // ✅ T0 minute rule: floor to minute
+      const t0Minute = t0.startOf("minute");
+      const startTs = t0Minute.subtract(30, "minute").valueOf();
+
+      // ✅ IMPORTANT: +31m so candle +30 is included
+      const endTs = t0Minute.add(31, "minute").valueOf();
+
       const candles = await fetchMexcSeries(market.apiPair!, startTs, endTs);
+
       const closeSeries: Array<number | null> = new Array(61).fill(null);
       const highSeries: Array<number | null> = new Array(61).fill(null);
       const lowSeries: Array<number | null> = new Array(61).fill(null);
-      candles.forEach((c: any) => {
-        const [ts, open, high, low, close] = c;
-        const off = Math.round((ts - startTs) / 60000);
+
+      (candles || []).forEach((c: any) => {
+        const [ts, _open, high, low, close] = c;
+
+        // ✅ floor, not round (no offset drift)
+        const off = Math.floor((Number(ts) - startTs) / 60000);
+
         if (off >= 0 && off < 61) {
           closeSeries[off] = Number(close);
           highSeries[off] = Number(high);
           lowSeries[off] = Number(low);
         }
       });
+
       const basePrice = closeSeries[30];
       const prePrice = closeSeries[0];
       const postPrice = closeSeries[60];
-      const preReturn = prePrice != null && basePrice != null ? ((basePrice - prePrice) / prePrice) * 100 : null;
-      const postReturn = basePrice != null && postPrice != null ? ((postPrice - basePrice) / basePrice) * 100 : null;
-      const netReturn = prePrice != null && postPrice != null ? ((postPrice - prePrice) / prePrice) * 100 : null;
+
+      const preReturn =
+        prePrice != null && basePrice != null && Number(prePrice) > 0
+          ? ((basePrice - prePrice) / prePrice) * 100
+          : null;
+
+      const postReturn =
+        basePrice != null && postPrice != null && Number(basePrice) > 0
+          ? ((postPrice - basePrice) / basePrice) * 100
+          : null;
+
+      const netReturn =
+        prePrice != null && postPrice != null && Number(prePrice) > 0
+          ? ((postPrice - prePrice) / prePrice) * 100
+          : null;
+
       // max/min index
       let maxIdx = 0;
       let minIdx = 0;
@@ -343,15 +419,18 @@ serve(async (req: Request) => {
           minIdx = i;
         }
       }
+
       const maxPrice = highSeries[maxIdx] ?? null;
       const minPrice = lowSeries[minIdx] ?? null;
       const maxOffset = maxIdx - 30;
       const minOffset = minIdx - 30;
+
       // compute event_pct_mcap
       let eventPctMcap: number | null = null;
-      if (ev.event_usd_value && ev.mcap_usd && Number(ev.mcap_usd) > 0) {
+      if (ev.event_usd_value != null && ev.mcap_usd != null && Number(ev.mcap_usd) > 0) {
         eventPctMcap = (Number(ev.event_usd_value) / Number(ev.mcap_usd)) * 100;
       }
+
       const update = {
         series_close: closeSeries,
         series_high: highSeries,
@@ -365,10 +444,12 @@ serve(async (req: Request) => {
         min_offset: minOffset,
         event_pct_mcap: eventPctMcap,
       };
+
       const { error: updErr } = await supabase
         .from("event_price_reaction")
         .update(update)
         .eq("event_id", ev.id);
+
       if (updErr) throw updErr;
       updated++;
     } catch (e) {
@@ -376,6 +457,7 @@ serve(async (req: Request) => {
       errors++;
     }
   }
+
   return new Response(
     JSON.stringify({ ok: true, processed: tracked.length, inserted, updated, skipped, errors }),
     { headers: { "content-type": "application/json" } },
