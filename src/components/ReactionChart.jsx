@@ -177,12 +177,6 @@ export default function ReactionChart({ closeSeries = [], highSeries = [], lowSe
           </>
         )}
       </svg>
-      {/* timeline labels */}
-      <div className="mt-1 grid text-[10px] text-center text-gray-500 dark:text-gray-400" style={{ gridTemplateColumns: `repeat(${length}, minmax(0, 1fr))` }}>
-        {Array.from({ length }, (_, idx) => (
-          <span key={idx}>{idx - baseIndex}</span>
-        ))}
-      </div>
     </div>
   );
 }
