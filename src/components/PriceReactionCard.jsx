@@ -1,29 +1,21 @@
+import React from 'react';
 import dayjs from 'dayjs';
 import utc from 'dayjs/plugin/utc';
 import timezone from 'dayjs/plugin/timezone';
 
-// Register dayjs plugins for UTC and timezones.  This ensures that
-// formatting functions work properly regardless of the user's locale.
+import ReactionChart from './ReactionChart';
+import ProfitCalculator from './ProfitCalculator';
+
+// Register dayjs plugins for UTC and timezones.
 dayjs.extend(utc);
 dayjs.extend(timezone);
 
-// Mapping for common timezone labels.  You can extend this if your
-// application uses additional labels beyond Kyiv/UTC.
+// Mapping for common timezone labels.
 const TZ_MAP = {
   Kyiv: 'Europe/Kyiv',
 };
 
-// Format a timestamp into HH:mm in the given timezone.  If no
-// timestamp is provided, returns an em dash.
-function formatTime(iso, tz) {
-  if (!iso) return '—';
-  const base = dayjs.utc(iso);
-  const zone = TZ_MAP[tz] || tz || 'UTC';
-  return base.tz(zone).format('HH:mm');
-}
-
-// Format a timestamp into DD MMM HH:mm in the given timezone.  If no
-// timestamp is provided, returns an empty string.
+// Format a timestamp into DD MMM HH:mm in the given timezone.
 function formatDate(iso, tz) {
   if (!iso) return '';
   const base = dayjs.utc(iso);
@@ -31,8 +23,7 @@ function formatDate(iso, tz) {
   return base.tz(zone).format('DD MMM HH:mm');
 }
 
-// Assign a CSS class for percentage display based on value.  Positive
-// values are green, negatives red, zero yellow, missing values gray.
+// Assign a CSS class for percentage display based on value.
 function percentClass(value) {
   if (value === null || value === undefined) return 'text-gray-400';
   if (value > 0) return 'text-emerald-500';
@@ -40,159 +31,47 @@ function percentClass(value) {
   return 'text-amber-500';
 }
 
-// Format percent for display.  Adds a plus sign for positive values and
-// returns an em dash for missing values.
-function formatPercent(value) {
+function formatPercent(value, digits = 2) {
   if (value === null || value === undefined) return '—';
-  const numeric = Number(value);
-  if (!Number.isFinite(numeric)) return '—';
-  const rounded = Number(numeric.toFixed(5));
-  const normalized = Object.is(rounded, -0) ? 0 : rounded;
-  const sign = normalized > 0 ? '+' : '';
-  return `${sign}${normalized}%`;
-}
-
-// Format price for display.  Returns an em dash for missing values.
-function formatPrice(price) {
-  if (price === null || price === undefined) return '—';
-  return Number(price);
-}
-
-// Determine overall trend of a price series: up, down or flat.  Used to
-// display a summary label on the card.
-function deriveTrend(prices) {
-  if (prices.length < 2) return 'unknown';
-  const first = prices[0];
-  const last = prices[prices.length - 1];
-  if (last > first) return 'up';
-  if (last < first) return 'down';
-  return 'flat';
-}
-
-// Given a trend, return a color string (tailwind palette values) for
-// use as a stroke or background.
-function chartColor(trend) {
-  if (trend === 'up') return '#22c55e'; // emerald-500
-  if (trend === 'down') return '#ef4444'; // red-500
-  if (trend === 'flat') return '#f59e0b'; // amber-500
-  return '#9ca3af'; // gray-400
+  const n = Number(value);
+  if (!Number.isFinite(n)) return '—';
+  const sign = n > 0 ? '+' : '';
+  return `${sign}${n.toFixed(digits)}%`;
 }
 
 /**
- * Build segments for a two‑segment sparkline with color coding.
- * Each segment gets a colour depending on whether the price goes up,
- * down or stays flat.  This allows the sparkline to show direction
- * changes clearly.  The returned array is consumed by the svg
- * renderer below.
+ * PriceReactionCard (updated)
  *
- * @param {number[]} prices Array of prices (numbers).
- * @param {number} width    Width of the SVG canvas.
- * @param {number} height   Height of the SVG canvas.
- * @returns {Array<{points: string, color: string}>}
+ * Expects item to include fields from the new ±30m reaction backend:
+ * - seriesClose: number[61] (close prices, offsets -30..+30; index 30 = T0)
+ * - seriesHigh:  number[61] (optional)
+ * - seriesLow:   number[61] (optional)
+ * - preReturn30m, postReturn30m, netReturn60m
+ * - maxPrice, maxOffset, minPrice, minOffset
+ * - eventPctMcap (optional)
  */
-function buildColoredSegments(prices, width = 240, height = 64, paddingY = 12) {
-  const segments = [];
-  const points = [];
-  if (prices.length < 2) return { segments, points };
-  const min = Math.min(...prices);
-  const max = Math.max(...prices);
-  const range = max - min || 1;
-  const innerHeight = Math.max(height - paddingY * 2, 1);
-  const step = width / (prices.length - 1);
-  const coords = prices.map((price, idx) => {
-    const x = idx * step;
-    const normalized = (price - min) / range;
-    const y = paddingY + (1 - normalized) * innerHeight;
-    return { x, y };
-  });
-  for (let i = 0; i < coords.length - 1; i++) {
-    const { x: x1, y: y1 } = coords[i];
-    const { x: x2, y: y2 } = coords[i + 1];
-    const delta = prices[i + 1] - prices[i];
-    let color;
-    if (delta > 0) color = '#22c55e';
-    else if (delta < 0) color = '#ef4444';
-    else color = '#f59e0b';
-    segments.push({ points: `${x1},${y1} ${x2},${y2}`, color });
-  }
-  return { segments, points: coords };
-}
-
-function calcOverallChange(base, next) {
-  if (base == null || next == null) return null;
-  const b = Number(base);
-  const n = Number(next);
-  if (!Number.isFinite(b) || !Number.isFinite(n) || b === 0) return null;
-  return ((n - b) / b) * 100;
-}
-
-function formatDeltaLabel(value) {
-  if (value === null || value === undefined) return '';
-  const numeric = Number(value);
-  if (!Number.isFinite(numeric)) return '';
-  const rounded = Number(numeric.toFixed(2));
-  const normalized = Object.is(rounded, -0) ? 0 : rounded;
-  const sign = normalized > 0 ? '+' : '';
-  return `${sign}${normalized.toFixed(2)}%`;
-}
-
 export default function PriceReactionCard({ item }) {
-  const { title, startAt, type, priceReaction, coinName, timezone, pair } = item;
-  // Extract numeric price points for the sparkline
-  const pricePoints = priceReaction
-    .filter((entry) => entry.price !== null && entry.price !== undefined)
-    .map((entry) => Number(entry.price));
-  const trend = deriveTrend(pricePoints);
-  const sparkWidth = 260;
-  const sparkHeight = 120;
-  const sparkPaddingY = 26;
-  const { segments: coloredSegments, points } = buildColoredSegments(pricePoints, sparkWidth, sparkHeight, sparkPaddingY);
-  const overallChange =
-    pricePoints.length >= 2 ? calcOverallChange(pricePoints[0], pricePoints[pricePoints.length - 1]) : null;
-  const basePrice = pricePoints[0];
+  const {
+    title,
+    startAt,
+    type,
+    coinName,
+    timezone: tz,
+    pair,
+    seriesClose,
+    seriesHigh,
+    seriesLow,
+    preReturn30m,
+    postReturn30m,
+    netReturn60m,
+    maxPrice,
+    maxOffset,
+    minPrice,
+    minOffset,
+    eventPctMcap,
+  } = item;
 
-  const timelineLabels = priceReaction.map((entry) => entry.label || '').filter(Boolean);
-  const tickCount = Math.max(timelineLabels.length - 1, 1);
-  const tickSpacing = sparkWidth / tickCount;
-
-  const horizontalGuides = [0.33, 0.66];
-
-
-  const deltaLabels = pricePoints
-    .slice(0, -1)
-    .map((base, idx) => {
-      const next = pricePoints[idx + 1];
-      const change = calcOverallChange(base, next);
-      const label = formatDeltaLabel(change);
-      if (!label) return null;
-
-      const pointA = points[idx];
-      const pointB = points[idx + 1];
-      const dx = (pointB?.x ?? 0) - (pointA?.x ?? 0);
-      const dy = (pointB?.y ?? 0) - (pointA?.y ?? 0);
-      const length = Math.hypot(dx, dy) || 1;
-      const normX = dx / length;
-      const normY = dy / length;
-      const perpX = -normY;
-      const perpY = normX;
-      const offset = change >= 0 ? 12 : 16;
-      const x = (pointB?.x ?? 0) - normX * 4 + perpX * (change >= 0 ? -offset : offset);
-      const y = (pointB?.y ?? 0) - normY * 4 + perpY * (change >= 0 ? -offset : offset);
-      const color = chartColor(change > 0 ? 'up' : change < 0 ? 'down' : 'flat');
-
-      return {
-        label,
-        x,
-        y,
-        color,
-      };
-    })
-    .filter(Boolean);
-
-
-  const lastPoint = points[points.length - 1];
-  const changeLabelX = lastPoint ? Math.min(Math.max(lastPoint.x - 32, 6), sparkWidth - 64) : 0;
-  const changeLabelY = lastPoint ? Math.min(Math.max(lastPoint.y - 36, 6), sparkHeight - 28) : 6;
+  const hasSeries = Array.isArray(seriesClose) && seriesClose.length === 61;
 
   return (
     <article className="relative overflow-hidden rounded-3xl border border-gray-200 bg-white/90 px-4 py-5 text-slate-900 shadow-xl backdrop-blur-sm dark:border-slate-800 dark:bg-gradient-to-br dark:from-[#0b0f1a] dark:via-[#0f172a] dark:to-[#0b111f] dark:text-white">
@@ -200,128 +79,112 @@ export default function PriceReactionCard({ item }) {
         className="pointer-events-none absolute inset-0 opacity-70 bg-[radial-gradient(circle_at_20%_10%,rgba(34,197,94,0.12),transparent_35%),radial-gradient(circle_at_80%_0,rgba(14,165,233,0.1),transparent_30%)]"
         aria-hidden
       />
+
+      {/* Header chips */}
       <div className="relative flex flex-wrap items-center gap-2 text-[11px] font-semibold mb-3">
-        <span className="rounded-full bg-emerald-100 text-emerald-800 px-2.5 py-1 border border-emerald-200 shadow-sm dark:bg-emerald-500/15 dark:text-emerald-200 dark:border-emerald-500/30">Completed</span>
-        <span className="rounded-full bg-gray-100 text-gray-700 px-2.5 py-1 border border-gray-200 shadow-sm dark:bg-white/5 dark:text-gray-200 dark:border-white/10">{type || 'Binance Tournaments'}</span>
-        {pair && <span className="truncate text-gray-600 max-w-full sm:max-w-none dark:text-gray-300">{pair}</span>}
+        <span className="rounded-full bg-emerald-100 text-emerald-800 px-2.5 py-1 border border-emerald-200 shadow-sm dark:bg-emerald-500/15 dark:text-emerald-200 dark:border-emerald-500/30">
+          Completed
+        </span>
+
+        <span className="rounded-full bg-gray-100 text-gray-700 px-2.5 py-1 border border-gray-200 shadow-sm dark:bg-white/5 dark:text-gray-200 dark:border-white/10">
+          {type || 'Event'}
+        </span>
+
+        {pair && (
+          <span className="truncate text-gray-600 max-w-full sm:max-w-none dark:text-gray-300">
+            {pair}
+          </span>
+        )}
       </div>
 
+      {/* Title + meta */}
       <div className="relative flex flex-col gap-1 mb-4">
         <h3 className="font-semibold text-lg leading-snug line-clamp-2 break-words">{title}</h3>
+
         <div className="flex flex-wrap items-center gap-2 text-xs text-gray-500 dark:text-gray-400">
-          <span className="rounded-full bg-gray-100 border border-gray-200 px-2 py-0.5 text-[11px] uppercase tracking-wide dark:bg-white/5 dark:border-white/10">UTC</span>
-          <span className="whitespace-nowrap">{formatDate(startAt, timezone)}</span>
+          <span className="rounded-full bg-gray-100 border border-gray-200 px-2 py-0.5 text-[11px] uppercase tracking-wide dark:bg-white/5 dark:border-white/10">
+            UTC
+          </span>
+
+          <span className="whitespace-nowrap">{formatDate(startAt, tz)}</span>
+
           {coinName && <span className="text-gray-500 dark:text-gray-300">· {coinName}</span>}
         </div>
       </div>
 
-      <div className="relative rounded-2xl border border-gray-100 bg-gradient-to-b from-gray-50 via-white to-white shadow-sm backdrop-blur-sm overflow-hidden dark:border-white/5 dark:from-white/10 dark:via-white/5 dark:to-white/0">
-        <div className="flex items-center justify-between px-4 py-3 text-xs text-gray-600 dark:text-gray-300">
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="uppercase tracking-wide text-[11px] text-gray-500 dark:text-gray-400">Price reaction</span>
-            <span className="rounded-full bg-white px-2 py-0.5 border border-gray-200 text-gray-700 text-[11px] shadow-sm dark:bg-white/5 dark:border-white/10 dark:text-gray-200">T0 → T+15m</span>
-            {basePrice !== undefined && <span className="text-gray-500 dark:text-gray-400">base: {formatPrice(basePrice)} USDT</span>}
-          </div>
-          {overallChange !== null && (
-            <span
-              className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-semibold shadow-sm bg-white text-slate-800 border border-gray-200 dark:bg-white/10 dark:border-white/10"
-              style={{
-                color: chartColor(trend),
-              }}
-            >
-              {overallChange > 0 && '▲'}
-              {overallChange === 0 && '▬'}
-              {overallChange < 0 && '▼'}
-              {formatPercent(overallChange)}
-            </span>
-            )}
-        </div>
-        <div className="px-4 pb-4 pt-2 bg-gradient-to-b from-white via-gray-50 to-transparent dark:from-white/10 dark:via-white/5">
-          <div className="relative">
-            <svg viewBox={`0 0 ${sparkWidth} ${sparkHeight}`} className="w-full h-36">
-              <defs>
-                <linearGradient id="sparklineFill" x1="0%" x2="0%" y1="0%" y2="100%">
-                  <stop offset="0%" stopColor="#22c55e" stopOpacity="0.18" />
-                  <stop offset="100%" stopColor="#ffffff" stopOpacity="0" />
-                </linearGradient>
-              </defs>
-              <rect x="0" y="0" width="100%" height="100%" rx="12" fill="url(#sparklineFill)" opacity="0.5" />
-              {horizontalGuides.map((ratio) => {
-                const y = sparkPaddingY + ratio * (sparkHeight - sparkPaddingY * 2);
-                return <line key={`h-${ratio}`} x1="8" x2={sparkWidth - 8} y1={y} y2={y} stroke="currentColor" className="stroke-gray-200 dark:stroke-white/15" strokeWidth="1" strokeDasharray="6 10" />;
-              })}
-              {Array.from({ length: tickCount + 1 }).map((_, idx) => {
-                const x = Math.min(idx * tickSpacing, sparkWidth);
-                return <line key={`v-${idx}`} x1={x} x2={x} y1={12} y2={sparkHeight - 12} stroke="currentColor" className="stroke-gray-100 dark:stroke-white/10" strokeWidth="1" />;
-              })}
-              {coloredSegments.map((seg, idx) => (
-                <polyline key={idx} fill="none" stroke={seg.color} strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" points={seg.points} />
-              ))}
-              {points.map((pt, idx) => (
-                <g key={idx}>
-                  <circle cx={pt.x} cy={pt.y} r="4.25" stroke="#0ea5e9" strokeWidth="1.5" className="fill-white dark:fill-[#0b0f1a]" />
-                  <circle cx={pt.x} cy={pt.y} r="2.25" className="fill-emerald-500" />
-                </g>
-              ))}
-              {deltaLabels.map((delta, idx) => {
-                const textWidth = Math.max(38, delta.label.length * 6 + 12);
-                const textHeight = 18;
-                const clampedX = Math.min(Math.max(delta.x - textWidth / 2, 4), sparkWidth - textWidth - 4);
-                const clampedY = Math.min(Math.max(delta.y - textHeight / 2, 2), sparkHeight - textHeight - 2);
+      {/* Reaction Curve block */}
+      <div className="relative rounded-2xl border border-gray-100 bg-gradient-to-b from-gray-50 via-white to-white shadow-sm backdrop-blur-sm overflow-hidden dark:border-white/5 dark:from-white/10 dark:via-white/5 dark:to-white/0 mb-4">
+        <div className="p-4">
+          {hasSeries ? (
+            <>
+              <ReactionChart
+                closeSeries={seriesClose}
+                highSeries={Array.isArray(seriesHigh) && seriesHigh.length === 61 ? seriesHigh : null}
+                lowSeries={Array.isArray(seriesLow) && seriesLow.length === 61 ? seriesLow : null}
+              />
 
-                return (
-                  <g key={idx}>
-                    <rect x={clampedX} y={clampedY} width={textWidth} height={textHeight} rx="8" ry="8" fill={`${delta.color}1f`} stroke={delta.color} strokeWidth="1" />
-                    <text x={clampedX + textWidth / 2} y={clampedY + textHeight / 2 + 3} textAnchor="middle" fill={delta.color} fontSize="10" fontWeight="700">
-                      {delta.label}
-                    </text>
-                  </g>
-                );
-              })}
-              {overallChange !== null && lastPoint && (
-                <g transform={`translate(${changeLabelX},${changeLabelY})`}>
-
-                </g>
-              )}
-            </svg>
-
-            {timelineLabels.length > 0 && (
-              <div className="mt-2 grid text-[11px] text-gray-500 dark:text-gray-400" style={{ gridTemplateColumns: `repeat(${timelineLabels.length}, minmax(0, 1fr))` }}>
-                {timelineLabels.map((label) => (
-                  <span key={label} className="text-center font-semibold tracking-wide">
-                    {label}
+              {/* KPI row */}
+              <div className="mt-4 grid grid-cols-3 gap-3 text-xs text-center">
+                <div>
+                  <span className="block text-gray-500 dark:text-gray-400">Pre −30→0m</span>
+                  <span className={`font-semibold ${percentClass(preReturn30m)}`}>
+                    {formatPercent(preReturn30m)}
                   </span>
-                ))}
-              </div>
-            )}
-          </div>
-         </div>
+                </div>
 
-        <div className="divide-y divide-gray-100 bg-white/80 text-slate-900 dark:divide-white/5 dark:bg-[#0d1425]/70 dark:text-white">
-          {priceReaction.map((entry) => (
-            <div
-              key={entry.label}
-              className="grid grid-cols-[70px,1fr] sm:grid-cols-[70px,1fr,90px] items-center gap-3 px-4 py-3 text-xs sm:text-sm"
-            >
-              <div className="flex items-center gap-2">
-                <span className="w-16 rounded-full bg-gray-100 px-2 py-1 text-center text-[11px] uppercase tracking-wide text-gray-600 border border-gray-200 dark:bg-white/5 dark:border-white/10 dark:text-gray-200">
-                  {entry.label}
-                </span>
+                <div>
+                  <span className="block text-gray-500 dark:text-gray-400">Post 0→+30m</span>
+                  <span className={`font-semibold ${percentClass(postReturn30m)}`}>
+                    {formatPercent(postReturn30m)}
+                  </span>
+                </div>
+
+                <div>
+                  <span className="block text-gray-500 dark:text-gray-400">Net −30→+30m</span>
+                  <span className={`font-semibold ${percentClass(netReturn60m)}`}>
+                    {formatPercent(netReturn60m)}
+                  </span>
+                </div>
               </div>
-               <div className="flex flex-wrap items-center gap-3">
-                <span className="w-14 font-mono text-[11px] sm:text-xs text-gray-500 dark:text-gray-400">{formatTime(entry.time, timezone)}</span>
-                <span className="text-slate-900 dark:text-white font-semibold break-words">{formatPrice(entry.price)}</span>
-                <span className={`sm:hidden ml-auto font-semibold ${percentClass(entry.percent)}`}>
-                  {formatPercent(entry.percent)}
-                </span>
+
+              {/* MAX/MIN row */}
+              <div className="mt-4 grid grid-cols-2 gap-3 text-xs text-gray-600 dark:text-gray-300">
+                {maxPrice != null && (
+                  <div className="flex flex-col">
+                    <span className="uppercase tracking-wide text-[10px]">MAX</span>
+                    <span className="font-semibold">
+                      {Number(maxPrice).toFixed(6)} ({maxOffset > 0 ? '+' : ''}{maxOffset}m)
+                    </span>
+                  </div>
+                )}
+
+                {minPrice != null && (
+                  <div className="flex flex-col">
+                    <span className="uppercase tracking-wide text-[10px]">MIN</span>
+                    <span className="font-semibold">
+                      {Number(minPrice).toFixed(6)} ({minOffset > 0 ? '+' : ''}{minOffset}m)
+                    </span>
+                  </div>
+                )}
               </div>
-              <div className={`hidden sm:block text-right font-semibold ${percentClass(entry.percent)}`}>
-                {formatPercent(entry.percent)}
-              </div>
+            </>
+          ) : (
+            <div className="text-sm text-gray-600 dark:text-gray-300">
+              Немає серії ±30m (ще не пораховано або івент занадто свіжий).
             </div>
-          ))}
+          )}
         </div>
       </div>
+
+      {/* % of MCap */}
+      {eventPctMcap != null && (
+        <div className="text-xs text-gray-600 dark:text-gray-400 mb-3">
+          % of MCap: {Number(eventPctMcap).toFixed(2)}%
+        </div>
+      )}
+
+      {/* Profit Calculator */}
+      {hasSeries && <ProfitCalculator closeSeries={seriesClose} />}
     </article>
   );
 }

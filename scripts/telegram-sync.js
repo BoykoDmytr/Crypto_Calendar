@@ -1,7 +1,7 @@
 /* eslint-env node */
+/* global process */
+
 import 'dotenv/config';
-import fs from 'node:fs';
-import path from 'node:path';
 import { createClient } from '@supabase/supabase-js';
 import dayjs from 'dayjs';
 import utc from 'dayjs/plugin/utc.js';
@@ -199,14 +199,7 @@ function matchesTrigger(rawText, trigger) {
  */
 
 // OKX date line helper
-function parseOkxEventDateLine(lines, label) {
-  const line = lines.find((l) => new RegExp(`^${label}\\s*:`, 'i').test(l));
-  if (!line) return null;
-  const m = line.match(/:\s*(\d{2}\.\d{2}\.\d{4})\s*,\s*(\d{2}:\d{2})/);
-  if (!m) return null;
-  const dt = dayjs.tz(`${m[1]} ${m[2]}`, 'DD.MM.YYYY HH:mm', KYIV_TZ, true);
-  return dt.isValid() ? dt.toISOString() : null;
-}
+
 
 function parseClaimDateKyiv(lines) {
   const claim = lines.find((line) => /claim\s*date/i.test(line));
@@ -498,7 +491,6 @@ export function parseLaunchpoolAlerts(message, channel) {
   const startLine = lines.find((l) => /^Start\s*:/i.test(l)) || null;
   const endLine = lines.find((l) => /^End\s*:/i.test(l)) || null;
 
-  const startIso = startLine ? parseUtcIsoFromLine(startLine) : null;
   const endIso = endLine ? parseUtcIsoFromLine(endLine) : null;
 
   // за твоїм правилом: нам потрібен End
@@ -997,7 +989,9 @@ export async function run() {
               parsedEvents = res;
               break;
             }
-          } catch {}
+          } catch (err) {
+              void err; // явно показуємо що помилка прочитана/ігнорується
+            }
         }
       }
 
@@ -1006,7 +1000,6 @@ export async function run() {
         continue;
       }
 
-      const link = `https://t.me/${channel}/${p.id}`;
 
       for (const ev of parsedEvents) {
         if (!ev?.title || !ev?.startAt || !ev?.type || !ev?.event_type_slug) {

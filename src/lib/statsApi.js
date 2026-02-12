@@ -14,6 +14,11 @@ const DEFAULT_TOURNAMENT_TYPES = ['Binance Tournaments', 'TS Bybit', 'Booster'];
 const LOOKAHEAD_DAYS = 60;          // скільки днів вперед готуємо
 const CAPTURE_WINDOW_MINUTES = 3;   // вікно після targetTime
 
+// ===== Налаштування ±30m series =====
+const SERIES_TOTAL_POINTS = 61;     // -30..+30 включно
+const SERIES_CENTER_INDEX = 30;     // index 30 => offset 0 (T0 minute)
+const SERIES_CUTOFF_MINUTES = 35;   // запускати серию коли now >= T0 + 35m
+
 // ───────────────────────────── helpers ─────────────────────────────
 
 function normalizeValidPrice(value) {
@@ -181,6 +186,14 @@ function calcPercent(basePrice, nextPrice) {
   return ((n - b) / b) * 100;
 }
 
+function calcReturn(fromPrice, toPrice) {
+  if (fromPrice == null || toPrice == null) return null;
+  const f = Number(fromPrice);
+  const t = Number(toPrice);
+  if (!Number.isFinite(f) || !Number.isFinite(t) || f <= 0) return null;
+  return ((t / f) - 1) * 100;
+}
+
 // ───────────────────────────── filters ─────────────────────────────
 
 export async function fetchStatsTypeFilters() {
@@ -235,7 +248,85 @@ async function buildStatsFilter() {
 }
 
 /**
- * Completed tournaments for UI
+ * ✅ NEW: Completed events for UI (±30m series + summary + %mcap)
+ * Використовуй це у /stats замість fetchCompletedTournaments()
+ */
+export async function fetchCompletedEvents() {
+  const now = new Date().toISOString();
+
+  const { data: excluded } = await supabase
+    .from('event_price_reaction_exclusions')
+    .select('event_id');
+  const excludedIds = new Set((excluded || []).map((row) => row.event_id));
+
+  const orFilter = await buildStatsFilter();
+
+  const { data, error } = await supabase
+    .from('event_price_reaction')
+    .select(
+      `*,
+      series_close,
+      series_high,
+      series_low,
+      pre_return_30m,
+      post_return_30m,
+      net_return_60m,
+      max_price,
+      max_offset,
+      min_price,
+      min_offset,
+      event_pct_mcap,
+      events_approved!event_price_reaction_event_id_fkey(
+        id,title,start_at,type,event_type_slug,coin_name,timezone,coin_price_link,link,
+        event_usd_value,mcap_usd
+      )`
+    )
+    .lte('t0_time', now)
+    .or(orFilter, { foreignTable: 'events_approved' })
+    .order('t0_time', { ascending: false });
+
+  if (error) throw error;
+
+  return (data || [])
+    .filter((row) => !excludedIds.has(row.event_id))
+    .map((row) => {
+      const event = row.events_approved || {};
+      return {
+        eventId: row.event_id,
+        title: event.title,
+        startAt: event.start_at,
+        type: event.type || event.event_type_slug,
+        coinName: row.coin_name || event.coin_name,
+        timezone: event.timezone || 'UTC',
+        pair: row.pair,
+        exchange: row.exchange,
+        priceLink: event.coin_price_link || event.link || null,
+
+        // ±30m series
+        seriesClose: row.series_close || [],
+        seriesHigh: row.series_high || [],
+        seriesLow: row.series_low || [],
+
+        // KPI summary
+        preReturn30m: row.pre_return_30m,
+        postReturn30m: row.post_return_30m,
+        netReturn60m: row.net_return_60m,
+
+        // MAX / MIN
+        maxPrice: row.max_price,
+        maxOffset: row.max_offset,
+        minPrice: row.min_price,
+        minOffset: row.min_offset,
+
+        // % of MCAP
+        eventPctMcap: row.event_pct_mcap,
+      };
+    });
+}
+
+/**
+ * ✅ Backward-compatible: стара функція (T0/T+5/T+15)
+ * Можеш залишити, якщо десь ще використовується.
  */
 export async function fetchCompletedTournaments() {
   const now = new Date().toISOString();
@@ -267,6 +358,7 @@ export async function fetchCompletedTournaments() {
       const t15Price = row.t_plus_15_price;
       const t5Percent = calcPercent(t0Price, t5Price) ?? row.t_plus_5_percent;
       const t15Percent = calcPercent(t5Price, t15Price) ?? row.t_plus_15_percent;
+
       return {
         eventId: row.event_id,
         title: event.title,
@@ -299,9 +391,10 @@ export async function triggerPriceReactionJob() {
   const orFilter = await buildStatsFilter();
 
   // ✅ беремо івенти НАПЕРЕД (для заготовлених постів)
+  // ⬇️ ДОДАЛИ event_usd_value, mcap_usd для %mcap
   const { data: events, error: eventsError } = await supabase
     .from('events_approved')
-    .select('id,title,start_at,type,event_type_slug,coin_name,timezone,tge_exchanges,coin_price_link')
+    .select('id,title,start_at,type,event_type_slug,coin_name,timezone,tge_exchanges,coin_price_link,link,event_usd_value,mcap_usd')
     .lte('start_at', nowUtc.add(LOOKAHEAD_DAYS, 'day').toISOString())
     .not('start_at', 'is', null)
     .or(orFilter);
@@ -365,6 +458,19 @@ export async function triggerPriceReactionJob() {
           t_plus_15_time: t15Time.toISOString(),
           t_plus_15_price: null,
           t_plus_15_percent: null,
+
+          // ✅ нові поля (NULL на старті)
+          series_close: null,
+          series_high: null,
+          series_low: null,
+          pre_return_30m: null,
+          post_return_30m: null,
+          net_return_60m: null,
+          max_price: null,
+          max_offset: null,
+          min_price: null,
+          min_offset: null,
+          event_pct_mcap: null,
         };
 
         const { error } = await supabase.from('event_price_reaction').insert(payload);
@@ -378,7 +484,7 @@ export async function triggerPriceReactionJob() {
       continue;
     }
 
-    // 2) апдейтимо ціни в потрібні вікна
+    // 2) апдейтимо ціни в потрібні вікна (T0/T+5/T+15)
     try {
       const patch = {};
 
@@ -420,11 +526,117 @@ export async function triggerPriceReactionJob() {
 
         if (error) throw error;
         summary.updated += 1;
-      } else {
-        summary.skipped += 1;
       }
     } catch (error) {
       console.error('[stats] update reaction failed', event.id, error);
+      summary.errors += 1;
+      continue;
+    }
+
+    // 3) ✅ Якщо ±30m series вже є — пропускаємо важкий fetch
+    if (Array.isArray(existing.series_close) && existing.series_close.length === SERIES_TOTAL_POINTS) {
+      summary.skipped += 1;
+      continue;
+    }
+
+    // 4) ✅ Серію рахуємо тільки коли now >= T0 + 35m
+    if (nowUtc.isBefore(t0Time.add(SERIES_CUTOFF_MINUTES, 'minute'))) {
+      summary.skipped += 1;
+      continue;
+    }
+
+    // 5) ✅ Один запит до MEXC за 1m klines (±30m)
+    try {
+      const startTs = t0Time.subtract(30, 'minute').valueOf();
+      const endTs = t0Time.add(30, 'minute').valueOf();
+
+      const url = new URL('https://api.mexc.com/api/v3/klines');
+      url.searchParams.set('symbol', market.apiPair);
+      url.searchParams.set('interval', '1m');
+      url.searchParams.set('startTime', String(startTs));
+      url.searchParams.set('endTime', String(endTs));
+
+      const resp = await fetch(url.toString());
+      if (!resp.ok) throw new Error(`MEXC klines failed: ${resp.status}`);
+      const candles = await resp.json(); // [[ts, open, high, low, close, ...], ...]
+
+      // серії індексуємо як index 0 => -30m, index 30 => T0, index 60 => +30m
+      const closeSeries = new Array(SERIES_TOTAL_POINTS).fill(null);
+      const highSeries = new Array(SERIES_TOTAL_POINTS).fill(null);
+      const lowSeries = new Array(SERIES_TOTAL_POINTS).fill(null);
+
+      for (const c of candles || []) {
+        const [ts, _open, high, low, close] = c;
+        const off = Math.round((Number(ts) - startTs) / 60_000);
+        if (off >= 0 && off < SERIES_TOTAL_POINTS) {
+          closeSeries[off] = Number(close);
+          highSeries[off] = Number(high);
+          lowSeries[off] = Number(low);
+        }
+      }
+
+      // KPI
+      const priceNeg30 = closeSeries[0];
+      const priceT0 = closeSeries[SERIES_CENTER_INDEX];
+      const pricePos30 = closeSeries[SERIES_TOTAL_POINTS - 1];
+
+      const preReturn30m = calcReturn(priceNeg30, priceT0);      // -30 -> 0
+      const postReturn30m = calcReturn(priceT0, pricePos30);     // 0 -> +30
+      const netReturn60m = calcReturn(priceNeg30, pricePos30);   // -30 -> +30
+
+      // MAX/MIN (по high/low якщо є)
+      let maxIdx = 0;
+      let minIdx = 0;
+      for (let i = 0; i < SERIES_TOTAL_POINTS; i++) {
+        if (highSeries[i] != null && (highSeries[maxIdx] == null || highSeries[i] > highSeries[maxIdx])) {
+          maxIdx = i;
+        }
+        if (lowSeries[i] != null && (lowSeries[minIdx] == null || lowSeries[i] < lowSeries[minIdx])) {
+          minIdx = i;
+        }
+      }
+      const maxPrice = highSeries[maxIdx] ?? null;
+      const minPrice = lowSeries[minIdx] ?? null;
+      const maxOffset = maxIdx - SERIES_CENTER_INDEX; // -30..+30
+      const minOffset = minIdx - SERIES_CENTER_INDEX;
+
+      // % of MCAP
+      let eventPctMcap = null;
+      if (event.event_usd_value != null && event.mcap_usd != null) {
+        const evUsd = Number(event.event_usd_value);
+        const mcap = Number(event.mcap_usd);
+        if (Number.isFinite(evUsd) && Number.isFinite(mcap) && mcap > 0) {
+          eventPctMcap = (evUsd / mcap) * 100;
+        }
+      }
+
+      const update = {
+        series_close: closeSeries,
+        series_high: highSeries,
+        series_low: lowSeries,
+
+        pre_return_30m: preReturn30m,
+        post_return_30m: postReturn30m,
+        net_return_60m: netReturn60m,
+
+        max_price: maxPrice,
+        max_offset: maxOffset,
+        min_price: minPrice,
+        min_offset: minOffset,
+
+        event_pct_mcap: eventPctMcap,
+      };
+
+      const { error } = await supabase
+        .from('event_price_reaction')
+        .update(update)
+        .eq('event_id', event.id);
+
+      if (error) throw error;
+
+      summary.updated += 1;
+    } catch (error) {
+      console.error('[stats] fetch ±30m series failed', event.id, error);
       summary.errors += 1;
     }
   }
