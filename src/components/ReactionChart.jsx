@@ -277,43 +277,6 @@ export default function ReactionChart({
           </>
         )}
 
-        {/* PNL box on chart */}
-        {pnlBox && (
-          <>
-            {(() => {
-              const x = clamp(pnlBox.midX - boxW / 2, paddingX, width - paddingX - boxW);
-              const y = paddingY + 6;
-              const pctText = `${pnlBox.pct >= 0 ? '+' : ''}${pnlBox.pct.toFixed(2)}%`;
-              const deltaText = `${pnlBox.delta >= 0 ? '+' : ''}${pnlBox.delta.toFixed(6)}`;
-              const candlesText = `${pnlBox.candles}m`;
-
-              return (
-                <g>
-                  <rect
-                    x={x}
-                    y={y}
-                    width={boxW}
-                    height={boxH}
-                    rx="10"
-                    fill="rgba(15, 23, 42, 0.92)"
-                    stroke="rgba(148, 163, 184, 0.25)"
-                  />
-                  <text x={x + 10} y={y + 18} fill="#e2e8f0" fontSize="11">
-                    PNL: <tspan fill={pnlBox.pct >= 0 ? '#22c55e' : '#ef4444'}>{pctText}</tspan>
-                    <tspan fill="#94a3b8">  •  {candlesText}</tspan>
-                  </text>
-                  <text x={x + 10} y={y + 34} fill="#94a3b8" fontSize="10">
-                    Entry: {pnlBox.entry.toFixed(6)}  →  Exit: {pnlBox.exit.toFixed(6)}
-                  </text>
-                  <text x={x + 10} y={y + 49} fill="#94a3b8" fontSize="10">
-                    Δprice: {deltaText}
-                  </text>
-                </g>
-              );
-            })()}
-          </>
-        )}
-
         {/* candles */}
         {closeSeries.map((close, idx) => {
           const open = openSeries[idx];
@@ -353,6 +316,42 @@ export default function ReactionChart({
             </g>
           );
         })}
+        {/* PNL box on chart */}
+        {pnlBox && (
+          <>
+            {(() => {
+              const x = clamp(pnlBox.midX - boxW / 2, paddingX, width - paddingX - boxW);
+              const y = paddingY + 6;
+              const pctText = `${pnlBox.pct >= 0 ? '+' : ''}${pnlBox.pct.toFixed(2)}%`;
+              const deltaText = `${pnlBox.delta >= 0 ? '+' : ''}${pnlBox.delta.toFixed(6)}`;
+              const candlesText = `${pnlBox.candles}m`;
+
+              return (
+                <g>
+                  <rect
+                    x={x}
+                    y={y}
+                    width={boxW}
+                    height={boxH}
+                    rx="10"
+                    fill="rgba(15, 23, 42, 0.92)"
+                    stroke="rgba(148, 163, 184, 0.25)"
+                  />
+                  <text x={x + 10} y={y + 18} fill="#e2e8f0" fontSize="11">
+                    PNL: <tspan fill={pnlBox.pct >= 0 ? '#22c55e' : '#ef4444'}>{pctText}</tspan>
+                    <tspan fill="#94a3b8">  •  {candlesText}</tspan>
+                  </text>
+                  <text x={x + 10} y={y + 34} fill="#94a3b8" fontSize="10">
+                    Entry: {pnlBox.entry.toFixed(6)}  →  Exit: {pnlBox.exit.toFixed(6)}
+                  </text>
+                  <text x={x + 10} y={y + 49} fill="#94a3b8" fontSize="10">
+                    Δprice: {deltaText}
+                  </text>
+                </g>
+              );
+            })()}
+          </>
+        )}
       </svg>
     </div>
   );
