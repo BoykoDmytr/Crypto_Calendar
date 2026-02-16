@@ -31,6 +31,32 @@ export default function AddEvent() {
       // - Інші типи: стандартний datetime-local
       const payload = sanitize(form);
 
+      // Нормалізуємо тип перед вставкою: інколи у формі може лишитися
+      // невалідний slug (або людська назва замість slug), що ламає FK.
+      const { data: eventTypes, error: typeErr } = await supabase
+        .from('event_types')
+        .select('slug, name, label');
+      if (typeErr) throw typeErr;
+
+      const rows = eventTypes || [];
+      const normalizedSlug = String(payload.event_type_slug || '').trim().toLowerCase();
+      const normalizedType = String(payload.type || '').trim().toLowerCase();
+
+      const matchedType = rows.find((row) => {
+        const slug = String(row.slug || '').trim().toLowerCase();
+        const name = String(row.name || '').trim().toLowerCase();
+        const label = String(row.label || '').trim().toLowerCase();
+        return (
+          (normalizedSlug && slug === normalizedSlug) ||
+          (normalizedType && (name === normalizedType || label === normalizedType))
+        );
+      });
+
+      if (matchedType) {
+        payload.event_type_slug = matchedType.slug;
+        payload.type = matchedType.name || matchedType.label || payload.type;
+      }
+
       const { error } = await supabase.from('events_pending').insert(payload);
       if (error) throw error;
 

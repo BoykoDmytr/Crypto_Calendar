@@ -129,9 +129,18 @@ export default function EventForm({ onSubmit, loading, initial = {} }) {
         const hasInitialType = !!(initial?.event_type_slug || initial?.type);
         if (hasInitialType) return;
 
-        // Якщо у формі ще не обраний тип — поставимо перший активний
+        // Для нової події перевіряємо, що slug у формі дійсний.
+        // Якщо дефолтний/старий slug не існує у довіднику — підставляємо перший активний.
         setForm((s) => {
-          if (s.event_type_slug || !list?.length) return s;
+          if (!list?.length) return s;
+          const selected = list.find((t) => t.slug === s.event_type_slug);
+          if (selected) {
+            return {
+              ...s,
+              event_type_slug: selected.slug,
+              type: selected.name ?? selected.label ?? s.type,
+            };
+          }
           const first = list.find((t) => t.active) || list[0];
           return first
             ? { ...s, event_type_slug: first.slug, type: first.name ?? first.label }
@@ -259,10 +268,15 @@ export default function EventForm({ onSubmit, loading, initial = {} }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [initial, types]);
 
-  const currentType = useMemo(
-    () => types.find(t => t.slug === form.event_type_slug) || { is_tge: true, time_optional: true, name: 'Listing (TGE)' },
-    [types, form.event_type_slug]
-  );
+  const currentType = useMemo(() => {
+    const selected = types.find((t) => t.slug === form.event_type_slug);
+    if (selected) return selected;
+
+    const first = types.find((t) => t.active) || types[0];
+    if (first) return first;
+
+    return { is_tge: true, time_optional: true, name: 'Listing (TGE)' };
+  }, [types, form.event_type_slug]);
 
   // довідник бірж
   const [dictExchanges, setDictExchanges] = useState({ spot: [], futures: [] });
@@ -603,10 +617,10 @@ export default function EventForm({ onSubmit, loading, initial = {} }) {
               const slug = e.target.value;
               const t = types.find(x=>x.slug===slug);
               change('event_type_slug', slug);
-              change('type', t?.name || '');
+              change('type', t?.name || t?.label || '');
             }}>
             {types.map(t => (
-              <option key={t.id} value={t.slug}>{t.name}</option>
+              <option key={t.id} value={t.slug}>{t.name || t.label || t.slug}</option>
             ))}
           </select>
         </div>
