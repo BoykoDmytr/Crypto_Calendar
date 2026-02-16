@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import dayjs from 'dayjs';
 import utc from 'dayjs/plugin/utc';
 import timezone from 'dayjs/plugin/timezone';
@@ -40,15 +40,10 @@ function formatPercent(value, digits = 2) {
 }
 
 /**
- * PriceReactionCard (updated)
+ * PriceReactionCard (updated per patch)
  *
- * Expects item to include fields from the new ±30m reaction backend:
- * - seriesClose: number[61] (close prices, offsets -30..+30; index 30 = T0)
- * - seriesHigh:  number[61] (optional)
- * - seriesLow:   number[61] (optional)
- * - preReturn30m, postReturn30m, netReturn60m
- * - maxPrice, maxOffset, minPrice, minOffset
- * - eventPctMcap (optional)
+ * Adds range selection state for ReactionChart and passes selected offsets
+ * to ProfitCalculator (simplified version).
  */
 export default function PriceReactionCard({ item }) {
   const {
@@ -72,6 +67,22 @@ export default function PriceReactionCard({ item }) {
   } = item;
 
   const hasSeries = Array.isArray(seriesClose) && seriesClose.length === 61;
+
+  // ✅ Maintain selection of a range on the chart for the profit calculator
+  // range = { startIdx: number, endIdx: number|null } | null
+  const [range, setRange] = useState(null);
+
+  const handleRangeSelect = ({ startIdx, endIdx }) => {
+    if (endIdx == null) {
+      setRange({ startIdx, endIdx: null });
+    } else {
+      setRange({ startIdx, endIdx });
+    }
+  };
+
+  // Convert selected indices to offsets (-30..+30) only when selection is complete
+  const startOffset = range && range.endIdx != null ? range.startIdx - 30 : null;
+  const endOffset = range && range.endIdx != null ? range.endIdx - 30 : null;
 
   return (
     <article className="relative overflow-hidden rounded-3xl border border-gray-200 bg-white/90 px-4 py-5 text-slate-900 shadow-xl backdrop-blur-sm dark:border-slate-800 dark:bg-gradient-to-br dark:from-[#0b0f1a] dark:via-[#0f172a] dark:to-[#0b111f] dark:text-white">
@@ -121,6 +132,8 @@ export default function PriceReactionCard({ item }) {
                 closeSeries={seriesClose}
                 highSeries={Array.isArray(seriesHigh) && seriesHigh.length === 61 ? seriesHigh : null}
                 lowSeries={Array.isArray(seriesLow) && seriesLow.length === 61 ? seriesLow : null}
+                onRangeSelect={handleRangeSelect}
+                selectedRange={range}
               />
 
               {/* KPI row */}
@@ -153,7 +166,8 @@ export default function PriceReactionCard({ item }) {
                   <div className="flex flex-col">
                     <span className="uppercase tracking-wide text-[10px]">MAX</span>
                     <span className="font-semibold">
-                      {Number(maxPrice).toFixed(6)} ({maxOffset > 0 ? '+' : ''}{maxOffset}m)
+                      {Number(maxPrice).toFixed(6)} ({maxOffset > 0 ? '+' : ''}
+                      {maxOffset}m)
                     </span>
                   </div>
                 )}
@@ -162,7 +176,8 @@ export default function PriceReactionCard({ item }) {
                   <div className="flex flex-col">
                     <span className="uppercase tracking-wide text-[10px]">MIN</span>
                     <span className="font-semibold">
-                      {Number(minPrice).toFixed(6)} ({minOffset > 0 ? '+' : ''}{minOffset}m)
+                      {Number(minPrice).toFixed(6)} ({minOffset > 0 ? '+' : ''}
+                      {minOffset}m)
                     </span>
                   </div>
                 )}
@@ -183,8 +198,8 @@ export default function PriceReactionCard({ item }) {
         </div>
       )}
 
-      {/* Profit Calculator */}
-      {hasSeries && <ProfitCalculator closeSeries={seriesClose} />}
+      {/* Profit Calculator (simplified): uses range selection */}
+      {hasSeries && <ProfitCalculator closeSeries={seriesClose} startOffset={startOffset} endOffset={endOffset} />}
     </article>
   );
 }
