@@ -21,8 +21,8 @@ export default function ReactionChart({
   startAt,
   timezone: tz,
   height: heightProp = 200,
+  investment, // ✅ optional, for $PNL
 }) {
-  // ✅ Hooks first
   const svgRef = useRef(null);
   const [isDragging, setIsDragging] = useState(false);
   const [dragStartIdx, setDragStartIdx] = useState(null);
@@ -36,7 +36,6 @@ export default function ReactionChart({
     );
   }
 
-  // mobile detection (no hooks)
   const isMobile = typeof window !== 'undefined' && window.innerWidth < 768;
 
   const baseIndex = 30;
@@ -56,16 +55,14 @@ export default function ReactionChart({
   const percentLows = lows.map((p) => ((p - basePrice) / basePrice) * 100);
   const maxPercent = Math.max(...percentHighs);
   const minPercent = Math.min(...percentLows);
-  const range = maxPercent - minPercent || 1;
+  const pctRange = maxPercent - minPercent || 1;
 
-  // sizing
   const height = heightProp;
   const paddingX = 60;
   const paddingY = 30;
 
-  // ширина: на десктопі — 600px (без скролу), на мобілці — ширше (для тапа)
   const baseWidth = 600;
-  const widthPerCandle = 12; // 10–16
+  const widthPerCandle = 12;
   const width = isMobile
     ? Math.max(baseWidth, length * widthPerCandle + paddingX * 2)
     : baseWidth;
@@ -77,11 +74,11 @@ export default function ReactionChart({
     paddingX + (innerWidth * idx) / (length - 1),
   );
 
-  const toY = (pct) => paddingY + (1 - (pct - minPercent) / range) * innerHeight;
+  const toY = (pct) => paddingY + (1 - (pct - minPercent) / pctRange) * innerHeight;
 
-  // ticks
+  // Y ticks
   const yTickCount = 5;
-  const yStep = range / (yTickCount - 1);
+  const yStep = pctRange / (yTickCount - 1);
   const yTicks = Array.from({ length: yTickCount }, (_, i) => {
     const pct = maxPercent - i * yStep;
     const price = basePrice * (1 + pct / 100);
@@ -89,6 +86,7 @@ export default function ReactionChart({
     return { label: price.toFixed(6), y };
   });
 
+  // X ticks
   const zone = TZ_MAP[tz] || tz || 'UTC';
   const startTime = startAt ? dayjs.utc(startAt).tz(zone) : null;
   const xTicks = [];
@@ -106,12 +104,11 @@ export default function ReactionChart({
   const getIdxFromClientX = (clientX) => {
     const svg = svgRef.current;
     if (!svg) return null;
+
     const rect = svg.getBoundingClientRect();
     if (!rect.width) return null;
 
-    // clientX -> viewBox x
     const x = ((clientX - rect.left) / rect.width) * width;
-
     const step = innerWidth / (length - 1);
     const raw = Math.round((x - paddingX) / step);
     return clamp(raw, 0, length - 1);
@@ -121,8 +118,6 @@ export default function ReactionChart({
     if (idx == null) return;
     setIsDragging(true);
     setDragStartIdx(idx);
-
-    // стартуємо selection одразу
     onRangeSelect?.({ startIdx: idx, endIdx: idx });
   };
 
@@ -136,33 +131,45 @@ export default function ReactionChart({
     setDragStartIdx(null);
   };
 
-  // normalize selected range for drawing
-  const hasSelection = selectedRange && selectedRange.startIdx != null && selectedRange.endIdx != null;
+  // normalize selected range for drawing + pnl
+  const hasSelection =
+    selectedRange && selectedRange.startIdx != null && selectedRange.endIdx != null;
   const s = hasSelection ? Math.min(selectedRange.startIdx, selectedRange.endIdx) : null;
   const e = hasSelection ? Math.max(selectedRange.startIdx, selectedRange.endIdx) : null;
 
-  // measurement (PNL) values
+  // PNL values
   let pnlBox = null;
   if (hasSelection && s !== e) {
     const entry = closeSeries[s];
     const exit = closeSeries[e];
-    const delta = exit - entry;
-    const pct = (delta / entry) * 100;
-    const candles = e - s; // 1 candle = 1 minute
+    const pct = ((exit - entry) / entry) * 100;
+
+    // ✅ time range text like "10:50 – 11:00"
+    let rangeText = `${Math.abs(e - s)}m`;
+    if (startTime) {
+      const t1 = startTime.add(s - 30, 'minute').format('HH:mm');
+      const t2 = startTime.add(e - 30, 'minute').format('HH:mm');
+      rangeText = `${t1} – ${t2}`;
+    }
+
+    // ✅ $PNL (USDT) if investment provided
+    const inv = Number(investment);
+    const pnlUsd = Number.isFinite(inv) && inv > 0 ? (inv * pct) / 100 : null;
 
     const midX = (xPositions[s] + xPositions[e]) / 2;
+
     pnlBox = {
       entry,
       exit,
-      delta,
       pct,
-      candles,
+      rangeText,
       midX,
+      pnlUsd,
     };
   }
 
-  const boxW = 190;
-  const boxH = 56;
+  const boxW = 230;
+  const boxH = 60;
 
   return (
     <div className="w-full">
@@ -172,25 +179,24 @@ export default function ReactionChart({
         height={height}
         viewBox={`0 0 ${width} ${height}`}
         className="block mx-auto"
-        style={{ touchAction: 'none' }} // важливо для мобілки, щоб drag працював як треба
-        onPointerDown={(e) => {
-          e.preventDefault();
-          const idx = getIdxFromClientX(e.clientX);
+        style={{ touchAction: 'none' }}
+        onPointerDown={(ev) => {
+          ev.preventDefault();
+          const idx = getIdxFromClientX(ev.clientX);
           startDrag(idx);
         }}
-        onPointerMove={(e) => {
+        onPointerMove={(ev) => {
           if (!isDragging) return;
-          e.preventDefault();
-          const idx = getIdxFromClientX(e.clientX);
+          ev.preventDefault();
+          const idx = getIdxFromClientX(ev.clientX);
           updateDrag(idx);
         }}
-        onPointerUp={(e) => {
-          e.preventDefault();
+        onPointerUp={(ev) => {
+          ev.preventDefault();
           endDrag();
         }}
         onPointerCancel={() => endDrag()}
         onPointerLeave={() => {
-          // якщо юзер “вийшов” пальцем — завершуємо drag
           if (isDragging) endDrag();
         }}
       >
@@ -245,7 +251,7 @@ export default function ReactionChart({
           </g>
         ))}
 
-        {/* selection highlight like TradingView ruler */}
+        {/* selection highlight */}
         {hasSelection && s != null && e != null && (
           <>
             <rect
@@ -316,15 +322,19 @@ export default function ReactionChart({
             </g>
           );
         })}
-        {/* PNL box on chart */}
+
+        {/* ✅ PNL box AFTER candles => always on top */}
         {pnlBox && (
           <>
             {(() => {
               const x = clamp(pnlBox.midX - boxW / 2, paddingX, width - paddingX - boxW);
               const y = paddingY + 6;
+
               const pctText = `${pnlBox.pct >= 0 ? '+' : ''}${pnlBox.pct.toFixed(2)}%`;
-              const deltaText = `${pnlBox.delta >= 0 ? '+' : ''}${pnlBox.delta.toFixed(6)}`;
-              const candlesText = `${pnlBox.candles}m`;
+              const usdText =
+                pnlBox.pnlUsd == null
+                  ? null
+                  : `${pnlBox.pnlUsd >= 0 ? '+' : ''}${pnlBox.pnlUsd.toFixed(2)} USDT`;
 
               return (
                 <g>
@@ -338,15 +348,21 @@ export default function ReactionChart({
                     stroke="rgba(148, 163, 184, 0.25)"
                   />
                   <text x={x + 10} y={y + 18} fill="#e2e8f0" fontSize="11">
-                    PNL: <tspan fill={pnlBox.pct >= 0 ? '#22c55e' : '#ef4444'}>{pctText}</tspan>
-                    <tspan fill="#94a3b8">  •  {candlesText}</tspan>
+                    PNL:{' '}
+                    <tspan fill={pnlBox.pct >= 0 ? '#22c55e' : '#ef4444'}>{pctText}</tspan>
+                    <tspan fill="#94a3b8">{`  •  ${pnlBox.rangeText}`}</tspan>
                   </text>
-                  <text x={x + 10} y={y + 34} fill="#94a3b8" fontSize="10">
-                    Entry: {pnlBox.entry.toFixed(6)}  →  Exit: {pnlBox.exit.toFixed(6)}
+
+                  <text x={x + 10} y={y + 36} fill="#94a3b8" fontSize="10">
+                    Entry: {pnlBox.entry.toFixed(6)} → Exit: {pnlBox.exit.toFixed(6)}
                   </text>
-                  <text x={x + 10} y={y + 49} fill="#94a3b8" fontSize="10">
-                    Δprice: {deltaText}
-                  </text>
+
+                  {usdText && (
+                    <text x={x + 10} y={y + 52} fill="#e2e8f0" fontSize="10">
+                      <tspan fill="#94a3b8">PNL (USDT): </tspan>
+                      <tspan fill={pnlBox.pct >= 0 ? '#22c55e' : '#ef4444'}>{usdText}</tspan>
+                    </text>
+                  )}
                 </g>
               );
             })()}

@@ -6,13 +6,10 @@ import timezone from 'dayjs/plugin/timezone';
 import ReactionChart from './ReactionChart';
 import ProfitCalculator from './ProfitCalculator';
 
-// Підключаємо плагіни dayjs
 dayjs.extend(utc);
 dayjs.extend(timezone);
 
-const TZ_MAP = {
-  Kyiv: 'Europe/Kyiv',
-};
+const TZ_MAP = { Kyiv: 'Europe/Kyiv' };
 
 function formatDate(iso, tz) {
   if (!iso) return '';
@@ -21,11 +18,6 @@ function formatDate(iso, tz) {
   return base.tz(zone).format('DD MMM HH:mm');
 }
 
-/**
- * PriceReactionCard
- *
- * Відображає дані реакції ціни (+ графік, KPI, міні-статистику та прибуток).
- */
 export default function PriceReactionCard({ item }) {
   const {
     title,
@@ -44,22 +36,18 @@ export default function PriceReactionCard({ item }) {
 
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [needRotateHint, setNeedRotateHint] = useState(false);
-
-  // контейнер, який буде входити в fullscreen
   const chartFsRef = useRef(null);
 
-  // Стан виділеного діапазону для калькулятора
   const [range, setRange] = useState(null);
 
+  // ✅ investment shared between chart tooltip and ProfitCalculator
+  const [investment, setInvestment] = useState(100);
+
   const handleRangeSelect = ({ startIdx, endIdx }) => {
-    if (endIdx == null) {
-      setRange({ startIdx, endIdx: null });
-    } else {
-      setRange({ startIdx, endIdx });
-    }
+    if (endIdx == null) setRange({ startIdx, endIdx: null });
+    else setRange({ startIdx, endIdx });
   };
 
-  // Обчислюємо відносні зміщення лише після завершення вибору
   const startOffset = range && range.endIdx != null ? range.startIdx - 30 : null;
   const endOffset = range && range.endIdx != null ? range.endIdx - 30 : null;
 
@@ -78,28 +66,27 @@ export default function PriceReactionCard({ item }) {
       const el = chartFsRef.current;
       if (!el) return;
 
-      // real fullscreen
       if (el.requestFullscreen) {
         await el.requestFullscreen();
       } else {
-        // якщо не підтримується — просто покажемо підказку
         setNeedRotateHint(true);
         return;
       }
 
-      // try lock orientation (Android часто дозволяє)
       if (screen.orientation?.lock) {
         try {
           await screen.orientation.lock('landscape');
         } catch {
-  void 0;
-}
+          void 0;
+          setNeedRotateHint(true);
+        }
       } else {
         setNeedRotateHint(true);
       }
     } catch {
-  void 0;
-}
+      void 0;
+      setNeedRotateHint(true);
+    }
   };
 
   const exitFullscreen = async () => {
@@ -108,15 +95,15 @@ export default function PriceReactionCard({ item }) {
         try {
           screen.orientation.unlock();
         } catch {
-  void 0;
-}
+          void 0;
+        }
       }
       if (document.exitFullscreen) {
         await document.exitFullscreen();
       }
     } catch {
-  void 0;
-}
+      void 0;
+    }
   };
 
   return (
@@ -126,7 +113,7 @@ export default function PriceReactionCard({ item }) {
         aria-hidden
       />
 
-      {/* Заголовки картки */}
+      {/* Заголовки */}
       <div className="relative flex flex-wrap items-center gap-2 text-[11px] font-semibold mb-3">
         <span className="rounded-full bg-emerald-100 text-emerald-800 px-2.5 py-1 border border-emerald-200 shadow-sm dark:bg-emerald-500/15 dark:text-emerald-200 dark:border-emerald-500/30">
           Completed
@@ -143,7 +130,7 @@ export default function PriceReactionCard({ item }) {
         )}
       </div>
 
-      {/* Назва та мета */}
+      {/* Назва */}
       <div className="relative flex flex-col gap-1 mb-4">
         <h3 className="font-semibold text-lg leading-snug line-clamp-2 break-words">{title}</h3>
 
@@ -156,39 +143,33 @@ export default function PriceReactionCard({ item }) {
         </div>
       </div>
 
-      {/* Wrapper that goes fullscreen */}
+      {/* Wrapper fullscreen */}
       <div ref={chartFsRef} className="relative">
-        {/* Блок графіка */}
         <div
           className="relative rounded-2xl border border-gray-100 bg-gradient-to-b from-gray-50 via-white to-white shadow-sm backdrop-blur-sm
                      overflow-x-auto md:overflow-x-hidden
                      dark:border-white/5 dark:from-white/10 dark:via-white/5 dark:to-white/0 mb-4"
         >
-          {/* кнопка fullscreen тільки на мобілці */}
           {hasSeries && (
             <button
               type="button"
               onClick={enterFullscreen}
               className="md:hidden absolute right-3 top-3 z-10 rounded-lg border border-white/10 bg-black/40 px-2.5 py-1.5 text-xs text-white backdrop-blur hover:bg-black/55"
-              aria-label="Fullscreen chart"
             >
               ⤢ Fullscreen
             </button>
           )}
 
-          {/* кнопка виходу (показується тільки коли fullscreen активний) */}
           {isFullscreen && (
             <button
               type="button"
               onClick={exitFullscreen}
               className="md:hidden absolute left-3 top-3 z-10 rounded-lg border border-white/10 bg-black/40 px-2.5 py-1.5 text-xs text-white backdrop-blur hover:bg-black/55"
-              aria-label="Exit fullscreen"
             >
               ✕
             </button>
           )}
 
-          {/* підказка, якщо orientation lock не спрацював */}
           {needRotateHint && isFullscreen && (
             <div className="md:hidden absolute bottom-3 left-1/2 -translate-x-1/2 z-10 rounded-xl border border-white/10 bg-black/50 px-3 py-1.5 text-xs text-white">
               Поверни телефон горизонтально ↻
@@ -205,6 +186,7 @@ export default function PriceReactionCard({ item }) {
                 selectedRange={range}
                 startAt={startAt}
                 timezone={tz}
+                investment={investment} // ✅
               />
             ) : (
               <div className="text-sm text-gray-600 dark:text-gray-300">
@@ -215,16 +197,20 @@ export default function PriceReactionCard({ item }) {
         </div>
       </div>
 
-      {/* Відсоток від капіталізації */}
       {eventPctMcap != null && (
         <div className="text-xs text-gray-600 dark:text-gray-400 mb-3">
           % of MCap: {Number(eventPctMcap).toFixed(2)}%
         </div>
       )}
 
-      {/* Калькулятор прибутку */}
       {hasSeries && (
-        <ProfitCalculator closeSeries={seriesClose} startOffset={startOffset} endOffset={endOffset} />
+        <ProfitCalculator
+          closeSeries={seriesClose}
+          startOffset={startOffset}
+          endOffset={endOffset}
+          investment={investment}
+          onInvestmentChange={setInvestment}
+        />
       )}
     </article>
   );
