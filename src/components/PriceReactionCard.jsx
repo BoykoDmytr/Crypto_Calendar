@@ -42,6 +42,9 @@ export default function PriceReactionCard({ item }) {
 
   const hasSeries = Array.isArray(seriesClose) && seriesClose.length === 61;
 
+  // ✅ fullscreen state MUST be inside component
+  const [isFullscreen, setIsFullscreen] = useState(false);
+
   // Стан виділеного діапазону для калькулятора
   const [range, setRange] = useState(null);
 
@@ -81,7 +84,6 @@ export default function PriceReactionCard({ item }) {
         )}
       </div>
 
-
       {/* Назва та мета */}
       <div className="relative flex flex-col gap-1 mb-4">
         <h3 className="font-semibold text-lg leading-snug line-clamp-2 break-words">{title}</h3>
@@ -96,20 +98,32 @@ export default function PriceReactionCard({ item }) {
       </div>
 
       {/* Блок графіка */}
-      <div className="relative rounded-2xl border border-gray-100 bg-gradient-to-b from-gray-50 via-white to-white shadow-sm backdrop-blur-sm overflow-x-auto dark:border-white/5 dark:from-white/10 dark:via-white/5 dark:to-white/0 mb-4">
-        <div className="p-4">
+      <div
+        className="relative rounded-2xl border border-gray-100 bg-gradient-to-b from-gray-50 via-white to-white shadow-sm backdrop-blur-sm
+                   overflow-x-auto md:overflow-x-hidden
+                   dark:border-white/5 dark:from-white/10 dark:via-white/5 dark:to-white/0 mb-4"
+      >
+        {/* кнопка fullscreen тільки на мобілці */}
+        <button
+          type="button"
+          onClick={() => setIsFullscreen(true)}
+          className="md:hidden absolute right-3 top-3 z-10 rounded-lg border border-white/10 bg-black/40 px-2.5 py-1.5 text-xs text-white backdrop-blur hover:bg-black/55"
+          aria-label="Fullscreen chart"
+        >
+          ⤢ Fullscreen
+        </button>
+
+        <div className="p-4 md:flex md:justify-center">
           {hasSeries ? (
-            <>
-              <ReactionChart
-                closeSeries={seriesClose}
-                highSeries={Array.isArray(seriesHigh) && seriesHigh.length === 61 ? seriesHigh : null}
-                lowSeries={Array.isArray(seriesLow) && seriesLow.length === 61 ? seriesLow : null}
-                onRangeSelect={handleRangeSelect}
-                selectedRange={range}
-                startAt={startAt}
-                timezone={tz}
-              />
-            </>
+            <ReactionChart
+              closeSeries={seriesClose}
+              highSeries={Array.isArray(seriesHigh) && seriesHigh.length === 61 ? seriesHigh : null}
+              lowSeries={Array.isArray(seriesLow) && seriesLow.length === 61 ? seriesLow : null}
+              onRangeSelect={handleRangeSelect}
+              selectedRange={range}
+              startAt={startAt}
+              timezone={tz}
+            />
           ) : (
             <div className="text-sm text-gray-600 dark:text-gray-300">
               Немає серії ±30m (ще не пораховано або івент занадто свіжий).
@@ -117,6 +131,39 @@ export default function PriceReactionCard({ item }) {
           )}
         </div>
       </div>
+
+      {/* Fullscreen overlay */}
+      {isFullscreen && hasSeries && (
+        <div className="fixed inset-0 z-[9999] bg-[#070b14] p-3 md:hidden">
+          <div className="flex items-center justify-between gap-3 mb-3">
+            <div className="text-white text-sm font-semibold truncate">{pair || title}</div>
+            <button
+              type="button"
+              onClick={() => setIsFullscreen(false)}
+              className="rounded-lg border border-white/15 bg-white/10 px-3 py-1.5 text-xs text-white"
+            >
+              ✕ Закрити
+            </button>
+          </div>
+
+          <div className="rounded-2xl border border-white/10 bg-white/5 p-3 overflow-x-auto">
+            <ReactionChart
+              closeSeries={seriesClose}
+              highSeries={Array.isArray(seriesHigh) && seriesHigh.length === 61 ? seriesHigh : null}
+              lowSeries={Array.isArray(seriesLow) && seriesLow.length === 61 ? seriesLow : null}
+              onRangeSelect={handleRangeSelect}
+              selectedRange={range}
+              startAt={startAt}
+              timezone={tz}
+              height={360}
+            />
+          </div>
+
+          <div className="mt-3 text-xs text-white/70">
+            Затисни і потягни по графіку, щоб виміряти рух (як лінійка TradingView).
+          </div>
+        </div>
+      )}
 
       {/* Відсоток від капіталізації */}
       {eventPctMcap != null && (
@@ -126,7 +173,9 @@ export default function PriceReactionCard({ item }) {
       )}
 
       {/* Калькулятор прибутку */}
-      {hasSeries && <ProfitCalculator closeSeries={seriesClose} startOffset={startOffset} endOffset={endOffset} />}
+      {hasSeries && (
+        <ProfitCalculator closeSeries={seriesClose} startOffset={startOffset} endOffset={endOffset} />
+      )}
     </article>
   );
 }
