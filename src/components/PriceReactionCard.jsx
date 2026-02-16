@@ -144,11 +144,21 @@ export default function PriceReactionCard({ item }) {
       </div>
 
       {/* Wrapper fullscreen */}
-      <div ref={chartFsRef} className="relative">
+      <div
+        ref={chartFsRef}
+        className={`relative ${
+          isFullscreen
+            ? 'w-screen h-screen bg-[#020617] flex items-center justify-center p-2 sm:p-4'
+            : ''
+        }`}
+      >
         <div
-          className="relative rounded-2xl border border-gray-100 bg-gradient-to-b from-gray-50 via-white to-white shadow-sm backdrop-blur-sm
-                     overflow-x-auto md:overflow-x-hidden
-                     dark:border-white/5 dark:from-white/10 dark:via-white/5 dark:to-white/0 mb-4"
+          className={`relative border border-gray-100 bg-gradient-to-b from-gray-50 via-white to-white shadow-sm backdrop-blur-sm
+                     dark:border-white/5 dark:from-white/10 dark:via-white/5 dark:to-white/0 ${
+                       isFullscreen
+                         ? 'w-full h-full max-w-[1600px] max-h-[900px] rounded-2xl overflow-hidden mb-0'
+                         : 'rounded-2xl overflow-x-auto md:overflow-x-hidden mb-4'
+                     }`}
         >
           {hasSeries && (
             <button

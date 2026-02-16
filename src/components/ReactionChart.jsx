@@ -22,6 +22,7 @@ export default function ReactionChart({
   timezone: tz,
   height: heightProp = 200,
   investment, // ✅ optional, for $PNL
+  isFullscreen = false,
 }) {
   const svgRef = useRef(null);
   const [isDragging, setIsDragging] = useState(false);
@@ -57,15 +58,17 @@ export default function ReactionChart({
   const minPercent = Math.min(...percentLows);
   const pctRange = maxPercent - minPercent || 1;
 
-  const height = heightProp;
-  const paddingX = 60;
-  const paddingY = 30;
+  const height = isFullscreen ? Math.max(heightProp, 420) : heightProp;
+  const paddingX = isFullscreen ? 72 : 60;
+  const paddingY = isFullscreen ? 36 : 30;
 
-  const baseWidth = 600;
-  const widthPerCandle = 12;
-  const width = isMobile
+  const baseWidth = isFullscreen ? 1280 : 600;
+  const widthPerCandle = isFullscreen ? 18 : 12;
+  const width = isFullscreen
     ? Math.max(baseWidth, length * widthPerCandle + paddingX * 2)
-    : baseWidth;
+     : isMobile
+      ? Math.max(baseWidth, length * widthPerCandle + paddingX * 2)
+      : baseWidth;
 
   const innerWidth = width - paddingX * 2;
   const innerHeight = height - paddingY * 2;
@@ -168,17 +171,17 @@ export default function ReactionChart({
     };
   }
 
-  const boxW = 230;
-  const boxH = 60;
+  const boxW = isFullscreen ? 280 : 230;
+  const boxH = isFullscreen ? 72 : 60;
 
   return (
-    <div className="w-full">
+    <div className={`w-full ${isFullscreen ? 'h-full flex items-center justify-center' : ''}`}>
       <svg
         ref={svgRef}
         width={width}
         height={height}
         viewBox={`0 0 ${width} ${height}`}
-        className="block mx-auto"
+        className={`block mx-auto ${isFullscreen ? 'w-full h-full' : ''}`}
         style={{ touchAction: 'none' }}
         onPointerDown={(ev) => {
           ev.preventDefault();
@@ -332,9 +335,7 @@ export default function ReactionChart({
 
               const pctText = `${pnlBox.pct >= 0 ? '+' : ''}${pnlBox.pct.toFixed(2)}%`;
               const usdText =
-                pnlBox.pnlUsd == null
-                  ? null
-                  : `${pnlBox.pnlUsd >= 0 ? '+' : ''}${pnlBox.pnlUsd.toFixed(2)} USDT`;
+                pnlBox.pnlUsd == null ? null : `${Math.abs(pnlBox.pnlUsd).toFixed(4)} USDT`;
 
               return (
                 <g>
@@ -347,22 +348,16 @@ export default function ReactionChart({
                     fill="rgba(15, 23, 42, 0.92)"
                     stroke="rgba(148, 163, 184, 0.25)"
                   />
-                  <text x={x + 10} y={y + 18} fill="#e2e8f0" fontSize="11">
-                    PNL:{' '}
+                  <text x={x + 10} y={y + 18} fill="#e2e8f0" fontSize={isFullscreen ? 13 : 11}>
+                    PNL%:{' '}
                     <tspan fill={pnlBox.pct >= 0 ? '#22c55e' : '#ef4444'}>{pctText}</tspan>
+                    {usdText && <tspan fill={pnlBox.pct >= 0 ? '#22c55e' : '#ef4444'}>{`  •  ${usdText}`}</tspan>}
                     <tspan fill="#94a3b8">{`  •  ${pnlBox.rangeText}`}</tspan>
                   </text>
 
-                  <text x={x + 10} y={y + 36} fill="#94a3b8" fontSize="10">
+                  <text x={x + 10} y={y + 36} fill="#94a3b8" fontSize={isFullscreen ? 12 : 10}>
                     Entry: {pnlBox.entry.toFixed(6)} → Exit: {pnlBox.exit.toFixed(6)}
                   </text>
-
-                  {usdText && (
-                    <text x={x + 10} y={y + 52} fill="#e2e8f0" fontSize="10">
-                      <tspan fill="#94a3b8">PNL (USDT): </tspan>
-                      <tspan fill={pnlBox.pct >= 0 ? '#22c55e' : '#ef4444'}>{usdText}</tspan>
-                    </text>
-                  )}
                 </g>
               );
             })()}

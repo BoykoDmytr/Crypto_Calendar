@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React from 'react';
 
 /**
  * ProfitCalculator (спрощений)
@@ -11,8 +11,13 @@ import React, { useState } from 'react';
  *   startOffset (number|null)   – зміщення від T0 для входу, −30…+30
  *   endOffset (number|null)     – зміщення від T0 для виходу, −30…+30
  */
-export default function ProfitCalculator({ closeSeries = [], startOffset = null, endOffset = null }) {
-  const [investment, setInvestment] = useState(100);
+export default function ProfitCalculator({
+  closeSeries = [],
+  startOffset = null,
+  endOffset = null,
+  investment = 100,
+  onInvestmentChange,
+}) {
 
   const toIndex = (offset) => (offset != null ? offset + 30 : null);
   const entryIndex = startOffset != null ? toIndex(startOffset) : null;
@@ -24,10 +29,12 @@ export default function ProfitCalculator({ closeSeries = [], startOffset = null,
   let pnl = null;
   let pnlPct = null;
 
-  if (entryPrice != null && exitPrice != null) {
-    const qty = investment / entryPrice;
+  const normalizedInvestment = Number(investment);
+
+  if (entryPrice != null && exitPrice != null && Number.isFinite(normalizedInvestment)) {
+    const qty = normalizedInvestment / entryPrice;
     pnl = qty * (exitPrice - entryPrice);
-    pnlPct = investment ? (pnl / investment) * 100 : null;
+    pnlPct = normalizedInvestment ? (pnl / normalizedInvestment) * 100 : null;
   }
 
   // Вибираємо колір залежно від результату
@@ -58,7 +65,7 @@ export default function ProfitCalculator({ closeSeries = [], startOffset = null,
             type="number"
             min="1"
             value={investment}
-            onChange={(e) => setInvestment(Number(e.target.value))}
+            onChange={(e) => onInvestmentChange?.(Number(e.target.value))}
             className="w-full rounded border border-gray-300 dark:border-gray-600 px-2 py-1 bg-white dark:bg-[#0b0f1a]"
           />
         </label>
