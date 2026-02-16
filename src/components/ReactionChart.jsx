@@ -20,6 +20,9 @@ export default function ReactionChart({
   // ✅ HOOKS MUST BE FIRST (before any early returns)
   const [hoverIdx, setHoverIdx] = useState(null);
 
+  // ✅ mobile detection (без хуків)
+  const isMobile = typeof window !== 'undefined' && window.innerWidth < 768;
+
   const length = closeSeries.length;
   if (!length || length !== 61) {
     return (
@@ -48,10 +51,19 @@ export default function ReactionChart({
   const minPercent = Math.min(...percentLows);
   const range = maxPercent - minPercent || 1;
 
-  const width = 600;
+  // ✅ Параметри графіка
   const height = 200;
   const paddingX = 60;
   const paddingY = 30;
+
+  // ✅ Ширина: мобілка — розширюємо, десктоп — 600px
+  const baseWidth = 600; // десктоп
+  const widthPerCandle = 12; // мобілка: 10–16 підбирай під себе
+
+  const width = isMobile
+    ? Math.max(baseWidth, length * widthPerCandle + paddingX * 2)
+    : baseWidth;
+
   const innerWidth = width - paddingX * 2;
   const innerHeight = height - paddingY * 2;
 
@@ -89,7 +101,8 @@ export default function ReactionChart({
   let highlightStart = null;
   let highlightEnd = null;
 
-  const hasStartOnly = selectedRange && selectedRange.startIdx != null && selectedRange.endIdx == null;
+  const hasStartOnly =
+    selectedRange && selectedRange.startIdx != null && selectedRange.endIdx == null;
   const hasComplete = selectedRange && selectedRange.endIdx != null;
 
   if (hasComplete) {
@@ -124,10 +137,10 @@ export default function ReactionChart({
   return (
     <div className="w-full">
       <svg
-        width="105%"
+        width={width}
         height={height}
         viewBox={`0 0 ${width} ${height}`}
-        className="block"
+        className="block mx-auto"
         onMouseLeave={handleMouseLeave}
       >
         {/* Y grid + labels */}

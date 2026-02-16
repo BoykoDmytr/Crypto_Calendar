@@ -195,15 +195,9 @@ export default function Stats() {
             </div>
             <h1 className="text-2xl font-bold">Статистика</h1>
             <p className="text-sm text-slate-700 dark:text-gray-300">
-              Автоматичний трекінг івентів та їх цінових реакцій у вікні ±30 хвилин. Івенти з відстежуваних категорій додаються автоматично.
+              Аналізуйте зміну ціни до/після івентів. Також, нажавши на графік, ви зможете порахувати, скільки ви могли б заробити/втратити. 
             </p>
             <div className="flex flex-wrap gap-2 text-xs text-slate-600 dark:text-gray-400">
-              <span className="rounded-full bg-white px-2 py-1 border border-gray-200 shadow-sm dark:bg-white/5 dark:border-white/10">
-                Автооновлення щохвилини
-              </span>
-              <span className="rounded-full bg-white px-2 py-1 border border-gray-200 shadow-sm dark:bg-white/5 dark:border-white/10">
-                Слухаємо нові івенти
-              </span>
             </div>
           </div>
           <button

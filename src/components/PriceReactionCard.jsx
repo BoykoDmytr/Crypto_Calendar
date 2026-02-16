@@ -24,7 +24,7 @@ function formatDate(iso, tz) {
 /**
  * PriceReactionCard
  *
- * Відображає дані реакції ціни (+ графік, KPI, міні‑статистику та прибуток).
+ * Відображає дані реакції ціни (+ графік, KPI, міні-статистику та прибуток).
  */
 export default function PriceReactionCard({ item }) {
   const {
@@ -81,6 +81,7 @@ export default function PriceReactionCard({ item }) {
         )}
       </div>
 
+
       {/* Назва та мета */}
       <div className="relative flex flex-col gap-1 mb-4">
         <h3 className="font-semibold text-lg leading-snug line-clamp-2 break-words">{title}</h3>
@@ -95,7 +96,7 @@ export default function PriceReactionCard({ item }) {
       </div>
 
       {/* Блок графіка */}
-      <div className="relative rounded-2xl border border-gray-100 bg-gradient-to-b from-gray-50 via-white to-white shadow-sm backdrop-blur-sm overflow-hidden dark:border-white/5 dark:from-white/10 dark:via-white/5 dark:to-white/0 mb-4">
+      <div className="relative rounded-2xl border border-gray-100 bg-gradient-to-b from-gray-50 via-white to-white shadow-sm backdrop-blur-sm overflow-x-auto dark:border-white/5 dark:from-white/10 dark:via-white/5 dark:to-white/0 mb-4">
         <div className="p-4">
           {hasSeries ? (
             <>
