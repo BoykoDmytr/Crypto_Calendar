@@ -123,7 +123,13 @@ export default function ReactionChart({
 
   return (
     <div className="w-full">
-      <svg width={width} height={height} className="block" onMouseLeave={handleMouseLeave}>
+      <svg
+        width="105%"
+        height={height}
+        viewBox={`0 0 ${width} ${height}`}
+        className="block"
+        onMouseLeave={handleMouseLeave}
+      >
         {/* Y grid + labels */}
         {yTicks.map((tick, i) => (
           <g key={`y-${i}`}>
