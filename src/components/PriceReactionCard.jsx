@@ -6,44 +6,14 @@ import timezone from 'dayjs/plugin/timezone';
 import ReactionChart from './ReactionChart';
 import ProfitCalculator from './ProfitCalculator';
 
-// Register dayjs plugins for UTC and timezones.
+// Підключаємо плагіни dayjs
 dayjs.extend(utc);
 dayjs.extend(timezone);
 
-// Mapping for common timezone labels.
-const TZ_MAP = {
-  Kyiv: 'Europe/Kyiv',
-};
-
-// Format a timestamp into DD MMM HH:mm in the given timezone.
-function formatDate(iso, tz) {
-  if (!iso) return '';
-  const base = dayjs.utc(iso);
-  const zone = TZ_MAP[tz] || tz || 'UTC';
-  return base.tz(zone).format('DD MMM HH:mm');
-}
-
-// Assign a CSS class for percentage display based on value.
-function percentClass(value) {
-  if (value === null || value === undefined) return 'text-gray-400';
-  if (value > 0) return 'text-emerald-500';
-  if (value < 0) return 'text-red-500';
-  return 'text-amber-500';
-}
-
-function formatPercent(value, digits = 2) {
-  if (value === null || value === undefined) return '—';
-  const n = Number(value);
-  if (!Number.isFinite(n)) return '—';
-  const sign = n > 0 ? '+' : '';
-  return `${sign}${n.toFixed(digits)}%`;
-}
-
 /**
- * PriceReactionCard (updated per patch)
+ * PriceReactionCard
  *
- * Adds range selection state for ReactionChart and passes selected offsets
- * to ProfitCalculator (simplified version).
+ * Відображає дані реакції ціни (+ графік, KPI, міні‑статистику та прибуток).
  */
 export default function PriceReactionCard({ item }) {
   const {
@@ -68,8 +38,7 @@ export default function PriceReactionCard({ item }) {
 
   const hasSeries = Array.isArray(seriesClose) && seriesClose.length === 61;
 
-  // ✅ Maintain selection of a range on the chart for the profit calculator
-  // range = { startIdx: number, endIdx: number|null } | null
+  // Стан виділеного діапазону для калькулятора
   const [range, setRange] = useState(null);
 
   const handleRangeSelect = ({ startIdx, endIdx }) => {
@@ -80,7 +49,7 @@ export default function PriceReactionCard({ item }) {
     }
   };
 
-  // Convert selected indices to offsets (-30..+30) only when selection is complete
+  // Обчислюємо відносні зміщення лише після завершення вибору
   const startOffset = range && range.endIdx != null ? range.startIdx - 30 : null;
   const endOffset = range && range.endIdx != null ? range.endIdx - 30 : null;
 
@@ -91,7 +60,7 @@ export default function PriceReactionCard({ item }) {
         aria-hidden
       />
 
-      {/* Header chips */}
+      {/* Заголовки картки */}
       <div className="relative flex flex-wrap items-center gap-2 text-[11px] font-semibold mb-3">
         <span className="rounded-full bg-emerald-100 text-emerald-800 px-2.5 py-1 border border-emerald-200 shadow-sm dark:bg-emerald-500/15 dark:text-emerald-200 dark:border-emerald-500/30">
           Completed
@@ -108,7 +77,7 @@ export default function PriceReactionCard({ item }) {
         )}
       </div>
 
-      {/* Title + meta */}
+      {/* Назва та мета */}
       <div className="relative flex flex-col gap-1 mb-4">
         <h3 className="font-semibold text-lg leading-snug line-clamp-2 break-words">{title}</h3>
 
@@ -116,14 +85,14 @@ export default function PriceReactionCard({ item }) {
           <span className="rounded-full bg-gray-100 border border-gray-200 px-2 py-0.5 text-[11px] uppercase tracking-wide dark:bg-white/5 dark:border-white/10">
             UTC
           </span>
-
-          <span className="whitespace-nowrap">{formatDate(startAt, tz)}</span>
-
+          <span className="whitespace-nowrap">
+            {dayjs.utc(startAt).tz(tz || 'UTC').format('DD MMM HH:mm')}
+          </span>
           {coinName && <span className="text-gray-500 dark:text-gray-300">· {coinName}</span>}
         </div>
       </div>
 
-      {/* Reaction Curve block */}
+      {/* Блок графіка */}
       <div className="relative rounded-2xl border border-gray-100 bg-gradient-to-b from-gray-50 via-white to-white shadow-sm backdrop-blur-sm overflow-hidden dark:border-white/5 dark:from-white/10 dark:via-white/5 dark:to-white/0 mb-4">
         <div className="p-4">
           {hasSeries ? (
@@ -134,50 +103,47 @@ export default function PriceReactionCard({ item }) {
                 lowSeries={Array.isArray(seriesLow) && seriesLow.length === 61 ? seriesLow : null}
                 onRangeSelect={handleRangeSelect}
                 selectedRange={range}
+                startAt={startAt}
+                timezone={tz}
               />
 
-              {/* KPI row */}
+              {/* KPI-показники (Pre/Post/Net) */}
               <div className="mt-4 grid grid-cols-3 gap-3 text-xs text-center">
                 <div>
                   <span className="block text-gray-500 dark:text-gray-400">Pre −30→0m</span>
-                  <span className={`font-semibold ${percentClass(preReturn30m)}`}>
-                    {formatPercent(preReturn30m)}
+                  <span className={`font-semibold ${preReturn30m > 0 ? 'text-emerald-500' : preReturn30m < 0 ? 'text-red-500' : 'text-amber-500'}`}>
+                    {preReturn30m !== null && preReturn30m !== undefined ? `${preReturn30m > 0 ? '+' : ''}${preReturn30m.toFixed(2)}%` : '—'}
                   </span>
                 </div>
-
                 <div>
                   <span className="block text-gray-500 dark:text-gray-400">Post 0→+30m</span>
-                  <span className={`font-semibold ${percentClass(postReturn30m)}`}>
-                    {formatPercent(postReturn30m)}
+                  <span className={`font-semibold ${postReturn30m > 0 ? 'text-emerald-500' : postReturn30m < 0 ? 'text-red-500' : 'text-amber-500'}`}>
+                    {postReturn30m !== null && postReturn30m !== undefined ? `${postReturn30m > 0 ? '+' : ''}${postReturn30m.toFixed(2)}%` : '—'}
                   </span>
                 </div>
-
                 <div>
                   <span className="block text-gray-500 dark:text-gray-400">Net −30→+30m</span>
-                  <span className={`font-semibold ${percentClass(netReturn60m)}`}>
-                    {formatPercent(netReturn60m)}
+                  <span className={`font-semibold ${netReturn60m > 0 ? 'text-emerald-500' : netReturn60m < 0 ? 'text-red-500' : 'text-amber-500'}`}>
+                    {netReturn60m !== null && netReturn60m !== undefined ? `${netReturn60m > 0 ? '+' : ''}${netReturn60m.toFixed(2)}%` : '—'}
                   </span>
                 </div>
               </div>
 
-              {/* MAX/MIN row */}
+              {/* Рядок Max/Min */}
               <div className="mt-4 grid grid-cols-2 gap-3 text-xs text-gray-600 dark:text-gray-300">
                 {maxPrice != null && (
                   <div className="flex flex-col">
                     <span className="uppercase tracking-wide text-[10px]">MAX</span>
                     <span className="font-semibold">
-                      {Number(maxPrice).toFixed(6)} ({maxOffset > 0 ? '+' : ''}
-                      {maxOffset}m)
+                      {Number(maxPrice).toFixed(6)} ({maxOffset > 0 ? '+' : ''}{maxOffset}m)
                     </span>
                   </div>
                 )}
-
                 {minPrice != null && (
                   <div className="flex flex-col">
                     <span className="uppercase tracking-wide text-[10px]">MIN</span>
                     <span className="font-semibold">
-                      {Number(minPrice).toFixed(6)} ({minOffset > 0 ? '+' : ''}
-                      {minOffset}m)
+                      {Number(minPrice).toFixed(6)} ({minOffset > 0 ? '+' : ''}{minOffset}m)
                     </span>
                   </div>
                 )}
@@ -191,14 +157,14 @@ export default function PriceReactionCard({ item }) {
         </div>
       </div>
 
-      {/* % of MCap */}
+      {/* Відсоток від капіталізації */}
       {eventPctMcap != null && (
         <div className="text-xs text-gray-600 dark:text-gray-400 mb-3">
           % of MCap: {Number(eventPctMcap).toFixed(2)}%
         </div>
       )}
 
-      {/* Profit Calculator (simplified): uses range selection */}
+      {/* Калькулятор прибутку */}
       {hasSeries && <ProfitCalculator closeSeries={seriesClose} startOffset={startOffset} endOffset={endOffset} />}
     </article>
   );

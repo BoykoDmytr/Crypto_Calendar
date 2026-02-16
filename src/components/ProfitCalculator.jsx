@@ -1,25 +1,20 @@
 import React, { useState } from 'react';
 
 /**
- * ProfitCalculator (simplified)
+ * ProfitCalculator (спрощений)
  *
- * ✅ Changes vs old version (per patch):
- * - Removes leverage, side, entry offset, exit offset inputs
- * - Keeps only Investment input
- * - Entry/Exit offsets are provided by parent (from chart range selection)
- * - Computes PnL as if it’s a 1x LONG from entry -> exit
+ * Відображає прибуток для вибраного діапазону. Залежно від
+ * результату PnL та PnL% текст фарбується зеленим/червоним.
  *
  * Props:
- *   closeSeries (number[]): array of 61 close prices (index 0 = −30m)
- *   startOffset (number|null): offset in minutes relative to T0 (−30..+30)
- *   endOffset   (number|null): offset in minutes relative to T0 (−30..+30)
+ *   closeSeries (number[])      – 61 цін закриття
+ *   startOffset (number|null)   – зміщення від T0 для входу, −30…+30
+ *   endOffset (number|null)     – зміщення від T0 для виходу, −30…+30
  */
 export default function ProfitCalculator({ closeSeries = [], startOffset = null, endOffset = null }) {
-  // Simplified profit calculator: only investment input remains.
   const [investment, setInvestment] = useState(100);
 
   const toIndex = (offset) => (offset != null ? offset + 30 : null);
-
   const entryIndex = startOffset != null ? toIndex(startOffset) : null;
   const exitIndex = endOffset != null ? toIndex(endOffset) : null;
 
@@ -30,16 +25,32 @@ export default function ProfitCalculator({ closeSeries = [], startOffset = null,
   let pnlPct = null;
 
   if (entryPrice != null && exitPrice != null) {
-    // Quantity bought with 1x leverage
     const qty = investment / entryPrice;
     pnl = qty * (exitPrice - entryPrice);
     pnlPct = investment ? (pnl / investment) * 100 : null;
   }
 
+  // Вибираємо колір залежно від результату
+  const pnlColor =
+    pnl == null
+      ? 'text-gray-500'
+      : pnl > 0
+      ? 'text-emerald-500'
+      : pnl < 0
+      ? 'text-red-500'
+      : 'text-amber-500';
+  const pnlPctColor =
+    pnlPct == null
+      ? 'text-gray-500'
+      : pnlPct > 0
+      ? 'text-emerald-500'
+      : pnlPct < 0
+      ? 'text-red-500'
+      : 'text-amber-500';
+
   return (
     <div className="rounded-xl border border-gray-200 dark:border-white/10 p-4 mt-4 bg-white/60 dark:bg-[#0d1425]/50">
       <h4 className="text-sm font-semibold mb-3">Profit Calculator</h4>
-
       <div className="grid grid-cols-1 gap-3 text-sm">
         <label className="flex flex-col gap-1">
           <span className="text-gray-600 dark:text-gray-300">Investment (USDT)</span>
@@ -58,12 +69,22 @@ export default function ProfitCalculator({ closeSeries = [], startOffset = null,
           <>
             <div>Entry price: {Number(entryPrice).toFixed(6)}</div>
             <div>Exit price: {Number(exitPrice).toFixed(6)}</div>
-            <div>PnL: {Number(pnl).toFixed(4)} USDT</div>
-            <div>PnL%: {Number(pnlPct).toFixed(2)}%</div>
+            <div>
+              PnL:{' '}
+              <span className={pnlColor}>
+                {Number(pnl).toFixed(4)} USDT
+              </span>
+            </div>
+            <div>
+              PnL%:{' '}
+              <span className={pnlPctColor}>
+                {Number(pnlPct).toFixed(2)}%
+              </span>
+            </div>
           </>
         ) : (
           <div className="text-gray-600 dark:text-gray-400">
-            Select a range on the chart to compute profit.
+            Оберіть дві свічки на графіку, щоб порахувати прибуток.
           </div>
         )}
       </div>
