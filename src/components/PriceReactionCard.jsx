@@ -10,6 +10,17 @@ import ProfitCalculator from './ProfitCalculator';
 dayjs.extend(utc);
 dayjs.extend(timezone);
 
+const TZ_MAP = {
+  Kyiv: 'Europe/Kyiv',
+};
+
+function formatDate(iso, tz) {
+  if (!iso) return '';
+  const base = dayjs.utc(iso);
+  const zone = TZ_MAP[tz] || tz || 'UTC';
+  return base.tz(zone).format('DD MMM HH:mm');
+}
+
 /**
  * PriceReactionCard
  *
@@ -26,13 +37,6 @@ export default function PriceReactionCard({ item }) {
     seriesClose,
     seriesHigh,
     seriesLow,
-    preReturn30m,
-    postReturn30m,
-    netReturn60m,
-    maxPrice,
-    maxOffset,
-    minPrice,
-    minOffset,
     eventPctMcap,
   } = item;
 
@@ -85,9 +89,7 @@ export default function PriceReactionCard({ item }) {
           <span className="rounded-full bg-gray-100 border border-gray-200 px-2 py-0.5 text-[11px] uppercase tracking-wide dark:bg-white/5 dark:border-white/10">
             UTC
           </span>
-          <span className="whitespace-nowrap">
-            {dayjs.utc(startAt).tz(tz || 'UTC').format('DD MMM HH:mm')}
-          </span>
+          <span className="whitespace-nowrap">{formatDate(startAt, tz)}</span>
           {coinName && <span className="text-gray-500 dark:text-gray-300">· {coinName}</span>}
         </div>
       </div>
@@ -106,48 +108,6 @@ export default function PriceReactionCard({ item }) {
                 startAt={startAt}
                 timezone={tz}
               />
-
-              {/* KPI-показники (Pre/Post/Net) */}
-              <div className="mt-4 grid grid-cols-3 gap-3 text-xs text-center">
-                <div>
-                  <span className="block text-gray-500 dark:text-gray-400">Pre −30→0m</span>
-                  <span className={`font-semibold ${preReturn30m > 0 ? 'text-emerald-500' : preReturn30m < 0 ? 'text-red-500' : 'text-amber-500'}`}>
-                    {preReturn30m !== null && preReturn30m !== undefined ? `${preReturn30m > 0 ? '+' : ''}${preReturn30m.toFixed(2)}%` : '—'}
-                  </span>
-                </div>
-                <div>
-                  <span className="block text-gray-500 dark:text-gray-400">Post 0→+30m</span>
-                  <span className={`font-semibold ${postReturn30m > 0 ? 'text-emerald-500' : postReturn30m < 0 ? 'text-red-500' : 'text-amber-500'}`}>
-                    {postReturn30m !== null && postReturn30m !== undefined ? `${postReturn30m > 0 ? '+' : ''}${postReturn30m.toFixed(2)}%` : '—'}
-                  </span>
-                </div>
-                <div>
-                  <span className="block text-gray-500 dark:text-gray-400">Net −30→+30m</span>
-                  <span className={`font-semibold ${netReturn60m > 0 ? 'text-emerald-500' : netReturn60m < 0 ? 'text-red-500' : 'text-amber-500'}`}>
-                    {netReturn60m !== null && netReturn60m !== undefined ? `${netReturn60m > 0 ? '+' : ''}${netReturn60m.toFixed(2)}%` : '—'}
-                  </span>
-                </div>
-              </div>
-
-              {/* Рядок Max/Min */}
-              <div className="mt-4 grid grid-cols-2 gap-3 text-xs text-gray-600 dark:text-gray-300">
-                {maxPrice != null && (
-                  <div className="flex flex-col">
-                    <span className="uppercase tracking-wide text-[10px]">MAX</span>
-                    <span className="font-semibold">
-                      {Number(maxPrice).toFixed(6)} ({maxOffset > 0 ? '+' : ''}{maxOffset}m)
-                    </span>
-                  </div>
-                )}
-                {minPrice != null && (
-                  <div className="flex flex-col">
-                    <span className="uppercase tracking-wide text-[10px]">MIN</span>
-                    <span className="font-semibold">
-                      {Number(minPrice).toFixed(6)} ({minOffset > 0 ? '+' : ''}{minOffset}m)
-                    </span>
-                  </div>
-                )}
-              </div>
             </>
           ) : (
             <div className="text-sm text-gray-600 dark:text-gray-300">
