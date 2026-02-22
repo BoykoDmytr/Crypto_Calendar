@@ -145,7 +145,8 @@ export default function ReactionChart({
   if (hasSelection && s !== e) {
     const entry = closeSeries[s];
     const exit = closeSeries[e];
-    const pct = ((exit - entry) / entry) * 100;
+    // short: позитивний результат, коли ціна знижується
+    const pct = ((entry - exit) / entry) * 100;
 
     // ✅ time range text like "10:50 – 11:00"
     let rangeText = `${Math.abs(e - s)}m`;

@@ -33,7 +33,8 @@ export default function ProfitCalculator({
 
   if (entryPrice != null && exitPrice != null && Number.isFinite(normalizedInvestment)) {
     const qty = normalizedInvestment / entryPrice;
-    pnl = qty * (exitPrice - entryPrice);
+    // short: прибуток росте, коли ціна падає
+    pnl = qty * (entryPrice - exitPrice);
     pnlPct = normalizedInvestment ? (pnl / normalizedInvestment) * 100 : null;
   }
 
