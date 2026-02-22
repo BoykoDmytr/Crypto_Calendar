@@ -536,7 +536,7 @@ export default function Calendar() {
 
       {/* ── КНОПКА TELEGRAM ВНИЗУ ─────────────────────────────────────────────── */}
       <div className="px-3 sm:px-4 pb-2 flex justify-center">
-        <TelegramCTA communityHref={import.meta.env.VITE_TG_CHANNEL_URL || 'https://t.me/your_channel'} />
+        <TelegramCTA communityHref={import.meta.env.VITE_TG_CHANNEL_URL || 'https://t.me/cryptohornettg'} />
       </div>
     </div>
   );
