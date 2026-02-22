@@ -122,12 +122,6 @@ export default function PriceReactionCard({ item }) {
         <span className="rounded-full bg-gray-100 text-gray-700 px-2.5 py-1 border border-gray-200 shadow-sm dark:bg-white/5 dark:text-gray-200 dark:border-white/10">
           {type || 'Event'}
         </span>
-
-        {pair && (
-          <span className="truncate text-gray-600 max-w-full sm:max-w-none dark:text-gray-300">
-            {pair}
-          </span>
-        )}
       </div>
 
       {/* Назва */}
@@ -135,11 +129,12 @@ export default function PriceReactionCard({ item }) {
         <h3 className="font-semibold text-lg leading-snug line-clamp-2 break-words">{title}</h3>
 
         <div className="flex flex-wrap items-center gap-2 text-xs text-gray-500 dark:text-gray-400">
-          <span className="rounded-full bg-gray-100 border border-gray-200 px-2 py-0.5 text-[11px] uppercase tracking-wide dark:bg-white/5 dark:border-white/10">
-            UTC
-          </span>
           <span className="whitespace-nowrap">{formatDate(startAt, tz)}</span>
-          {coinName && <span className="text-gray-500 dark:text-gray-300">· {coinName}</span>}
+          {(pair || coinName) && (
+            <span className="text-gray-500 dark:text-gray-300">
+              · {pair ? `${pair} MEXC` : coinName}
+            </span>
+          )}
         </div>
       </div>
 
