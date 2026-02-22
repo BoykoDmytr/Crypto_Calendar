@@ -173,7 +173,7 @@ export default function ReactionChart({
   }
 
   const boxW = isFullscreen ? 280 : 230;
-  const boxH = isFullscreen ? 72 : 60;
+  const boxH = isFullscreen ? 90 : 78;
 
   return (
     <div className={`w-full ${isFullscreen ? 'h-full flex items-center justify-center' : ''}`}>
@@ -353,10 +353,13 @@ export default function ReactionChart({
                     PNL%:{' '}
                     <tspan fill={pnlBox.pct >= 0 ? '#22c55e' : '#ef4444'}>{pctText}</tspan>
                     {usdText && <tspan fill={pnlBox.pct >= 0 ? '#22c55e' : '#ef4444'}>{`  •  ${usdText}`}</tspan>}
-                    <tspan fill="#94a3b8">{`  •  ${pnlBox.rangeText}`}</tspan>
                   </text>
 
                   <text x={x + 10} y={y + 36} fill="#94a3b8" fontSize={isFullscreen ? 12 : 10}>
+                    {pnlBox.rangeText}
+                  </text>
+
+                  <text x={x + 10} y={y + 54} fill="#94a3b8" fontSize={isFullscreen ? 12 : 10}>
                     Entry: {pnlBox.entry.toFixed(6)} → Exit: {pnlBox.exit.toFixed(6)}
                   </text>
                 </g>
