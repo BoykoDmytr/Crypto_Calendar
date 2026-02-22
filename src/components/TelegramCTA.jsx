@@ -1,6 +1,6 @@
 // src/components/TelegramButtons.jsx
 export default function TelegramButtons({
-  communityHref = 'https://t.me/+ZlWNBWHBmZIzOTJi',
+  communityHref = 'https://t.me/cryptohornettg',
   chatHref = 'https://t.me/cryptohornetchat',
   okxTrackerHref = 'https://t.me/okxboostcontacttracker',
   tgeTrackerHref = 'https://t.me/tgekeytracker',
