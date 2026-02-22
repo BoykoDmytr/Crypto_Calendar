@@ -78,6 +78,9 @@ export default function ReactionChart({
   );
 
   const toY = (pct) => paddingY + (1 - (pct - minPercent) / pctRange) * innerHeight;
+  const eventX = xPositions[baseIndex];
+  const eventPct = ((closeSeries[baseIndex] - basePrice) / basePrice) * 100;
+  const eventY = toY(eventPct);
 
   // Y ticks
   const yTickCount = 5;
@@ -254,6 +257,42 @@ export default function ReactionChart({
             </text>
           </g>
         ))}
+
+        {/* Event marker (t = 0 / actual event start) */}
+        <g>
+          <line
+            x1={eventX}
+            x2={eventX}
+            y1={paddingY}
+            y2={height - paddingY}
+            stroke="#3b82f6"
+            strokeWidth="1.5"
+            strokeDasharray="6 4"
+            opacity="0.95"
+          />
+
+          <rect
+            x={eventX - 28}
+            y={paddingY - 24}
+            width={56}
+            height={18}
+            rx={5}
+            fill="#2563eb"
+          />
+          <text
+            x={eventX}
+            y={paddingY - 11}
+            fill="#dbeafe"
+            fontSize={9}
+            fontWeight={700}
+            textAnchor="middle"
+            letterSpacing="0.8"
+          >
+            EVENT
+          </text>
+
+          <circle cx={eventX} cy={eventY} r={4} fill="#60a5fa" stroke="#1e3a8a" strokeWidth="1" />
+        </g>
 
         {/* selection highlight */}
         {hasSelection && s != null && e != null && (
