@@ -41,7 +41,7 @@ export default function TelegramButtons({
             <ChevronIcon className="h-4 w-4 transition group-open:rotate-180" />
           </summary>
 
-          <div className="absolute right-0 z-20 mt-2 min-w-full overflow-hidden rounded-xl border border-blue-200/30 bg-slate-900/95 shadow-xl">
+          <div className="absolute right-0 bottom-full z-20 mb-2 min-w-full overflow-hidden rounded-xl border border-blue-200/30 bg-slate-900/95 shadow-xl">
             <a
               href={okxTrackerHref}
               target="_blank"
