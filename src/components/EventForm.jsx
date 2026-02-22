@@ -14,7 +14,7 @@ dayjs.extend(timezone);
 const kyivTZ = 'Europe/Kyiv';
 
 const emptyCoin = { name: '', quantity: '', price_link: '' };
-const MEXC_PRICE_LINK_TEMPLATE = 'https://www.mexc.com/uk-UA/exchange/XXX_USDT#token-info';
+const MEXC_PRICE_LINK_TEMPLATE = 'https://www.mexc.com/uk-UA/futures/XXX_USDT?lang=uk-UA&_from=search';
 
 const buildMexcPriceLink = (name) => {
   const symbol = String(name || '')
@@ -22,11 +22,11 @@ const buildMexcPriceLink = (name) => {
     .toUpperCase()
     .replace(/[^A-Z0-9]/g, '');
   if (!symbol) return '';
-  return `https://www.mexc.com/uk-UA/exchange/${symbol}_USDT#token-info`;
+  return `https://www.mexc.com/uk-UA/futures/${symbol}_USDT?lang=uk-UA&_from=search`;
 };
 
 const isAutoMexcLink = (link) =>
-  /^https:\/\/www\.mexc\.com\/uk-UA\/exchange\/[A-Z0-9]+_USDT#token-info$/i.test(link || '');
+  /^https:\/\/www\.mexc\.com\/uk-UA\/futures\/[A-Z0-9]+_USDT\?lang=uk-UA&_from=search$/i.test(link || '');
 
 const extractTimeSegment = (value) => {
   if (!value) return '';
