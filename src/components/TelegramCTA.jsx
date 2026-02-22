@@ -6,19 +6,18 @@ export default function TelegramButtons({
   tgeTrackerHref = 'https://t.me/tgekeytracker',
 }) {
   const buttonClass =
-    'inline-flex h-12 min-w-[170px] items-center justify-center gap-2 rounded-2xl px-5 text-lg font-semibold text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.2),0_8px_24px_rgba(37,99,235,0.35)] transition hover:-translate-y-0.5 hover:brightness-110 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-300';
+    'inline-flex h-9 min-w-[96px] items-center justify-center gap-1.5 rounded-2xl px-2.5 text-sm font-semibold text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.2),0_8px_24px_rgba(37,99,235,0.35)] transition hover:-translate-y-0.5 hover:brightness-110 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-300 sm:h-11 sm:min-w-[125px] sm:gap-2 sm:px-4 sm:text-base';  
   return (
     <div className="w-full flex justify-center">
-      <div className="flex w-full max-w-[760px] flex-wrap items-center justify-center gap-3 rounded-2xl border border-white/15 bg-slate-900/30 px-3 py-4 backdrop-blur-sm sm:flex-nowrap sm:px-4">
-        <a
+      <div className="flex w-auto max-w-full flex-nowrap items-center justify-center gap-2 rounded-2xl border border-white/15 bg-slate-900/30 px-2 py-3 backdrop-blur-sm sm:gap-3 sm:px-4 sm:py-4">        <a
           href={communityHref}
           target="_blank"
           rel="noreferrer"
           className={`${buttonClass} bg-gradient-to-b from-blue-500 to-blue-700`}
           aria-label="Open Telegram community"
         >
-          <PlaneIcon className="h-5 w-5" />
-          <span>Community</span>
+          <PlaneIcon className="h-4 w-4 sm:h-5 sm:w-5" />
+          <span>Channel</span>
         </a>
 
         <a
@@ -28,7 +27,7 @@ export default function TelegramButtons({
           className={`${buttonClass} bg-gradient-to-b from-blue-500 to-blue-700`}
           aria-label="Open Telegram chat"
         >
-          <ChatIcon className="h-5 w-5" />
+          <ChatIcon className="h-4 w-4 sm:h-5 sm:w-5" />
           <span>Chat</span>
         </a>
         <details className="group relative">
@@ -36,9 +35,9 @@ export default function TelegramButtons({
             className={`${buttonClass} list-none cursor-pointer bg-gradient-to-b from-blue-500 to-blue-700 [&::-webkit-details-marker]:hidden`}
             aria-label="Open trackers links"
           >
-            <TrackerIcon className="h-5 w-5" />
+            <TrackerIcon className="h-4 w-4 sm:h-5 sm:w-5" />
             <span>Trackers</span>
-            <ChevronIcon className="h-4 w-4 transition group-open:rotate-180" />
+            <ChevronIcon className="h-3.5 w-3.5 transition group-open:rotate-180 sm:h-4 sm:w-4" />
           </summary>
 
           <div className="absolute right-0 bottom-full z-20 mb-2 min-w-full overflow-hidden rounded-xl border border-blue-200/30 bg-slate-900/95 shadow-xl">
