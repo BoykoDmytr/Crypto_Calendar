@@ -92,7 +92,7 @@ function buildMexcExchangeLink(coinName) {
   if (!raw) return null;
   const token = raw.split(/[\s(]/)[0].replace(/[^A-Za-z0-9]/g, '').toUpperCase();
   if (!token) return null;
-  return `https://www.mexc.com/uk-UA/exchange/${token}_USDT#token-info`;
+  return `https://www.mexc.com/uk-UA/futures/${token}_USDT?lang=uk-UA&_from=search`;
 }
 
 function ensureDescription(text) {
