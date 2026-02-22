@@ -57,16 +57,28 @@ export default function Stats() {
   const [jobInfo, setJobInfo] = useState('');
   const [jobError, setJobError] = useState(null);
   const [typeFilter, setTypeFilter] = useState('All');
-  const statsFiltersRef = useRef({ slugs: [], typeNames: [] });
+  const [statsFilters, setStatsFilters] = useState({ slugs: [], typeNames: [], types: [] });
+  const statsFiltersRef = useRef({ slugs: [], typeNames: [], types: [] });
 
-  // Compute available type options based on loaded items
+  // Compute available type options based on admin stats type settings.
   const typeOptions = useMemo(() => {
-    const types = new Set();
-    items.forEach((item) => {
-      if (item.type) types.add(item.type);
-    });
-    return ['All', ...Array.from(types)];
-  }, [items]);
+    const filterTypes = Array.isArray(statsFilters.types) ? statsFilters.types : [];
+    const options = filterTypes
+      .map((entry) => {
+        const slug = entry?.slug || null;
+        const label = entry?.label || slug;
+        if (!label) return null;
+        return { value: slug || label, label, slug };
+      })
+      .filter(Boolean);
+
+    if (!options.length) {
+      const fromItems = Array.from(new Set(items.map((item) => item.type).filter(Boolean)));
+      return [{ value: 'All', label: 'All' }, ...fromItems.map((name) => ({ value: name, label: name, slug: null }))];
+    }
+
+    return [{ value: 'All', label: 'All' }, ...options];
+  }, [items, statsFilters]);
 
   // Helper: load the list of completed events
   const loadItems = async () => {
@@ -76,6 +88,7 @@ export default function Stats() {
         fetchCompletedEvents(),
       ]);
       statsFiltersRef.current = filters;
+      setStatsFilters(filters);
       setItems(data);
     } catch (err) {
       setError(err.message || 'Не вдалося завантажити статистику');
@@ -93,6 +106,7 @@ export default function Stats() {
         ]);
         if (mounted) {
           statsFiltersRef.current = filters;
+          setStatsFilters(filters);
           setItems(data);
         }
       } catch (err) {
@@ -140,11 +154,16 @@ export default function Stats() {
     };
   }, []);
 
+  useEffect(() => {
+    const exists = typeOptions.some((option) => option.value === typeFilter);
+    if (!exists) setTypeFilter('All');
+  }, [typeFilter, typeOptions]);
+
   // Derive visible items based on filters
   const visibleItems = useMemo(() => {
     let filtered = items;
     if (typeFilter !== 'All') {
-      filtered = filtered.filter((item) => item.type === typeFilter);
+      filtered = filtered.filter((item) => item.eventTypeSlug === typeFilter || item.type === typeFilter);
     }
     const sorted = [...filtered];
     sorted.sort((a, b) => {
@@ -224,11 +243,11 @@ export default function Stats() {
         <FilterScroller>
           {typeOptions.map((option) => (
             <button
-              key={option}
-              onClick={() => setTypeFilter(option)}
-              className={`chip ${typeFilter === option ? 'chip--active' : ''}`}
+              key={option.value}
+              onClick={() => setTypeFilter(option.value)}
+              className={`chip ${typeFilter === option.value ? 'chip--active' : ''}`}
             >
-              {option}
+              {option.label}
             </button>
           ))}
         </FilterScroller>

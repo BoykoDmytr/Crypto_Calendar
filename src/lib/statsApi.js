@@ -208,17 +208,26 @@ export async function fetchStatsTypeFilters() {
 
     const slugs = new Set();
     const typeNames = new Set();
+    const types = [];
 
     (data || []).forEach((row) => {
       if (row.slug) slugs.add(row.slug);
       if (row.name) typeNames.add(row.name);
       if (row.label) typeNames.add(row.label);
+      types.push({
+        slug: row.slug || null,
+        label: row.label || row.name || row.slug || 'Без назви',
+      });
     });
 
     if (!slugs.size && !typeNames.size) {
       return {
         slugs: DEFAULT_TOURNAMENT_SLUGS,
         typeNames: DEFAULT_TOURNAMENT_TYPES,
+        types: DEFAULT_TOURNAMENT_SLUGS.map((slug, index) => ({
+          slug,
+          label: DEFAULT_TOURNAMENT_TYPES[index] || slug,
+        })),
         source: 'default',
       };
     }
@@ -226,6 +235,7 @@ export async function fetchStatsTypeFilters() {
     return {
       slugs: Array.from(slugs),
       typeNames: Array.from(typeNames),
+      types,
       source: 'db',
     };
   } catch (error) {
@@ -233,6 +243,10 @@ export async function fetchStatsTypeFilters() {
     return {
       slugs: DEFAULT_TOURNAMENT_SLUGS,
       typeNames: DEFAULT_TOURNAMENT_TYPES,
+      types: DEFAULT_TOURNAMENT_SLUGS.map((slug, index) => ({
+        slug,
+        label: DEFAULT_TOURNAMENT_TYPES[index] || slug,
+      })),
       source: 'default',
     };
   }
@@ -296,6 +310,7 @@ export async function fetchCompletedEvents() {
         title: event.title,
         startAt: event.start_at,
         type: event.type || event.event_type_slug,
+        eventTypeSlug: event.event_type_slug || null,
         coinName: row.coin_name || event.coin_name,
         timezone: event.timezone || 'UTC',
         pair: row.pair,
@@ -364,6 +379,7 @@ export async function fetchCompletedTournaments() {
         title: event.title,
         startAt: event.start_at,
         type: event.type || event.event_type_slug,
+        eventTypeSlug: event.event_type_slug || null,
         coinName: row.coin_name || event.coin_name,
         timezone: event.timezone || 'UTC',
         pair: row.pair,
