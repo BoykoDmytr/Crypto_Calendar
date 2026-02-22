@@ -7,6 +7,14 @@ import {
 } from '../lib/statsApi';
 import { supabase } from '../lib/supabase';
 
+function normalizeTypeKey(value) {
+  return String(value || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[_\s]+/g, '-')
+    .replace(/[^a-z0-9-]/g, '');
+}
+
 // A horizontal scroller for type filter buttons.
 function FilterScroller({ children }) {
   const ref = useRef(null);
@@ -163,7 +171,12 @@ export default function Stats() {
   const visibleItems = useMemo(() => {
     let filtered = items;
     if (typeFilter !== 'All') {
-      filtered = filtered.filter((item) => item.eventTypeSlug === typeFilter || item.type === typeFilter);
+      const selected = normalizeTypeKey(typeFilter);
+      filtered = filtered.filter((item) => {
+        const bySlug = normalizeTypeKey(item.eventTypeSlug);
+        const byType = normalizeTypeKey(item.type);
+        return bySlug === selected || byType === selected;
+      });
     }
     const sorted = [...filtered];
     sorted.sort((a, b) => {
