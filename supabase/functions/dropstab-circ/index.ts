@@ -62,7 +62,8 @@ async function tryDetailed(apiKey: string, slug: string) {
 }
 
 async function fetchCoinsList(apiKey: string) {
-  const url = "https://public-api.dropstab.com/api/v1/coins?currency=USD&rankFrom=1&rankTo=20000";
+  const url =
+    "https://public-api.dropstab.com/api/v1/coins?currency=USD&rankFrom=1&rankTo=20000";
 
   const r = await fetch(url, {
     headers: { accept: "application/json", "x-dropstab-api-key": apiKey },
@@ -74,21 +75,41 @@ async function fetchCoinsList(apiKey: string) {
   try {
     j = await r.json();
   } catch {
-    return { list: [], status, url, rawShape: "non_json" };
+    return { list: [], status, url, rawShape: "non_json", keys: [] };
   }
 
-  const candidates = [j?.data, j?.result?.data, j?.result, j?.items, j?.payload?.data];
+  // ✅ максимально широкий набір варіантів, де може лежати масив
+  const candidates = [
+    j,
+    j?.data,
+    j?.data?.data,
+    j?.data?.items,
+    j?.result,
+    j?.result?.data,
+    j?.result?.items,
+    j?.payload,
+    j?.payload?.data,
+    j?.payload?.data?.data,
+    j?.items,
+  ];
+
   const list = candidates.find((x) => Array.isArray(x)) || [];
 
-  const rawShape = Array.isArray(j?.data)
+  const keys = j && typeof j === "object" ? Object.keys(j) : [];
+
+  const rawShape = Array.isArray(j)
+    ? "root_array"
+    : Array.isArray(j?.data)
     ? "data"
+    : Array.isArray(j?.data?.data)
+    ? "data.data"
     : Array.isArray(j?.result?.data)
     ? "result.data"
     : Array.isArray(j?.items)
     ? "items"
     : "unknown";
 
-  return { list, status, url, rawShape };
+  return { list, status, url, rawShape, keys };
 }
 
 serve(async (req) => {
@@ -155,7 +176,14 @@ serve(async (req) => {
         slug: chosenSlug,
         matchesCount: matches.length,
         matched: { symbol: best?.symbol ?? null, name: best?.name ?? null, slug: best?.slug ?? null },
-        debug: { coinsStatus: coinsResp.status, coinsCount: (coinsResp.list || []).length, coinsUrl: coinsResp.url, rawShape: coinsResp.rawShape, detailedStatus },
+        debug: {
+          coinsStatus: coinsResp.status,
+          coinsCount: (coinsResp.list || []).length,
+          coinsUrl: coinsResp.url,
+          rawShape: coinsResp.rawShape,
+          keys: coinsResp.keys,
+          detailedStatus,
+        },
       }), {
         headers: { ...corsHeaders, "content-type": "application/json" },
         status: 200,
@@ -167,7 +195,14 @@ serve(async (req) => {
       via: "not_found",
       symbol: sym,
       slug,
-      debug: { coinsStatus: coinsResp.status, coinsCount: (coinsResp.list || []).length, coinsUrl: coinsResp.url, rawShape: coinsResp.rawShape, detailedStatus },
+      debug: {
+        coinsStatus: coinsResp.status,
+        coinsCount: (coinsResp.list || []).length,
+        coinsUrl: coinsResp.url,
+        rawShape: coinsResp.rawShape,
+        keys: coinsResp.keys,
+        detailedStatus,
+      },
     }), {
       headers: { ...corsHeaders, "content-type": "application/json" },
       status: 200,
