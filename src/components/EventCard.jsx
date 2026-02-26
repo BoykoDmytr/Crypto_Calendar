@@ -159,7 +159,7 @@ export default function EventCard({ ev, isPast = false }) {
             </div>
           )}
 
-          {tokenEntries.length > 0 && <EventTokenInfo coins={tokenEntries} />}
+          {tokenEntries.length > 0 && <EventTokenInfo coins={tokenEntries} pctText={ev?.coin_pct_circ} />}
 
           {eventPctMcapLabel && (
             <div className="mt-2 text-sm text-gray-600 dark:text-gray-300">
