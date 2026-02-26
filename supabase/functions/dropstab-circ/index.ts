@@ -87,6 +87,21 @@ async function fetchCoinsList(apiKey: string) {
   const data = j?.data;
   const dataType = Array.isArray(j?.data) ? "array" : (j?.data === null ? "null" : typeof j?.data);
   const dataKeys = j?.data && typeof j?.data === "object" && !Array.isArray(j.data) ? Object.keys(j.data) : [];
+
+  const dataPreview = (() => {
+  const d = j?.data;
+  if (Array.isArray(d)) return { kind: "array", len: d.length };
+  if (d && typeof d === "object") {
+    const keys = Object.keys(d).slice(0, 10);
+    const sample: Record<string, string> = {};
+    for (const k of keys) {
+      const v = (d as any)[k];
+      sample[k] = Array.isArray(v) ? `array(len=${v.length})` : (v === null ? "null" : typeof v);
+    }
+    return { kind: "object", keys, sample };
+  }
+  return { kind: dataType };
+})();
   // data може бути масивом або обʼєктом з data/items
   const list =
     Array.isArray(data) ? data :
@@ -104,6 +119,7 @@ async function fetchCoinsList(apiKey: string) {
     list,
     dataType,
     dataKeys,
+    dataPreview,
   };
 }
 
@@ -207,8 +223,17 @@ serve(async (req) => {
           slug: chosenSlug,
           matchesCount: matches.length,
           matched: { symbol: best?.symbol ?? null, name: best?.name ?? null, slug: best?.slug ?? null },
-          debug: { coinsStatus: coinsResp.status, coinsCount: coinsResp.list.length, coinsFailure: coinsResp.failure, coinsKeys: coinsResp.keys, coinsUrl: coinsResp.url, coinsDataType: coinsResp.dataType,
-coinsDataKeys: coinsResp.dataKeys, },
+          debug: {
+            coinsStatus: coinsResp.status,
+            coinsCount: (coinsResp.list || []).length,
+            coinsFailure: coinsResp.failure,
+            coinsFailureDetails: coinsResp.failureDetails,
+            coinsKeys: coinsResp.keys,
+            coinsDataType: coinsResp.dataType,
+            coinsDataKeys: coinsResp.dataKeys,
+            coinsUrl: coinsResp.url,
+            coinsDataPreview: coinsResp.dataPreview,
+          }
         }), {
           headers: { ...corsHeaders, "content-type": "application/json" },
           status: 200,
@@ -233,8 +258,17 @@ coinsDataKeys: coinsResp.dataKeys, },
           symbol: sym,
           slug: foundSlug,
           matched: { symbol: best?.symbol ?? null, name: best?.name ?? null, slug: foundSlug },
-          debug: { coinsStatus: coinsResp.status, coinsCount: coinsResp.list.length, coinsFailure: coinsResp.failure, coinsKeys: coinsResp.keys, coinsUrl: coinsResp.url, coinsDataType: coinsResp.dataType,
-coinsDataKeys: coinsResp.dataKeys, },
+          debug: {
+            coinsStatus: coinsResp.status,
+            coinsCount: (coinsResp.list || []).length,
+            coinsFailure: coinsResp.failure,
+            coinsFailureDetails: coinsResp.failureDetails,
+            coinsKeys: coinsResp.keys,
+            coinsDataType: coinsResp.dataType,
+            coinsDataKeys: coinsResp.dataKeys,
+            coinsUrl: coinsResp.url,
+            coinsDataPreview: coinsResp.dataPreview,
+          }
         }), {
           headers: { ...corsHeaders, "content-type": "application/json" },
           status: 200,
