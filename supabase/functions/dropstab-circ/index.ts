@@ -85,7 +85,8 @@ async function fetchCoinsList(apiKey: string) {
   // DropsTab інколи віддає: {status, data, failure, failureDetails, timestamp}
   const failure = Boolean(j?.failure);
   const data = j?.data;
-
+  const dataType = Array.isArray(j?.data) ? "array" : (j?.data === null ? "null" : typeof j?.data);
+  const dataKeys = j?.data && typeof j?.data === "object" && !Array.isArray(j.data) ? Object.keys(j.data) : [];
   // data може бути масивом або обʼєктом з data/items
   const list =
     Array.isArray(data) ? data :
@@ -101,6 +102,8 @@ async function fetchCoinsList(apiKey: string) {
     failureDetails: j?.failureDetails ?? null,
     keys: j && typeof j === "object" ? Object.keys(j) : [],
     list,
+    dataType,
+    dataKeys,
   };
 }
 
@@ -204,7 +207,8 @@ serve(async (req) => {
           slug: chosenSlug,
           matchesCount: matches.length,
           matched: { symbol: best?.symbol ?? null, name: best?.name ?? null, slug: best?.slug ?? null },
-          debug: { coinsStatus: coinsResp.status, coinsCount: coinsResp.list.length, coinsFailure: coinsResp.failure, coinsKeys: coinsResp.keys, coinsUrl: coinsResp.url },
+          debug: { coinsStatus: coinsResp.status, coinsCount: coinsResp.list.length, coinsFailure: coinsResp.failure, coinsKeys: coinsResp.keys, coinsUrl: coinsResp.url, coinsDataType: coinsResp.dataType,
+coinsDataKeys: coinsResp.dataKeys, },
         }), {
           headers: { ...corsHeaders, "content-type": "application/json" },
           status: 200,
@@ -229,16 +233,8 @@ serve(async (req) => {
           symbol: sym,
           slug: foundSlug,
           matched: { symbol: best?.symbol ?? null, name: best?.name ?? null, slug: foundSlug },
-          debug: {
-            coinsStatus: coinsResp.status,
-            coinsCount: coinsResp.list.length,
-            coinsFailure: coinsResp.failure,
-            coinsFailureDetails: coinsResp.failureDetails,
-            searchStatus: s.status,
-            searchUrl: s.url,
-            searchCount: s.list.length,
-            detailedStatus: d3.status,
-          },
+          debug: { coinsStatus: coinsResp.status, coinsCount: coinsResp.list.length, coinsFailure: coinsResp.failure, coinsKeys: coinsResp.keys, coinsUrl: coinsResp.url, coinsDataType: coinsResp.dataType,
+coinsDataKeys: coinsResp.dataKeys, },
         }), {
           headers: { ...corsHeaders, "content-type": "application/json" },
           status: 200,
