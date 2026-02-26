@@ -12,7 +12,7 @@ const corsHeaders = {
 // BTR у DropsTab має кілька монет. Беремо “верхню / основну” — Bitrue Coin.
 // Якщо раптом slug інший — ти просто зміниш значення тут на правильний.
 const ALIASES: Record<string, string> = {
-  BTR: "bitrue-coin",
+  BTR: "bitlayer",
 };
 
 function slugifyLite(s: string) {
