@@ -9,7 +9,7 @@ import EventForm from '../components/EventForm';
 import { formatQuantity as formatTokenQuantity } from '../hooks/useTokenPrice';
 import Toast from '../components/Toast';
 import { extractCoinEntries, coinEntriesEqual, parseCoinQuantity as parseQuantity } from '../utils/coins';
-import { getCirculatingSupply } from '../utils/dropstab';
+import { getCirculatingSupply } from "../utils/dropstab";
 
 dayjs.extend(utc);
 dayjs.extend(timezone);
@@ -487,7 +487,7 @@ const enrichPayloadWithCircPct = async (payload) => {
     pctList.push(pct != null ? formatPct(pct) : '');
   }
 
-  payload.coins = enrichedCoins;
+  payload.coins = JSON.stringify(enrichedCoins);
 
   // (опційно) якщо у тебе є такі колонки в БД
   payload.coin_circ_supply = circList.join('\n');
@@ -560,7 +560,7 @@ const enrichPayloadWithCircPct = async (payload) => {
       pctList.push(pct != null ? formatPct(pct) : '');
     }
 
-    payload.coins = enrichedCoins;
+    payload.coins = JSON.stringify(enrichedCoins);
 
     // (опційно) якщо у БД є ці колонки — зберігаємо і так
     payload.coin_circ_supply = circList.join('\n');
