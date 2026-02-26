@@ -11,6 +11,25 @@ dayjs.extend(timezone);
 
 const TZ_MAP = { Kyiv: 'Europe/Kyiv' };
 
+function formatMcapPercent(value) {
+  if (value == null) return null;
+  const n = Number(value);
+  if (!Number.isFinite(n)) return null;
+
+  const abs = Math.abs(n);
+
+  // ✅ дуже малі значення — показуємо поріг
+  if (abs > 0 && abs < 0.0001) return "<0.0001%";
+
+  // звичайне форматування
+  if (abs >= 1) return `${n.toFixed(2)}%`;
+  if (abs >= 0.1) return `${n.toFixed(3)}%`;
+  if (abs >= 0.01) return `${n.toFixed(4)}%`;
+
+  // малі, але не надто малі — без scientific notation
+  return `${n.toFixed(6).replace(/\.?0+$/, "")}%`;
+}
+
 function formatDate(iso, tz) {
   if (!iso) return '';
   const base = dayjs.utc(iso);
@@ -204,7 +223,7 @@ export default function PriceReactionCard({ item }) {
 
       {eventPctMcap != null && (
         <div className="text-xs text-gray-600 dark:text-gray-400 mb-3">
-          % of MCap: {Number(eventPctMcap).toFixed(2)}%
+          % of MCap: {formatMcapPercent(eventPctMcap)}
         </div>
       )}
 

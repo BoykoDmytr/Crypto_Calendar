@@ -23,15 +23,16 @@ function formatMcapPercent(value) {
 
   const abs = Math.abs(n);
 
-  // великі значення
+  // ✅ дуже малі значення — показуємо поріг
+  if (abs > 0 && abs < 0.0001) return "<0.0001%";
+
+  // звичайне форматування
   if (abs >= 1) return `${n.toFixed(2)}%`;
   if (abs >= 0.1) return `${n.toFixed(3)}%`;
   if (abs >= 0.01) return `${n.toFixed(4)}%`;
 
-  // ✅ малі значення — без scientific notation
-  // покажемо до 6 знаків після коми, але без зайвих нулів в кінці
-  const s = n.toFixed(6).replace(/\.?0+$/, "");
-  return `${s}%`;
+  // малі, але не надто малі — без scientific notation
+  return `${n.toFixed(6).replace(/\.?0+$/, "")}%`;
 }
 
 
