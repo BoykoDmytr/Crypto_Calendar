@@ -127,8 +127,8 @@ async function fetchCoinsList(apiKey: string) {
 async function searchCoins(apiKey: string, q: string) {
   const query = encodeURIComponent(q);
 
+  // 1) пробуємо API endpoints (як було)
   const candidates = [
-    // найчастіші варіанти
     `https://public-api.dropstab.com/api/v1/coins/search?query=${query}`,
     `https://public-api.dropstab.com/api/v1/coins/search?text=${query}`,
     `https://public-api.dropstab.com/api/v1/search?query=${query}`,
@@ -139,7 +139,6 @@ async function searchCoins(apiKey: string, q: string) {
     const { status, j } = await fetchJson(apiKey, url);
     if (!j) continue;
 
-    // в різних API може бути data / data.data / items / result.data
     const list =
       Array.isArray(j?.data) ? j.data :
       Array.isArray(j?.data?.data) ? j.data.data :
@@ -148,12 +147,33 @@ async function searchCoins(apiKey: string, q: string) {
       Array.isArray(j?.result?.data) ? j.result.data :
       [];
 
-    if (list.length) {
-      return { ok: true, status, url, list };
-    }
+    if (list.length) return { ok: true, status, url, list, mode: "api" };
   }
 
-  return { ok: false, status: null, url: null, list: [] };
+  // 2) ✅ fallback: HTML пошук (беремо перший результат “як у UI”)
+  // Підставляємо найтиповіший шлях. Якщо відрізняється — скажеш, я піджену.
+  const htmlUrl = `https://dropstab.com/search?query=${query}`;
+
+  try {
+    const r = await fetch(htmlUrl, { headers: { "user-agent": "Mozilla/5.0" } });
+    if (!r.ok) return { ok: false, status: r.status, url: htmlUrl, list: [], mode: "html" };
+
+    const html = await r.text();
+
+    // шукаємо перший збіг на сторінці, який схожий на URL монети зі slug
+    // приклади можуть бути типу /coins/<slug> або /coin/<slug> або /cryptocurrency/<slug>
+    const m =
+      html.match(/href="\/(coin|coins|cryptocurrency)\/([a-z0-9-]+)"/i) ||
+      html.match(/"slug"\s*:\s*"([a-z0-9-]+)"/i);
+
+    const slug = m ? (m[2] || m[1]) : null;
+    if (!slug) return { ok: false, status: 200, url: htmlUrl, list: [], mode: "html_no_slug" };
+
+    // повертаємо у форматі list, щоб далі код не міняти
+    return { ok: true, status: 200, url: htmlUrl, list: [{ slug }], mode: "html_slug" };
+  } catch {
+    return { ok: false, status: null, url: htmlUrl, list: [], mode: "html_error" };
+  }
 }
 
 serve(async (req) => {
@@ -268,6 +288,7 @@ serve(async (req) => {
             coinsDataKeys: coinsResp.dataKeys,
             coinsUrl: coinsResp.url,
             coinsDataPreview: coinsResp.dataPreview,
+            searchMode: s.mode,
           }
         }), {
           headers: { ...corsHeaders, "content-type": "application/json" },
@@ -283,11 +304,15 @@ serve(async (req) => {
       slug,
       debug: {
         coinsStatus: coinsResp.status,
-        coinsCount: coinsResp.list.length,
+        coinsCount: (coinsResp.list || []).length,
         coinsFailure: coinsResp.failure,
         coinsFailureDetails: coinsResp.failureDetails,
         coinsKeys: coinsResp.keys,
+        coinsDataType: coinsResp.dataType,
+        coinsDataKeys: coinsResp.dataKeys,
+        coinsDataPreview: coinsResp.dataPreview,
         coinsUrl: coinsResp.url,
+        searchMode: s.mode,
       },
     }), {
       headers: { ...corsHeaders, "content-type": "application/json" },
