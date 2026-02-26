@@ -105,6 +105,7 @@ async function fetchCoinsList(apiKey: string) {
   // data може бути масивом або обʼєктом з data/items
   const list =
     Array.isArray(data) ? data :
+    Array.isArray(data?.content) ? data.content :       // ✅ ОЦЕ ГОЛОВНЕ
     Array.isArray(data?.data) ? data.data :
     Array.isArray(data?.items) ? data.items :
     Array.isArray(j?.result?.data) ? j.result.data :
