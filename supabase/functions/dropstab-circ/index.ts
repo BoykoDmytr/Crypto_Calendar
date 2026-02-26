@@ -7,33 +7,7 @@ const corsHeaders = {
   "Access-Control-Allow-Methods": "POST, OPTIONS",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
-// ✅ DEBUG: show candidates for a symbol (temporary)
-if (String(body?.debug || "") === "1") {
-  const coinsResp = await fetchCoinsList(apiKey);
-  const list = coinsResp.list;
 
-  const sym = normSymbol(String(coinSymbol || coinName || ""));
-  const matches = list
-    .filter((c: any) => normSymbol(String(c?.symbol || "")) === sym)
-    .map((c: any) => ({
-      slug: c?.slug ?? null,
-      symbol: c?.symbol ?? null,
-      name: c?.name ?? null,
-      rank: c?.rank ?? c?.cmcRank ?? c?.marketCapRank ?? c?.market_cap_rank ?? null,
-      marketCap: c?.marketCap ?? c?.market_cap ?? null,
-    }));
-
-  return new Response(
-    JSON.stringify({
-      via: "debug_candidates",
-      symbol: sym,
-      matchesCount: matches.length,
-      matches,
-      debug: { coinsStatus: coinsResp.status, coinsCount: list.length, coinsUrl: coinsResp.url },
-    }),
-    { headers: { ...corsHeaders, "content-type": "application/json" }, status: 200 }
-  );
-}
 // ✅ manual aliases for ambiguous tickers
 // BTR у DropsTab має кілька монет. Беремо “верхню / основну” — Bitrue Coin.
 // Якщо раптом slug інший — ти просто зміниш значення тут на правильний.
