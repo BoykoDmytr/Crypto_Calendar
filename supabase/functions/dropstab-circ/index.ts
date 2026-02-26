@@ -1,4 +1,5 @@
 // @ts-nocheck
+// supabase/functions/dropstab-circ/index.ts
 import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
 
 const corsHeaders = {
@@ -21,33 +22,34 @@ function normSymbol(s: string) {
   return (s || "").trim().toUpperCase().replace(/[^A-Z0-9]/g, "");
 }
 
-function pickBestByMcapOrRank(matches: any[]) {
-  if (!Array.isArray(matches) || matches.length === 0) return null;
+function pickBestByMcapOrRank(list: any[]) {
+  if (!Array.isArray(list) || list.length === 0) return null;
 
-  const withMcap = matches
+  const withMcap = list
     .map((c) => {
-      const mcap =
-        c?.marketCap ?? c?.market_cap ?? c?.mcap ?? c?.marketCapUsd ?? c?.market_cap_usd ?? null;
+      const mcap = c?.marketCap ?? c?.market_cap ?? c?.mcap ?? c?.market_cap_usd ?? null;
       return { c, mcap: mcap == null ? null : Number(mcap) };
     })
     .filter((x) => Number.isFinite(x.mcap));
+
   if (withMcap.length) {
     withMcap.sort((a, b) => b.mcap - a.mcap);
     return withMcap[0].c;
   }
 
-  const withRank = matches
+  const withRank = list
     .map((c) => {
       const rank = c?.rank ?? c?.cmcRank ?? c?.marketCapRank ?? c?.market_cap_rank ?? null;
       return { c, rank: rank == null ? null : Number(rank) };
     })
     .filter((x) => Number.isFinite(x.rank));
+
   if (withRank.length) {
     withRank.sort((a, b) => a.rank - b.rank);
     return withRank[0].c;
   }
 
-  return matches[0];
+  return list[0];
 }
 
 async function tryDetailed(apiKey: string, slug: string) {
@@ -55,71 +57,92 @@ async function tryDetailed(apiKey: string, slug: string) {
     headers: { accept: "application/json", "x-dropstab-api-key": apiKey },
   });
   if (!r.ok) return { circ: null, status: r.status };
-
   const j = await r.json();
   const circ = j?.data?.circulatingSupply;
   return { circ: typeof circ === "number" ? circ : null, status: 200 };
 }
 
-async function fetchCoinsList(apiKey: string) {
-  const url =
-    "https://public-api.dropstab.com/api/v1/coins?currency=USD&rankFrom=1&rankTo=20000";
-
+async function fetchJson(apiKey: string, url: string) {
   const r = await fetch(url, {
     headers: { accept: "application/json", "x-dropstab-api-key": apiKey },
   });
-
   const status = r.status;
-
   let j: any = null;
   try {
     j = await r.json();
   } catch {
-    return { list: [], status, url, rawShape: "non_json", keys: [] };
+    j = null;
   }
+  return { status, j, url };
+}
 
-  // ✅ максимально широкий набір варіантів, де може лежати масив
+// 1) coins list (може повертати failure навіть з HTTP 200)
+async function fetchCoinsList(apiKey: string) {
+  const url =
+    "https://public-api.dropstab.com/api/v1/coins?currency=USD&rankFrom=1&rankTo=20000";
+  const { status, j } = await fetchJson(apiKey, url);
+
+  // DropsTab інколи віддає: {status, data, failure, failureDetails, timestamp}
+  const failure = Boolean(j?.failure);
+  const data = j?.data;
+
+  // data може бути масивом або обʼєктом з data/items
+  const list =
+    Array.isArray(data) ? data :
+    Array.isArray(data?.data) ? data.data :
+    Array.isArray(data?.items) ? data.items :
+    Array.isArray(j?.result?.data) ? j.result.data :
+    [];
+
+  return {
+    status,
+    url,
+    failure,
+    failureDetails: j?.failureDetails ?? null,
+    keys: j && typeof j === "object" ? Object.keys(j) : [],
+    list,
+  };
+}
+
+// 2) search fallback – пробуємо кілька найімовірніших endpoint’ів
+async function searchCoins(apiKey: string, q: string) {
+  const query = encodeURIComponent(q);
+
   const candidates = [
-    j,
-    j?.data,
-    j?.data?.data,
-    j?.data?.items,
-    j?.result,
-    j?.result?.data,
-    j?.result?.items,
-    j?.payload,
-    j?.payload?.data,
-    j?.payload?.data?.data,
-    j?.items,
+    // найчастіші варіанти
+    `https://public-api.dropstab.com/api/v1/coins/search?query=${query}`,
+    `https://public-api.dropstab.com/api/v1/coins/search?text=${query}`,
+    `https://public-api.dropstab.com/api/v1/search?query=${query}`,
+    `https://public-api.dropstab.com/api/v1/search?text=${query}`,
   ];
 
-  const list = candidates.find((x) => Array.isArray(x)) || [];
+  for (const url of candidates) {
+    const { status, j } = await fetchJson(apiKey, url);
+    if (!j) continue;
 
-  const keys = j && typeof j === "object" ? Object.keys(j) : [];
+    // в різних API може бути data / data.data / items / result.data
+    const list =
+      Array.isArray(j?.data) ? j.data :
+      Array.isArray(j?.data?.data) ? j.data.data :
+      Array.isArray(j?.data?.items) ? j.data.items :
+      Array.isArray(j?.items) ? j.items :
+      Array.isArray(j?.result?.data) ? j.result.data :
+      [];
 
-  const rawShape = Array.isArray(j)
-    ? "root_array"
-    : Array.isArray(j?.data)
-    ? "data"
-    : Array.isArray(j?.data?.data)
-    ? "data.data"
-    : Array.isArray(j?.result?.data)
-    ? "result.data"
-    : Array.isArray(j?.items)
-    ? "items"
-    : "unknown";
+    if (list.length) {
+      return { ok: true, status, url, list };
+    }
+  }
 
-  return { list, status, url, rawShape, keys };
+  return { ok: false, status: null, url: null, list: [] };
 }
 
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
   if (req.method !== "POST") return new Response("Method Not Allowed", { status: 405, headers: corsHeaders });
 
-  let detailedStatus: number | null = null;
-
   try {
-    const { coinName, coinSymbol, coinSlug } = await req.json().catch(() => ({}));
+    const body = await req.json().catch(() => ({}));
     const apiKey = Deno.env.get("DROPSTAB_API_KEY");
 
     if (!apiKey) {
@@ -129,10 +152,14 @@ serve(async (req) => {
       });
     }
 
+    const coinName = body?.coinName;
+    const coinSymbol = body?.coinSymbol;
+    const coinSlug = body?.coinSlug;
+
+    // 0) explicit slug
     if (coinSlug) {
       const d = await tryDetailed(apiKey, String(coinSlug));
-      detailedStatus = d.status;
-      return new Response(JSON.stringify({ circulatingSupply: d.circ, via: "explicit_slug", slug: coinSlug, detailedStatus }), {
+      return new Response(JSON.stringify({ circulatingSupply: d.circ, via: "explicit_slug", slug: coinSlug, detailedStatus: d.status }), {
         headers: { ...corsHeaders, "content-type": "application/json" },
         status: 200,
       });
@@ -146,48 +173,77 @@ serve(async (req) => {
       });
     }
 
-    // 1) try slugify
+    // 1) try slugify (sometimes works)
     const slug = slugifyLite(raw);
     const d1 = await tryDetailed(apiKey, slug);
-    detailedStatus = d1.status;
     if (d1.circ != null) {
-      return new Response(JSON.stringify({ circulatingSupply: d1.circ, via: "detailed_slug", slug, detailedStatus }), {
+      return new Response(JSON.stringify({ circulatingSupply: d1.circ, via: "detailed_slug", slug, detailedStatus: d1.status }), {
         headers: { ...corsHeaders, "content-type": "application/json" },
         status: 200,
       });
     }
 
-    // 2) best-of-many by symbol
     const sym = normSymbol(raw);
+
+    // 2) try coins list
     const coinsResp = await fetchCoinsList(apiKey);
 
-    const matches = (coinsResp.list || []).filter((c: any) => normSymbol(String(c?.symbol || "")) === sym);
-    const best = pickBestByMcapOrRank(matches);
+    // if coins list is usable
+    if (coinsResp.list.length) {
+      const matches = coinsResp.list.filter((c: any) => normSymbol(String(c?.symbol || "")) === sym);
+      const best = pickBestByMcapOrRank(matches);
 
-    if (best?.slug) {
-      const chosenSlug = String(best.slug);
-      const d2 = await tryDetailed(apiKey, chosenSlug);
-      detailedStatus = d2.status;
+      if (best?.slug) {
+        const chosenSlug = String(best.slug);
+        const d2 = await tryDetailed(apiKey, chosenSlug);
 
-      return new Response(JSON.stringify({
-        circulatingSupply: d2.circ,
-        via: matches.length > 1 ? "symbol_best_of_many" : "symbol_match",
-        symbol: sym,
-        slug: chosenSlug,
-        matchesCount: matches.length,
-        matched: { symbol: best?.symbol ?? null, name: best?.name ?? null, slug: best?.slug ?? null },
-        debug: {
-          coinsStatus: coinsResp.status,
-          coinsCount: (coinsResp.list || []).length,
-          coinsUrl: coinsResp.url,
-          rawShape: coinsResp.rawShape,
-          keys: coinsResp.keys,
-          detailedStatus,
-        },
-      }), {
-        headers: { ...corsHeaders, "content-type": "application/json" },
-        status: 200,
-      });
+        return new Response(JSON.stringify({
+          circulatingSupply: d2.circ,
+          via: matches.length > 1 ? "coins_symbol_best_of_many" : "coins_symbol_match",
+          symbol: sym,
+          slug: chosenSlug,
+          matchesCount: matches.length,
+          matched: { symbol: best?.symbol ?? null, name: best?.name ?? null, slug: best?.slug ?? null },
+          debug: { coinsStatus: coinsResp.status, coinsCount: coinsResp.list.length, coinsFailure: coinsResp.failure, coinsKeys: coinsResp.keys, coinsUrl: coinsResp.url },
+        }), {
+          headers: { ...corsHeaders, "content-type": "application/json" },
+          status: 200,
+        });
+      }
+    }
+
+    // 3) search fallback (як у UI пошуку)
+    const s = await searchCoins(apiKey, sym);
+
+    if (s.ok && s.list.length) {
+      // search results можуть містити різні ключі: slug / coinSlug / id
+      // намагаємось взяти slug з найпершого/топового
+      const best = pickBestByMcapOrRank(s.list);
+      const foundSlug = String(best?.slug || best?.coinSlug || "").trim();
+
+      if (foundSlug) {
+        const d3 = await tryDetailed(apiKey, foundSlug);
+        return new Response(JSON.stringify({
+          circulatingSupply: d3.circ,
+          via: "search_top",
+          symbol: sym,
+          slug: foundSlug,
+          matched: { symbol: best?.symbol ?? null, name: best?.name ?? null, slug: foundSlug },
+          debug: {
+            coinsStatus: coinsResp.status,
+            coinsCount: coinsResp.list.length,
+            coinsFailure: coinsResp.failure,
+            coinsFailureDetails: coinsResp.failureDetails,
+            searchStatus: s.status,
+            searchUrl: s.url,
+            searchCount: s.list.length,
+            detailedStatus: d3.status,
+          },
+        }), {
+          headers: { ...corsHeaders, "content-type": "application/json" },
+          status: 200,
+        });
+      }
     }
 
     return new Response(JSON.stringify({
@@ -197,11 +253,11 @@ serve(async (req) => {
       slug,
       debug: {
         coinsStatus: coinsResp.status,
-        coinsCount: (coinsResp.list || []).length,
+        coinsCount: coinsResp.list.length,
+        coinsFailure: coinsResp.failure,
+        coinsFailureDetails: coinsResp.failureDetails,
+        coinsKeys: coinsResp.keys,
         coinsUrl: coinsResp.url,
-        rawShape: coinsResp.rawShape,
-        keys: coinsResp.keys,
-        detailedStatus,
       },
     }), {
       headers: { ...corsHeaders, "content-type": "application/json" },
