@@ -113,54 +113,52 @@ function extractContent(j: any) {
 async function findBySymbolInCoins(apiKey: string, symbol: string) {
   const sym = normSymbol(symbol);
 
-  // різні параметри пагінації (бо інколи API називає їх по-різному)
-  const makeUrls = (page: number, pageSize: number) => [
-    `https://public-api.dropstab.com/api/v1/coins?currency=USD&pageSize=${pageSize}&currentPage=${page}`,
-    `https://public-api.dropstab.com/api/v1/coins?currency=USD&pageSize=${pageSize}&page=${page}`,
-    `https://public-api.dropstab.com/api/v1/coins?currency=USD&limit=${pageSize}&page=${page}`,
+  // 1) ✅ швидкі фільтри (якщо API підтримує)
+  const filterUrls = [
+    `https://public-api.dropstab.com/api/v1/coins?currency=USD&symbol=${encodeURIComponent(sym)}`,
+    `https://public-api.dropstab.com/api/v1/coins?currency=USD&query=${encodeURIComponent(sym)}`,
+    `https://public-api.dropstab.com/api/v1/coins?currency=USD&search=${encodeURIComponent(sym)}`,
+    `https://public-api.dropstab.com/api/v1/coins?currency=USD&keyword=${encodeURIComponent(sym)}`,
+    `https://public-api.dropstab.com/api/v1/coins?currency=USD&text=${encodeURIComponent(sym)}`,
   ];
 
-  const pageSize = 1000;
-  const maxPagesHard = 30; // щоб не зациклитись
+  for (const url of filterUrls) {
+    const { status, j, url: usedUrl } = await fetchJson(apiKey, url);
+    if (!j || status !== 200) continue;
+
+    const { list, meta } = extractContent(j);
+    if (Array.isArray(list) && list.length) {
+      const matches = list.filter((c: any) => normSymbol(String(c?.symbol || "")) === sym);
+      if (matches.length) {
+        const best = pickBestByMcapOrRank(matches);
+        return { ok: true, best, matches, meta: { ...meta, url: usedUrl, mode: "filter" } };
+      }
+    }
+  }
+
+  // 2) якщо фільтрів нема — fallback на пагінацію (але робимо більше сторінок)
+  const makeUrl = (page: number) =>
+    `https://public-api.dropstab.com/api/v1/coins?currency=USD&page=${page}`;
+
+  const maxPagesHard = 300; // ⬅️ збільшуємо, але це все одно повільно
 
   let lastMeta: any = null;
 
   for (let page = 1; page <= maxPagesHard; page++) {
-    let foundList: any[] = [];
-    let usedUrl = "";
+    const url = makeUrl(page);
+    const { status, j, url: usedUrl } = await fetchJson(apiKey, url);
+    if (!j || status !== 200) continue;
 
-    // пробуємо кілька URL-форматів для цієї сторінки
-    for (const url of makeUrls(page, pageSize)) {
-      const { status, j, url: used } = await fetchJson(apiKey, url);
-      usedUrl = used;
-      if (!j || status !== 200) continue;
+    const { list, meta } = extractContent(j);
+    lastMeta = { ...meta, url: usedUrl, mode: "paging" };
 
-      const { list, meta } = extractContent(j);
-      lastMeta = { ...meta, url: usedUrl };
-
-      if (Array.isArray(list) && list.length) {
-        const matches = list.filter((c: any) => normSymbol(String(c?.symbol || "")) === sym);
-        if (matches.length) {
-          foundList = matches;
-          break;
-        }
-
-        // якщо meta.totalPages є і ми вже дійшли кінця — стоп
-        if (Number.isFinite(meta.totalPages) && page >= meta.totalPages) {
-          break;
-        }
-      }
+    const matches = (list || []).filter((c: any) => normSymbol(String(c?.symbol || "")) === sym);
+    if (matches.length) {
+      const best = pickBestByMcapOrRank(matches);
+      return { ok: true, best, matches, meta: lastMeta };
     }
 
-    if (foundList.length) {
-      const best = pickBestByMcapOrRank(foundList);
-      return { ok: true, best, matches: foundList, meta: lastMeta };
-    }
-
-    // якщо totalPages відомий і вже пройшли — виходимо
-    if (lastMeta && Number.isFinite(lastMeta.totalPages) && page >= lastMeta.totalPages) {
-      break;
-    }
+    if (Number.isFinite(meta.totalPages) && page >= meta.totalPages) break;
   }
 
   return { ok: false, best: null, matches: [], meta: lastMeta };
