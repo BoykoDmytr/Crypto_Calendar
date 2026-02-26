@@ -89,7 +89,7 @@ function extractMexcSymbolFromLink(link) {
   return { symbol: `${base}${quote}`, market: 'spot' }; // BTCUSDT
 }
 
-function TokenRow({ coin }) {
+function TokenRow({ coin, idx = 0, pctText = null }) {
   const name = (coin?.name || '').trim();
   const hasQuantity = Object.prototype.hasOwnProperty.call(coin || {}, 'quantity');
   const quantityValue = hasQuantity ? coin.quantity : null;
@@ -100,8 +100,22 @@ function TokenRow({ coin }) {
 
   // NEW: percent of circulating supply (precomputed on create/update)
   // supports different key names just in case
-  const pctCircRaw =
-    coin?.pct_circ ?? coin?.pctCirc ?? coin?.percent_of_circulating ?? coin?.pct_of_circ ?? null;
+  const pctCircRawFromCoin =
+  coin?.pct_circ ?? coin?.pctCirc ?? coin?.percent_of_circulating ?? coin?.pct_of_circ ?? null;
+
+// ✅ fallback: якщо pct не в coin, беремо з events_approved.coin_pct_circ (text, рядок на монету)
+let pctCircRaw = pctCircRawFromCoin;
+
+if (pctCircRaw == null && typeof pctText === 'string' && pctText.trim()) {
+  const lines = pctText.split('\n').map((s) => s.trim());
+  const line = lines[idx];
+  if (line) {
+    // line може бути "0.000035" або "0.000035%" — нормалізуємо
+    const cleaned = line.replace('%', '').trim();
+    const asNum = Number(cleaned);
+    if (Number.isFinite(asNum)) pctCircRaw = asNum;
+  }
+}
   const pctCircLabel = useMemo(() => formatPctCirc(pctCircRaw), [pctCircRaw]);
 
   // 🔹 Debot — усе, що НЕ MEXC
@@ -245,7 +259,7 @@ function TokenRow({ coin }) {
   );
 }
 
-export default function EventTokenInfo({ coins = [] }) {
+export default function EventTokenInfo({ coins = [], pctText = null }) {
   const entries = Array.isArray(coins)
     ? coins.filter(
         (coin) =>
@@ -260,7 +274,12 @@ export default function EventTokenInfo({ coins = [] }) {
   return (
     <div className="mt-3 space-y-2">
       {entries.map((coin, index) => (
-        <TokenRow key={`${coin?.name || 'coin'}-${index}`} coin={coin} />
+        <TokenRow
+          key={`${coin?.name || 'coin'}-${index}`}
+          coin={coin}
+          idx={index}
+          pctText={pctText}
+        />
       ))}
     </div>
   );
