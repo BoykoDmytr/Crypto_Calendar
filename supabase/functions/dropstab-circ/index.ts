@@ -80,13 +80,45 @@ async function tryDetailed(apiKey: string, slug: string) {
 async function fetchCoinsList(apiKey: string) {
   const url =
     "https://public-api.dropstab.com/api/v1/coins?currency=USD&rankFrom=1&rankTo=20000";
-  const r = await fetch(url, {
-    headers: { accept: "application/json", "x-dropstab-api-key": apiKey },
-  });
-  if (!r.ok) return { list: [], status: r.status, url };
 
-  const j = await r.json();
-  return { list: Array.isArray(j?.data) ? j.data : [], status: 200, url };
+  const r = await fetch(url, {
+    headers: {
+      accept: "application/json",
+      "x-dropstab-api-key": apiKey,
+    },
+  });
+
+  const status = r.status;
+
+  let j: any = null;
+  try {
+    j = await r.json();
+  } catch {
+    // якщо не JSON
+    return { list: [], status, url, rawShape: "non_json" };
+  }
+
+  // ✅ різні можливі форми відповіді
+  const candidates = [
+    j?.data,
+    j?.result?.data,
+    j?.result,
+    j?.items,
+    j?.payload?.data,
+  ];
+
+  const list = candidates.find((x) => Array.isArray(x)) || [];
+
+  // повертаємо ще й форму для дебагу
+  const rawShape = Array.isArray(j?.data)
+    ? "data"
+    : Array.isArray(j?.result?.data)
+    ? "result.data"
+    : Array.isArray(j?.items)
+    ? "items"
+    : "unknown";
+
+  return { list, status, url, rawShape };
 }
 
 serve(async (req) => {
@@ -149,7 +181,13 @@ serve(async (req) => {
         slug: chosenSlug,
         matchesCount: matches.length,
         matched: { symbol: best?.symbol ?? null, name: best?.name ?? null, slug: best?.slug ?? null },
-        debug: { coinsStatus: coinsResp.status, coinsCount: coinsResp.list.length, coinsUrl: coinsResp.url, detailedStatus: r2.status },
+        debug: {
+          coinsStatus: coinsResp.status,
+          coinsCount: coinsResp.list.length,
+          coinsUrl: coinsResp.url,
+          rawShape: coinsResp.rawShape,
+          detailedStatus: r2.status
+        }
       }), {
         headers: { ...corsHeaders, "content-type": "application/json" },
         status: 200,
@@ -161,7 +199,13 @@ serve(async (req) => {
       via: "not_found",
       symbol: sym,
       slug,
-      debug: { coinsStatus: coinsResp.status, coinsCount: coinsResp.list.length, coinsUrl: coinsResp.url, detailedStatus: r1.status },
+      debug: {
+        coinsStatus: coinsResp.status,
+        coinsCount: coinsResp.list.length,
+        coinsUrl: coinsResp.url,
+        rawShape: coinsResp.rawShape,
+        detailedStatus: r2.status
+      }
     }), {
       headers: { ...corsHeaders, "content-type": "application/json" },
       status: 200,
