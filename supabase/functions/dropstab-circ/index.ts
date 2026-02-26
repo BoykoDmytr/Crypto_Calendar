@@ -180,7 +180,7 @@ async function searchCoins(apiKey: string, q: string) {
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
   if (req.method !== "POST") return new Response("Method Not Allowed", { status: 405, headers: corsHeaders });
-
+  const VERSION = "dropstab-circ v1"; // поміняй на будь-який новий рядок
   try {
     const body = await req.json().catch(() => ({}));
     const apiKey = Deno.env.get("DROPSTAB_API_KEY");
@@ -254,6 +254,7 @@ serve(async (req) => {
             coinsDataKeys: coinsResp.dataKeys,
             coinsUrl: coinsResp.url,
             coinsDataPreview: coinsResp.dataPreview,
+            version: VERSION,
           }
         }), {
           headers: { ...corsHeaders, "content-type": "application/json" },
@@ -290,6 +291,7 @@ serve(async (req) => {
             coinsUrl: coinsResp.url,
             coinsDataPreview: coinsResp.dataPreview,
             searchMode: s.mode,
+            version: VERSION,
           }
         }), {
           headers: { ...corsHeaders, "content-type": "application/json" },
