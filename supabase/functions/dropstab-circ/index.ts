@@ -8,6 +8,13 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
+// ✅ manual aliases for ambiguous tickers
+// BTR у DropsTab має кілька монет. Беремо “верхню / основну” — Bitrue Coin.
+// Якщо раптом slug інший — ти просто зміниш значення тут на правильний.
+const ALIASES: Record<string, string> = {
+  BTR: "bitrue-coin",
+};
+
 function slugifyLite(s: string) {
   return (s || "")
     .trim()
@@ -26,28 +33,27 @@ async function tryDetailed(apiKey: string, slug: string) {
   const r = await fetch(`https://public-api.dropstab.com/api/v1/coins/detailed/${slug}`, {
     headers: { accept: "application/json", "x-dropstab-api-key": apiKey },
   });
-  if (!r.ok) return null;
-
+  if (!r.ok) return { circ: null, status: r.status };
   const j = await r.json();
   const circ = j?.data?.circulatingSupply;
-  return typeof circ === "number" ? circ : null;
+  return { circ: typeof circ === "number" ? circ : null, status: 200 };
 }
 
 async function fetchCoinsList(apiKey: string) {
-  const r = await fetch(
-    "https://public-api.dropstab.com/api/v1/coins?currency=USD&rankFrom=1&rankTo=20000",
-    { headers: { accept: "application/json", "x-dropstab-api-key": apiKey } }
-  );
-  if (!r.ok) return [];
+  const url =
+    "https://public-api.dropstab.com/api/v1/coins?currency=USD&rankFrom=1&rankTo=20000";
+  const r = await fetch(url, {
+    headers: { accept: "application/json", "x-dropstab-api-key": apiKey },
+  });
+  if (!r.ok) return { list: [], status: r.status, url };
   const j = await r.json();
-  return Array.isArray(j?.data) ? j.data : [];
+  return { list: Array.isArray(j?.data) ? j.data : [], status: 200, url };
 }
 
-// беремо "топову" монету з однаковим symbol
 function pickBestCandidate(list: any[]) {
   if (!Array.isArray(list) || list.length === 0) return null;
 
-  // 1) якщо є rank-поле — беремо найменший rank
+  // 1) якщо є rank — найменший rank
   const withRank = list
     .map((c) => {
       const rank =
@@ -55,7 +61,6 @@ function pickBestCandidate(list: any[]) {
         c?.cmcRank ??
         c?.marketCapRank ??
         c?.market_cap_rank ??
-        c?.marketCap_rank ??
         null;
       return { c, rank: rank == null ? null : Number(rank) };
     })
@@ -66,7 +71,7 @@ function pickBestCandidate(list: any[]) {
     return withRank[0].c;
   }
 
-  // 2) якщо є marketCap — беремо найбільший marketCap
+  // 2) якщо є marketCap — найбільший
   const withMcap = list
     .map((c) => {
       const mcap = c?.marketCap ?? c?.market_cap ?? c?.mcap ?? null;
@@ -79,7 +84,6 @@ function pickBestCandidate(list: any[]) {
     return withMcap[0].c;
   }
 
-  // 3) fallback: перший у відповіді API
   return list[0];
 }
 
@@ -101,10 +105,10 @@ serve(async (req) => {
       });
     }
 
-    // 0) якщо передали slug — беремо його напряму
+    // 0) якщо передали slug — беремо напряму
     if (coinSlug) {
-      const circ = await tryDetailed(apiKey, String(coinSlug));
-      return new Response(JSON.stringify({ circulatingSupply: circ, via: "explicit_slug", slug: coinSlug }), {
+      const r = await tryDetailed(apiKey, String(coinSlug));
+      return new Response(JSON.stringify({ circulatingSupply: r.circ, via: "explicit_slug", slug: coinSlug, detailedStatus: r.status }), {
         headers: { ...corsHeaders, "content-type": "application/json" },
         status: 200,
       });
@@ -118,40 +122,66 @@ serve(async (req) => {
       });
     }
 
-    // 1) спроба як slug з назви/символу
-    const slug = slugifyLite(raw);
-    let circ = await tryDetailed(apiKey, slug);
-    if (circ != null) {
-      return new Response(JSON.stringify({ circulatingSupply: circ, via: "detailed_slug", slug }), {
+    const sym = normSymbol(raw);
+
+    // ✅ 0.5) Alias (беремо “верхній / основний” варіант)
+    const aliasSlug = ALIASES[sym];
+    if (aliasSlug) {
+      const r = await tryDetailed(apiKey, aliasSlug);
+      return new Response(JSON.stringify({
+        circulatingSupply: r.circ,
+        via: "alias",
+        symbol: sym,
+        slug: aliasSlug,
+        detailedStatus: r.status,
+      }), {
         headers: { ...corsHeaders, "content-type": "application/json" },
         status: 200,
       });
     }
 
-    // 2) lookup по symbol (і вибір "топового")
-    const list = await fetchCoinsList(apiKey);
-    const sym = normSymbol(raw);
+    // 1) спроба як slug з назви/символу
+    const slug = slugifyLite(raw);
+    let rDetail = await tryDetailed(apiKey, slug);
+    if (rDetail.circ != null) {
+      return new Response(JSON.stringify({ circulatingSupply: rDetail.circ, via: "detailed_slug", slug, detailedStatus: rDetail.status }), {
+        headers: { ...corsHeaders, "content-type": "application/json" },
+        status: 200,
+      });
+    }
+
+    // 2) lookup по symbol (best-of-many)
+    const coinsResp = await fetchCoinsList(apiKey);
+    const list = coinsResp.list;
 
     const matches = list.filter((c: any) => normSymbol(String(c?.symbol || "")) === sym);
     const best = pickBestCandidate(matches);
 
     if (best?.slug) {
       const foundSlug = String(best.slug);
-      circ = await tryDetailed(apiKey, foundSlug);
+      const r2 = await tryDetailed(apiKey, foundSlug);
 
-      return new Response(
-        JSON.stringify({
-          circulatingSupply: circ,
-          via: matches.length > 1 ? "symbol_best_of_many" : "symbol_match",
-          slug: foundSlug,
-          matched: { symbol: best?.symbol ?? null, name: best?.name ?? null, slug: best?.slug ?? null },
-          matchesCount: matches.length,
-        }),
-        { headers: { ...corsHeaders, "content-type": "application/json" }, status: 200 }
-      );
+      return new Response(JSON.stringify({
+        circulatingSupply: r2.circ,
+        via: matches.length > 1 ? "symbol_best_of_many" : "symbol_match",
+        symbol: sym,
+        slug: foundSlug,
+        matchesCount: matches.length,
+        matched: { symbol: best?.symbol ?? null, name: best?.name ?? null, slug: best?.slug ?? null },
+        debug: { coinsStatus: coinsResp.status, coinsCount: list.length, coinsUrl: coinsResp.url, detailedStatus: r2.status },
+      }), {
+        headers: { ...corsHeaders, "content-type": "application/json" },
+        status: 200,
+      });
     }
 
-    return new Response(JSON.stringify({ circulatingSupply: null, via: "not_found", slug }), {
+    return new Response(JSON.stringify({
+      circulatingSupply: null,
+      via: "not_found",
+      symbol: sym,
+      slug,
+      debug: { coinsStatus: coinsResp.status, coinsCount: list.length, coinsUrl: coinsResp.url, detailedStatus: rDetail.status },
+    }), {
       headers: { ...corsHeaders, "content-type": "application/json" },
       status: 200,
     });
