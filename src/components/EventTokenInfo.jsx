@@ -23,10 +23,17 @@ function formatPctCirc(p) {
   if (!Number.isFinite(n)) return null;
 
   const abs = Math.abs(n);
+
+  // ✅ дуже малі значення — без scientific notation
+  // (можеш змінити поріг, напр. 0.001)
+  if (abs > 0 && abs < 0.0001) return '<0.0001%';
+
   if (abs >= 1) return `${n.toFixed(2)}%`;
   if (abs >= 0.1) return `${n.toFixed(3)}%`;
   if (abs >= 0.01) return `${n.toFixed(4)}%`;
-  return `${n.toExponential(2)}%`;
+
+  // ✅ малі, але не надто малі — показуємо до 6 знаків після коми (без зайвих нулів)
+  return `${n.toFixed(6).replace(/\.?0+$/, '')}%`;
 }
 
 // Підтримує:
