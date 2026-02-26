@@ -8,7 +8,7 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
-const VERSION = "dropstab-circ v1";
+const VERSION = "dropstab-circ v2-paging";
 
 function slugifyLite(s: string) {
   return (s || "")
@@ -30,11 +30,7 @@ function pickBestByMcapOrRank(list: any[]) {
   const withMcap = list
     .map((c) => {
       const mcap =
-        c?.marketCap ??
-        c?.market_cap ??
-        c?.mcap ??
-        c?.market_cap_usd ??
-        null;
+        c?.marketCap ?? c?.market_cap ?? c?.mcap ?? c?.market_cap_usd ?? null;
       return { c, mcap: mcap == null ? null : Number(mcap) };
     })
     .filter((x) => Number.isFinite(x.mcap));
@@ -47,11 +43,7 @@ function pickBestByMcapOrRank(list: any[]) {
   const withRank = list
     .map((c) => {
       const rank =
-        c?.rank ??
-        c?.cmcRank ??
-        c?.marketCapRank ??
-        c?.market_cap_rank ??
-        null;
+        c?.rank ?? c?.cmcRank ?? c?.marketCapRank ?? c?.market_cap_rank ?? null;
       return { c, rank: rank == null ? null : Number(rank) };
     })
     .filter((x) => Number.isFinite(x.rank));
@@ -65,12 +57,9 @@ function pickBestByMcapOrRank(list: any[]) {
 }
 
 async function tryDetailed(apiKey: string, slug: string) {
-  const r = await fetch(
-    `https://public-api.dropstab.com/api/v1/coins/detailed/${slug}`,
-    {
-      headers: { accept: "application/json", "x-dropstab-api-key": apiKey },
-    }
-  );
+  const r = await fetch(`https://public-api.dropstab.com/api/v1/coins/detailed/${slug}`, {
+    headers: { accept: "application/json", "x-dropstab-api-key": apiKey },
+  });
   if (!r.ok) return { circ: null, status: r.status };
   const j = await r.json();
   const circ = j?.data?.circulatingSupply;
@@ -91,51 +80,13 @@ async function fetchJson(apiKey: string, url: string) {
   return { status, j, url };
 }
 
-// 1) coins list (може повертати failure навіть з HTTP 200)
-async function fetchCoinsList(apiKey: string) {
-  const url =
-    "https://public-api.dropstab.com/api/v1/coins?currency=USD&rankFrom=1&rankTo=20000";
-  const { status, j } = await fetchJson(apiKey, url);
-
-  // DropsTab інколи віддає: {status, data, failure, failureDetails, timestamp}
-  const failure = Boolean(j?.failure);
+function extractContent(j: any) {
   const data = j?.data;
 
-  const dataType = Array.isArray(j?.data)
-    ? "array"
-    : j?.data === null
-    ? "null"
-    : typeof j?.data;
-
-  const dataKeys =
-    j?.data && typeof j?.data === "object" && !Array.isArray(j.data)
-      ? Object.keys(j.data)
-      : [];
-
-  const dataPreview = (() => {
-    const d = j?.data;
-    if (Array.isArray(d)) return { kind: "array", len: d.length };
-    if (d && typeof d === "object") {
-      const keys = Object.keys(d).slice(0, 10);
-      const sample: Record<string, string> = {};
-      for (const k of keys) {
-        const v = (d as any)[k];
-        sample[k] = Array.isArray(v)
-          ? `array(len=${v.length})`
-          : v === null
-          ? "null"
-          : typeof v;
-      }
-      return { kind: "object", keys, sample };
-    }
-    return { kind: dataType };
-  })();
-
-  // data може бути масивом або обʼєктом з content/data/items
   const list = Array.isArray(data)
     ? data
     : Array.isArray(data?.content)
-    ? data.content // ✅ головне: реально монети тут
+    ? data.content
     : Array.isArray(data?.data)
     ? data.data
     : Array.isArray(data?.items)
@@ -144,87 +95,90 @@ async function fetchCoinsList(apiKey: string) {
     ? j.result.data
     : [];
 
-  return {
-    status,
-    url,
-    failure,
-    failureDetails: j?.failureDetails ?? null,
-    keys: j && typeof j === "object" ? Object.keys(j) : [],
-    list,
-    dataType,
-    dataKeys,
-    dataPreview,
+  const meta = {
+    totalPages: Number(data?.totalPages ?? NaN),
+    pageSize: Number(data?.pageSize ?? NaN),
+    currentPage: Number(data?.currentPage ?? NaN),
+    totalSize: Number(data?.totalSize ?? NaN),
   };
+
+  return { list, meta };
 }
 
-// 2) search fallback – пробуємо кілька найімовірніших endpoint’ів
-async function searchCoins(apiKey: string, q: string) {
-  const query = encodeURIComponent(q);
+/**
+ * ✅ Пейджинг:
+ * - API повертає data.content + meta (totalPages/pageSize/currentPage)
+ * - ми пробуємо pageSize=1000 і проходимо сторінки, доки не знайдемо symbol
+ */
+async function findBySymbolInCoins(apiKey: string, symbol: string) {
+  const sym = normSymbol(symbol);
 
-  const candidates = [
-    `https://public-api.dropstab.com/api/v1/coins/search?query=${query}`,
-    `https://public-api.dropstab.com/api/v1/coins/search?text=${query}`,
-    `https://public-api.dropstab.com/api/v1/search?query=${query}`,
-    `https://public-api.dropstab.com/api/v1/search?text=${query}`,
+  // різні параметри пагінації (бо інколи API називає їх по-різному)
+  const makeUrls = (page: number, pageSize: number) => [
+    `https://public-api.dropstab.com/api/v1/coins?currency=USD&pageSize=${pageSize}&currentPage=${page}`,
+    `https://public-api.dropstab.com/api/v1/coins?currency=USD&pageSize=${pageSize}&page=${page}`,
+    `https://public-api.dropstab.com/api/v1/coins?currency=USD&limit=${pageSize}&page=${page}`,
   ];
 
-  for (const url of candidates) {
-    const { status, j } = await fetchJson(apiKey, url);
-    if (!j) continue;
+  const pageSize = 1000;
+  const maxPagesHard = 30; // щоб не зациклитись
 
-    const list = Array.isArray(j?.data)
-      ? j.data
-      : Array.isArray(j?.data?.data)
-      ? j.data.data
-      : Array.isArray(j?.data?.items)
-      ? j.data.items
-      : Array.isArray(j?.items)
-      ? j.items
-      : Array.isArray(j?.result?.data)
-      ? j.result.data
-      : [];
+  let lastMeta: any = null;
 
-    if (list.length) return { ok: true, status, url, list, mode: "api" };
+  for (let page = 1; page <= maxPagesHard; page++) {
+    let foundList: any[] = [];
+    let usedUrl = "";
+
+    // пробуємо кілька URL-форматів для цієї сторінки
+    for (const url of makeUrls(page, pageSize)) {
+      const { status, j, url: used } = await fetchJson(apiKey, url);
+      usedUrl = used;
+      if (!j || status !== 200) continue;
+
+      const { list, meta } = extractContent(j);
+      lastMeta = { ...meta, url: usedUrl };
+
+      if (Array.isArray(list) && list.length) {
+        const matches = list.filter((c: any) => normSymbol(String(c?.symbol || "")) === sym);
+        if (matches.length) {
+          foundList = matches;
+          break;
+        }
+
+        // якщо meta.totalPages є і ми вже дійшли кінця — стоп
+        if (Number.isFinite(meta.totalPages) && page >= meta.totalPages) {
+          break;
+        }
+      }
+    }
+
+    if (foundList.length) {
+      const best = pickBestByMcapOrRank(foundList);
+      return { ok: true, best, matches: foundList, meta: lastMeta };
+    }
+
+    // якщо totalPages відомий і вже пройшли — виходимо
+    if (lastMeta && Number.isFinite(lastMeta.totalPages) && page >= lastMeta.totalPages) {
+      break;
+    }
   }
 
-  // fallback: HTML пошук (беремо перший результат “як у UI”)
-  const htmlUrl = `https://dropstab.com/search?query=${query}`;
-
-  try {
-    const r = await fetch(htmlUrl, {
-      headers: { "user-agent": "Mozilla/5.0" },
-    });
-    if (!r.ok) return { ok: false, status: r.status, url: htmlUrl, list: [], mode: "html" };
-
-    const html = await r.text();
-
-    const m =
-      html.match(/href="\/(coin|coins|cryptocurrency)\/([a-z0-9-]+)"/i) ||
-      html.match(/"slug"\s*:\s*"([a-z0-9-]+)"/i);
-
-    const slug = m ? (m[2] || m[1]) : null;
-    if (!slug) return { ok: false, status: 200, url: htmlUrl, list: [], mode: "html_no_slug" };
-
-    return { ok: true, status: 200, url: htmlUrl, list: [{ slug }], mode: "html_slug" };
-  } catch {
-    return { ok: false, status: null, url: htmlUrl, list: [], mode: "html_error" };
-  }
+  return { ok: false, best: null, matches: [], meta: lastMeta };
 }
 
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
-  if (req.method !== "POST")
-    return new Response("Method Not Allowed", { status: 405, headers: corsHeaders });
+  if (req.method !== "POST") return new Response("Method Not Allowed", { status: 405, headers: corsHeaders });
 
   try {
     const body = await req.json().catch(() => ({}));
     const apiKey = Deno.env.get("DROPSTAB_API_KEY");
 
     if (!apiKey) {
-      return new Response(
-        JSON.stringify({ circulatingSupply: null, error: "DROPSTAB_API_KEY missing", version: VERSION }),
-        { headers: { ...corsHeaders, "content-type": "application/json" }, status: 200 }
-      );
+      return new Response(JSON.stringify({ circulatingSupply: null, error: "DROPSTAB_API_KEY missing", version: VERSION }), {
+        headers: { ...corsHeaders, "content-type": "application/json" },
+        status: 200,
+      });
     }
 
     const coinName = body?.coinName;
@@ -234,159 +188,89 @@ serve(async (req) => {
     // 0) explicit slug
     if (coinSlug) {
       const d = await tryDetailed(apiKey, String(coinSlug));
-      return new Response(
-        JSON.stringify({
-          circulatingSupply: d.circ,
-          via: "explicit_slug",
-          slug: coinSlug,
-          detailedStatus: d.status,
-          version: VERSION,
-        }),
-        { headers: { ...corsHeaders, "content-type": "application/json" }, status: 200 }
-      );
+      return new Response(JSON.stringify({
+        circulatingSupply: d.circ,
+        via: "explicit_slug",
+        slug: coinSlug,
+        detailedStatus: d.status,
+        version: VERSION,
+      }), {
+        headers: { ...corsHeaders, "content-type": "application/json" },
+        status: 200,
+      });
     }
 
     const raw = String(coinSymbol || coinName || "").trim();
     if (!raw) {
-      return new Response(
-        JSON.stringify({ circulatingSupply: null, error: "empty input", version: VERSION }),
-        { headers: { ...corsHeaders, "content-type": "application/json" }, status: 200 }
-      );
+      return new Response(JSON.stringify({ circulatingSupply: null, error: "empty input", version: VERSION }), {
+        headers: { ...corsHeaders, "content-type": "application/json" },
+        status: 200,
+      });
     }
 
-    // 1) try slugify (інколи працює)
+    // 1) try slugify first (cheap)
     const slug = slugifyLite(raw);
     const d1 = await tryDetailed(apiKey, slug);
     if (d1.circ != null) {
-      return new Response(
-        JSON.stringify({
-          circulatingSupply: d1.circ,
-          via: "detailed_slug",
-          slug,
-          detailedStatus: d1.status,
-          version: VERSION,
-        }),
-        { headers: { ...corsHeaders, "content-type": "application/json" }, status: 200 }
-      );
+      return new Response(JSON.stringify({
+        circulatingSupply: d1.circ,
+        via: "detailed_slug",
+        slug,
+        detailedStatus: d1.status,
+        version: VERSION,
+      }), {
+        headers: { ...corsHeaders, "content-type": "application/json" },
+        status: 200,
+      });
     }
 
     const sym = normSymbol(raw);
 
-    // 2) try coins list
-    const coinsResp = await fetchCoinsList(apiKey);
+    // 2) ✅ robust coins paging lookup
+    const found = await findBySymbolInCoins(apiKey, sym);
 
-    if (coinsResp.list.length) {
-      const matches = coinsResp.list.filter(
-        (c: any) => normSymbol(String(c?.symbol || "")) === sym
-      );
-      const best = pickBestByMcapOrRank(matches);
+    if (found.ok && found.best?.slug) {
+      const chosenSlug = String(found.best.slug);
+      const d2 = await tryDetailed(apiKey, chosenSlug);
 
-      if (best?.slug) {
-        const chosenSlug = String(best.slug);
-        const d2 = await tryDetailed(apiKey, chosenSlug);
-
-        return new Response(
-          JSON.stringify({
-            circulatingSupply: d2.circ,
-            via: matches.length > 1 ? "coins_symbol_best_of_many" : "coins_symbol_match",
-            symbol: sym,
-            slug: chosenSlug,
-            matchesCount: matches.length,
-            matched: {
-              symbol: best?.symbol ?? null,
-              name: best?.name ?? null,
-              slug: best?.slug ?? null,
-            },
-            version: VERSION,
-            debug: {
-              coinsStatus: coinsResp.status,
-              coinsCount: (coinsResp.list || []).length,
-              coinsFailure: coinsResp.failure,
-              coinsFailureDetails: coinsResp.failureDetails,
-              coinsKeys: coinsResp.keys,
-              coinsDataType: coinsResp.dataType,
-              coinsDataKeys: coinsResp.dataKeys,
-              coinsDataPreview: coinsResp.dataPreview,
-              coinsUrl: coinsResp.url,
-            },
-          }),
-          { headers: { ...corsHeaders, "content-type": "application/json" }, status: 200 }
-        );
-      }
-    }
-
-    // 3) search fallback
-    const s = await searchCoins(apiKey, sym);
-
-    if (s.ok && s.list.length) {
-      const best = pickBestByMcapOrRank(s.list);
-      const foundSlug = String(best?.slug || best?.coinSlug || "").trim();
-
-      if (foundSlug) {
-        const d3 = await tryDetailed(apiKey, foundSlug);
-
-        return new Response(
-          JSON.stringify({
-            circulatingSupply: d3.circ,
-            via: "search_top",
-            symbol: sym,
-            slug: foundSlug,
-            matched: {
-              symbol: best?.symbol ?? null,
-              name: best?.name ?? null,
-              slug: foundSlug,
-            },
-            version: VERSION,
-            debug: {
-              coinsStatus: coinsResp.status,
-              coinsCount: (coinsResp.list || []).length,
-              coinsFailure: coinsResp.failure,
-              coinsFailureDetails: coinsResp.failureDetails,
-              coinsKeys: coinsResp.keys,
-              coinsDataType: coinsResp.dataType,
-              coinsDataKeys: coinsResp.dataKeys,
-              coinsDataPreview: coinsResp.dataPreview,
-              coinsUrl: coinsResp.url,
-              searchMode: s.mode,
-              searchUrl: s.url,
-              searchStatus: s.status,
-              searchCount: s.list.length,
-            },
-          }),
-          { headers: { ...corsHeaders, "content-type": "application/json" }, status: 200 }
-        );
-      }
-    }
-
-    // 4) not found
-    return new Response(
-      JSON.stringify({
-        circulatingSupply: null,
-        via: "not_found",
+      return new Response(JSON.stringify({
+        circulatingSupply: d2.circ,
+        via: found.matches.length > 1 ? "coins_symbol_best_of_many_paged" : "coins_symbol_match_paged",
         symbol: sym,
-        slug,
+        slug: chosenSlug,
+        matchesCount: found.matches.length,
+        matched: {
+          symbol: found.best?.symbol ?? null,
+          name: found.best?.name ?? null,
+          slug: found.best?.slug ?? null,
+        },
         version: VERSION,
         debug: {
-          coinsStatus: coinsResp.status,
-          coinsCount: (coinsResp.list || []).length,
-          coinsFailure: coinsResp.failure,
-          coinsFailureDetails: coinsResp.failureDetails,
-          coinsKeys: coinsResp.keys,
-          coinsDataType: coinsResp.dataType,
-          coinsDataKeys: coinsResp.dataKeys,
-          coinsDataPreview: coinsResp.dataPreview,
-          coinsUrl: coinsResp.url,
-          searchMode: s.mode,
-          searchUrl: s.url,
-          searchStatus: s.status,
+          pagingMeta: found.meta,
+          matchesCount: found.matches.length,
         },
-      }),
-      { headers: { ...corsHeaders, "content-type": "application/json" }, status: 200 }
-    );
+      }), {
+        headers: { ...corsHeaders, "content-type": "application/json" },
+        status: 200,
+      });
+    }
+
+    // 3) not found
+    return new Response(JSON.stringify({
+      circulatingSupply: null,
+      via: "not_found",
+      symbol: sym,
+      slug,
+      version: VERSION,
+      debug: { pagingMeta: found.meta },
+    }), {
+      headers: { ...corsHeaders, "content-type": "application/json" },
+      status: 200,
+    });
   } catch (e) {
-    return new Response(
-      JSON.stringify({ circulatingSupply: null, error: String(e), version: VERSION }),
-      { headers: { ...corsHeaders, "content-type": "application/json" }, status: 200 }
-    );
+    return new Response(JSON.stringify({ circulatingSupply: null, error: String(e), version: VERSION }), {
+      headers: { ...corsHeaders, "content-type": "application/json" },
+      status: 200,
+    });
   }
 });
