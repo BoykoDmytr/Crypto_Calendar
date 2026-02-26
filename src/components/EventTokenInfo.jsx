@@ -16,6 +16,19 @@ function formatCurrency(value) {
   return new Intl.NumberFormat('en-US', opts).format(num);
 }
 
+// NEW: format % of circulating supply
+function formatPctCirc(p) {
+  if (p === null || p === undefined) return null;
+  const n = Number(p);
+  if (!Number.isFinite(n)) return null;
+
+  const abs = Math.abs(n);
+  if (abs >= 1) return `${n.toFixed(2)}%`;
+  if (abs >= 0.1) return `${n.toFixed(3)}%`;
+  if (abs >= 0.01) return `${n.toFixed(4)}%`;
+  return `${n.toExponential(2)}%`;
+}
+
 // Підтримує:
 // - https://www.mexc.com/exchange/BTC_USDT
 // - https://www.mexc.com/uk-UA/exchange/BTC_USDT#token-info
@@ -31,7 +44,8 @@ function isMexcFuturesLink(raw) {
     if (host.includes('futures') || host.includes('contract')) return true;
 
     const path = url.pathname.toLowerCase();
-    if (path.includes('/futures/') || path.includes('/contract/') || path.includes('/swap/')) return true;
+    if (path.includes('/futures/') || path.includes('/contract/') || path.includes('/swap/'))
+      return true;
 
     const type = url.searchParams.get('type');
     if (type && type.toLowerCase() === 'linear_swap') return true;
@@ -77,8 +91,16 @@ function TokenRow({ coin }) {
   const isMexc = /mexc\.com/i.test(link);
   const mexcMeta = isMexc ? extractMexcSymbolFromLink(link) : null;
 
+  // NEW: percent of circulating supply (precomputed on create/update)
+  // supports different key names just in case
+  const pctCircRaw =
+    coin?.pct_circ ?? coin?.pctCirc ?? coin?.percent_of_circulating ?? coin?.pct_of_circ ?? null;
+  const pctCircLabel = useMemo(() => formatPctCirc(pctCircRaw), [pctCircRaw]);
+
   // 🔹 Debot — усе, що НЕ MEXC
-  const { price: debotPrice, loading: debotLoading, error: debotError } = useTokenPrice(!isMexc ? link : null);
+  const { price: debotPrice, loading: debotLoading, error: debotError } = useTokenPrice(
+    !isMexc ? link : null
+  );
 
   // 🔹 MEXC — локальний стейт
   const [mexcPrice, setMexcPrice] = useState(null);
@@ -182,6 +204,8 @@ function TokenRow({ coin }) {
     price,
     total,
     totalLabel,
+    pctCircRaw,
+    pctCircLabel,
     loading,
     error,
   });
@@ -199,6 +223,13 @@ function TokenRow({ coin }) {
         ) : totalLabel ? (
           <span className="token-panel__label">
             <span className="token-panel__value">{totalLabel}</span>
+
+            {/* NEW: show % of circulating supply to the right of price */}
+            {pctCircLabel ? (
+              <span className="token-panel__muted" style={{ marginLeft: 8 }}>
+                {pctCircLabel}
+              </span>
+            ) : null}
           </span>
         ) : error ? (
           <span className="token-panel__error">Очікуємо ціну</span>

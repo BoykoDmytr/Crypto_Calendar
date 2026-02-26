@@ -91,7 +91,22 @@ function normalizeCoinEntry(coin, defaults = {}) {
   if (hasAddress) normalized.address = address;
   // preserve price_link for backwards compatibility
   if (hasPriceLink) normalized.price_link = priceLink;
+  const rawPctCirc =
+  coin.pct_circ ??
+  coin.pctCirc ??
+  coin.percent_of_circulating ??
+  null;
 
+const rawCircSupply =
+  coin.circ_supply ??
+  coin.circSupply ??
+  coin.circulatingSupply ??
+  null;
+
+const pctCirc = parseCoinQuantity(rawPctCirc);      // так само парсимо як number
+const circSupply = parseCoinQuantity(rawCircSupply);
+if (pctCirc !== null) normalized.pct_circ = pctCirc;
+if (circSupply !== null) normalized.circ_supply = circSupply;
   return normalized;
 }
 
@@ -136,6 +151,15 @@ export function extractCoinEntries(source) {
   const result = [];
   const candidates = [];
 
+  // NEW: split helper (supports "\n" lists in event fields)
+  const splitLines = (value) => {
+    if (value == null) return [];
+    if (Array.isArray(value)) return value.map((x) => (x == null ? '' : String(x)));
+    const s = String(value);
+    if (!s.trim()) return [];
+    return s.split('\n').map((x) => x.trim());
+  };
+
   // Defaults from the event level (events_approved / events_pending / auto_events_pending)
   const rootDefaults =
     source && typeof source === 'object'
@@ -145,6 +169,11 @@ export function extractCoinEntries(source) {
           // if coin_address is missing, fall back to coin_price_link for legacy events
           address: source.coin_address || null,
           price_link: source.coin_price_link,
+
+          // NEW: bring down precomputed meta (if stored on event)
+          // (these are line-separated lists: one value per coin line)
+          pct_circ_lines: splitLines(source.coin_pct_circ),
+          circ_supply_lines: splitLines(source.coin_circ_supply),
         }
       : {};
 
@@ -158,22 +187,42 @@ export function extractCoinEntries(source) {
     if ('coins' in source) {
       candidates.push({ raw: source.coins, defaults: rootDefaults });
     }
-    if (
-      source.payload &&
-      typeof source.payload === 'object' &&
-      'coins' in source.payload
-    ) {
+    if (source.payload && typeof source.payload === 'object' && 'coins' in source.payload) {
       candidates.push({ raw: source.payload.coins, defaults: rootDefaults });
     }
   }
+
+  // helper to apply pct/supply from "\n" lists by index
+  const applyLineMeta = (normalized, defaults, index) => {
+    if (!normalized || !defaults) return normalized;
+
+    const pctLines = defaults.pct_circ_lines || [];
+    const supplyLines = defaults.circ_supply_lines || [];
+
+    // only set if not already present in coin object
+    if (normalized.pct_circ == null && pctLines[index] != null && pctLines[index] !== '') {
+      const n = Number(pctLines[index]);
+      if (Number.isFinite(n)) normalized.pct_circ = n;
+    }
+    if (normalized.circ_supply == null && supplyLines[index] != null && supplyLines[index] !== '') {
+      const n = Number(supplyLines[index]);
+      if (Number.isFinite(n)) normalized.circ_supply = n;
+    }
+    return normalized;
+  };
 
   for (const candidate of candidates) {
     const list = coerceCoinList(candidate.raw);
     if (!list.length) continue;
 
-    for (const item of list) {
+    for (let i = 0; i < list.length; i++) {
+      const item = list[i];
       const normalized = normalizeCoinEntry(item, candidate.defaults);
-      if (normalized) result.push(normalized);
+      if (normalized) {
+        // NEW: inject meta from event-level line lists (coin_pct_circ / coin_circ_supply)
+        applyLineMeta(normalized, candidate.defaults, i);
+        result.push(normalized);
+      }
     }
 
     // Stop at the first non-empty set
@@ -191,7 +240,11 @@ export function extractCoinEntries(source) {
       },
       rootDefaults
     );
-    if (fallback) result.push(fallback);
+    if (fallback) {
+      // index=0 for fallback single coin
+      applyLineMeta(fallback, rootDefaults, 0);
+      result.push(fallback);
+    }
   }
 
   return result;

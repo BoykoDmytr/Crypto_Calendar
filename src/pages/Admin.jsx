@@ -7,8 +7,9 @@ import timezone from 'dayjs/plugin/timezone';
 import { supabase } from '../lib/supabase';
 import EventForm from '../components/EventForm';
 import { formatQuantity as formatTokenQuantity } from '../hooks/useTokenPrice';
-import { extractCoinEntries, coinEntriesEqual } from '../utils/coins';
 import Toast from '../components/Toast';
+import { extractCoinEntries, coinEntriesEqual, parseCoinQuantity as parseQuantity } from '../utils/coins';
+import { getCirculatingSupply } from '../utils/dropstab';
 
 dayjs.extend(utc);
 dayjs.extend(timezone);
@@ -446,36 +447,132 @@ export default function Admin() {
     await swapTypeOrder(list[i], list[j]);
     await refresh(); // перечитати список після апдейту
   };
+  const formatPct = (p) => {
+  if (p == null || !Number.isFinite(p)) return '';
+  const abs = Math.abs(p);
+  if (abs >= 1) return p.toFixed(2);
+  if (abs >= 0.1) return p.toFixed(3);
+  if (abs >= 0.01) return p.toFixed(4);
+  return p.toExponential(2);
+};
 
+// ✅ рахує % від circulating supply і записує в payload.coins (+ optional text fields)
+const enrichPayloadWithCircPct = async (payload) => {
+  const entries = extractCoinEntries(payload);
+  if (!entries.length) return payload;
+
+  const circList = [];
+  const pctList = [];
+  const enrichedCoins = [];
+
+  for (const entry of entries) {
+    const name = (entry?.name || '').trim();
+    const qty = parseQuantity(entry?.quantity);
+
+    let circ = null;
+    let pct = null;
+
+    if (name && qty != null && qty > 0) {
+      circ = await getCirculatingSupply(name);
+      if (circ != null && circ > 0) pct = (qty / circ) * 100;
+    }
+
+    enrichedCoins.push({
+      ...entry,
+      circ_supply: circ,
+      pct_circ: pct,
+    });
+
+    circList.push(circ != null ? String(circ) : '');
+    pctList.push(pct != null ? formatPct(pct) : '');
+  }
+
+  payload.coins = enrichedCoins;
+
+  // (опційно) якщо у тебе є такі колонки в БД
+  payload.coin_circ_supply = circList.join('\n');
+  payload.coin_pct_circ = pctList.join('\n');
+
+  return payload;
+};
   // ===== МОДЕРАЦІЯ ЗАЯВОК =====
   const approve = async (ev, table = 'events_pending') => {
-    const allowed = [
-      'title','description','start_at','end_at','timezone','type','tge_exchanges','link','nickname','coins',
-      'coin_name','coin_quantity','coin_price_link',
-    ];
-    const payload = Object.fromEntries(Object.entries(ev).filter(([k]) => allowed.includes(k)));
-
-    if (Array.isArray(ev.tge_exchanges)) {
-      payload.tge_exchanges = [...ev.tge_exchanges].sort(
-        (a, b) => toMinutes(a?.time) - toMinutes(b?.time)
-      );
-    }
-    if (Array.isArray(payload.coins)) {
-      payload.coins = payload.coins.map((coin) => ({ ...coin }));
-    }
-    if (payload.end_at === '' || payload.end_at == null) delete payload.end_at;
-    if ('nickname' in payload) {
-      const trimmed = (payload.nickname || '').trim();
-      if (trimmed) payload.nickname = trimmed;
-      else delete payload.nickname;
-    }
-
-    const { error } = await supabase.from('events_approved').insert(payload);
-    if (error) return alert('Помилка: ' + error.message);
-
-    await supabase.from(table).delete().eq('id', ev.id);
-    await refresh();
+  const formatPct = (p) => {
+    if (p == null || !Number.isFinite(p)) return '';
+    const abs = Math.abs(p);
+    if (abs >= 1) return p.toFixed(2);
+    if (abs >= 0.1) return p.toFixed(3);
+    if (abs >= 0.01) return p.toFixed(4);
+    return p.toExponential(2);
   };
+
+  const allowed = [
+    'title','description','start_at','end_at','timezone','type','tge_exchanges','link','nickname','coins',
+    'coin_name','coin_quantity','coin_price_link',
+  ];
+  const payload = Object.fromEntries(Object.entries(ev).filter(([k]) => allowed.includes(k)));
+
+  if (Array.isArray(ev.tge_exchanges)) {
+    payload.tge_exchanges = [...ev.tge_exchanges].sort(
+      (a, b) => toMinutes(a?.time) - toMinutes(b?.time)
+    );
+  }
+  if (Array.isArray(payload.coins)) {
+    payload.coins = payload.coins.map((coin) => ({ ...coin }));
+  }
+  if (payload.end_at === '' || payload.end_at == null) delete payload.end_at;
+  if ('nickname' in payload) {
+    const trimmed = (payload.nickname || '').trim();
+    if (trimmed) payload.nickname = trimmed;
+    else delete payload.nickname;
+  }
+
+  // ✅ NEW: % від circulating supply (без $)
+  // Беремо монети так, як сайт уже вміє: coins[] або coin_name/coin_quantity
+  const entries = extractCoinEntries(payload);
+
+  if (entries.length > 0) {
+    const circList = [];
+    const pctList = [];
+    const enrichedCoins = [];
+
+    for (const entry of entries) {
+      const name = (entry?.name || '').trim();
+      const qty = parseQuantity(entry?.quantity); // ✅ імпортований парсер
+
+      let circ = null;
+      let pct = null;
+
+      if (name && qty != null && qty > 0) {
+        circ = await getCirculatingSupply(name); // ✅ імпортований Dropstab
+        if (circ != null && circ > 0) {
+          pct = (qty / circ) * 100;
+        }
+      }
+
+      enrichedCoins.push({
+        ...entry,
+        circ_supply: circ, // number | null
+        pct_circ: pct,     // number | null
+      });
+
+      circList.push(circ != null ? String(circ) : '');
+      pctList.push(pct != null ? formatPct(pct) : '');
+    }
+
+    payload.coins = enrichedCoins;
+
+    // (опційно) якщо у БД є ці колонки — зберігаємо і так
+    payload.coin_circ_supply = circList.join('\n');
+    payload.coin_pct_circ = pctList.join('\n');
+  }
+
+  const { error } = await supabase.from('events_approved').insert(payload);
+  if (error) return alert('Помилка: ' + error.message);
+
+  await supabase.from(table).delete().eq('id', ev.id);
+  await refresh();
+};
 
   const reject = async (ev, table = 'events_pending') => {
     if (!confirm('Відхилити і видалити цю заявку?')) return;
@@ -485,30 +582,45 @@ export default function Admin() {
   };
 
   const updateRow = async (table, id, payload) => {
-    const clean = Object.fromEntries(
-      Object.entries(payload).filter(([, v]) => v !== '' && v !== undefined)
-    );
-    if (clean.end_at === '') delete clean.end_at;
-    if ('nickname' in clean) {
-      if (clean.nickname === null) {
-        // leave as null to clear the value
-      } else {
-        const trimmed = (clean.nickname || '').trim();
-        if (trimmed) clean.nickname = trimmed;
-        else delete clean.nickname;
-      }
-    }
-    if (Array.isArray(clean.coins)) {
-      clean.coins = clean.coins.map((coin) => ({ ...coin }));
-      if (clean.coins.length === 0) delete clean.coins;
-    }
+  const clean = Object.fromEntries(
+    Object.entries(payload).filter(([, v]) => v !== '' && v !== undefined)
+  );
 
-    const { error } = await supabase.from(table).update(clean).eq('id', id);
-    if (error) return alert('Помилка: ' + error.message);
-    setEditId(null);
-    setEditTable(null);
-    await refresh();
-  };
+  if (clean.end_at === '') delete clean.end_at;
+
+  if ('nickname' in clean) {
+    if (clean.nickname === null) {
+      // leave as null to clear the value
+    } else {
+      const trimmed = (clean.nickname || '').trim();
+      if (trimmed) clean.nickname = trimmed;
+      else delete clean.nickname;
+    }
+  }
+
+  if (Array.isArray(clean.coins)) {
+    clean.coins = clean.coins.map((coin) => ({ ...coin }));
+    if (clean.coins.length === 0) delete clean.coins;
+  }
+
+  // ✅ NEW: якщо редагуємо подію і змінювались coin поля/coins — перерахувати %
+  // Робимо це ТІЛЬКИ для events_approved / events_pending / auto_events_pending (де є coin fields)
+  const canHaveCoins =
+    table === 'events_approved' || table === 'events_pending' || table === 'auto_events_pending';
+
+  if (canHaveCoins) {
+    // Важливо: щоб enrich бачив і root-level coin_name/coin_quantity, і coins[]
+    // — просто передаємо clean як є.
+    await enrichPayloadWithCircPct(clean);
+  }
+
+  const { error } = await supabase.from(table).update(clean).eq('id', id);
+  if (error) return alert('Помилка: ' + error.message);
+
+  setEditId(null);
+  setEditTable(null);
+  await refresh();
+};
 
   const removeRow = async (table, id) => {
     if (!confirm('Видалити запис?')) return;
@@ -549,39 +661,54 @@ export default function Admin() {
   };
   // ===== ПРАВКИ =====
   const approveEdit = async (edit) => {
-    const allowed = [
-      'title','description','start_at','end_at','timezone','type','tge_exchanges','link','nickname','coins',
-      'coin_name','coin_quantity','coin_price_link',
-    ];
-    const patch = Object.fromEntries(
-      Object.entries(edit.payload || {}).filter(([k]) => allowed.includes(k))
+  const allowed = [
+    'title','description','start_at','end_at','timezone','type','tge_exchanges','link','nickname','coins',
+    'coin_name','coin_quantity','coin_price_link',
+  ];
+
+  const patch = Object.fromEntries(
+    Object.entries(edit.payload || {}).filter(([k]) => allowed.includes(k))
+  );
+
+  if (Array.isArray(patch.tge_exchanges)) {
+    patch.tge_exchanges = [...patch.tge_exchanges].sort(
+      (a, b) => toMinutes(a?.time) - toMinutes(b?.time)
     );
+  }
 
-    if (Array.isArray(patch.tge_exchanges)) {
-      patch.tge_exchanges = [...patch.tge_exchanges].sort(
-        (a, b) => toMinutes(a?.time) - toMinutes(b?.time)
-      );
-    }
-    if (Array.isArray(patch.coins)) {
-      patch.coins = patch.coins.map((coin) => ({ ...coin }));
-    }
-    if ('nickname' in patch) {
-      if (patch.nickname === null) {
-        // keep null to clear the field
-      } else {
-        const trimmed = (patch.nickname || '').trim();
-        if (trimmed) patch.nickname = trimmed;
-        else delete patch.nickname;
-      }
-    }
-    if (patch.end_at === '' || patch.end_at == null) delete patch.end_at;
+  if (Array.isArray(patch.coins)) {
+    patch.coins = patch.coins.map((coin) => ({ ...coin }));
+  }
 
-    const { error } = await supabase.from('events_approved').update(patch).eq('id', edit.event_id);
-    if (error) return alert('Помилка: ' + error.message);
+  if ('nickname' in patch) {
+    if (patch.nickname === null) {
+      // keep null to clear the field
+    } else {
+      const trimmed = (patch.nickname || '').trim();
+      if (trimmed) patch.nickname = trimmed;
+      else delete patch.nickname;
+    }
+  }
 
-    await supabase.from('event_edits_pending').delete().eq('id', edit.id);
-    await refresh();
-  };
+  if (patch.end_at === '' || patch.end_at == null) delete patch.end_at;
+
+  // ✅ NEW: перерахувати % якщо в правці є монетні поля або coins
+  const touchesCoins =
+    'coins' in patch ||
+    'coin_name' in patch ||
+    'coin_quantity' in patch ||
+    'coin_price_link' in patch;
+
+  if (touchesCoins) {
+    await enrichPayloadWithCircPct(patch);
+  }
+
+  const { error } = await supabase.from('events_approved').update(patch).eq('id', edit.event_id);
+  if (error) return alert('Помилка: ' + error.message);
+
+  await supabase.from('event_edits_pending').delete().eq('id', edit.id);
+  await refresh();
+};
 
   const rejectEdit = async (id) => {
     const { error } = await supabase.from('event_edits_pending').delete().eq('id', id);
