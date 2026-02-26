@@ -16,6 +16,18 @@ const TIME_OPTIONAL = new Set([
   'Unlocks',
 ]);
 
+function formatMcapPercent(value) {
+  if (value == null) return null;
+  const n = Number(value);
+  if (!Number.isFinite(n)) return null;
+  const abs = Math.abs(n);
+  if (abs >= 1) return `${n.toFixed(2)}%`;
+  if (abs >= 0.1) return `${n.toFixed(3)}%`;
+  if (abs >= 0.01) return `${n.toFixed(4)}%`;
+  return `${n.toExponential(2)}%`;
+}
+
+
 export default function EventCard({ ev, isPast = false }) {
   const isTGE = ev?.type === 'Listing (TGE)';
   const nicknameRaw = (ev?.nickname || '').trim();
@@ -33,6 +45,15 @@ export default function EventCard({ ev, isPast = false }) {
   const end = ev?.end_at ? dayjs(ev.end_at) : null;
 
   const tokenEntries = useMemo(() => extractCoinEntries(ev), [ev]);
+
+  const eventPctMcap = useMemo(() => {
+      const eventUsd = Number(ev?.event_usd_value);
+      const mcapUsd = Number(ev?.mcap_usd);
+      if (!Number.isFinite(eventUsd) || !Number.isFinite(mcapUsd) || mcapUsd <= 0) return null;
+      return (eventUsd / mcapUsd) * 100;
+    }, [ev?.event_usd_value, ev?.mcap_usd]);
+
+  const eventPctMcapLabel = useMemo(() => formatMcapPercent(eventPctMcap), [eventPctMcap]);
 
   // Біржі для TGE
   const tge = Array.isArray(ev?.tge_exchanges) ? [...ev.tge_exchanges] : [];
@@ -131,6 +152,12 @@ export default function EventCard({ ev, isPast = false }) {
           )}
 
           {tokenEntries.length > 0 && <EventTokenInfo coins={tokenEntries} />}
+
+          {eventPctMcapLabel && (
+            <div className="mt-2 text-sm text-gray-600 dark:text-gray-300">
+              % від MCap: <span className="font-semibold">{eventPctMcapLabel}</span>
+            </div>
+          )}
 
           {/* 🔥 ЛАЙКИ / ДИЗЛАЙКИ */}
           <div className="mt-3 flex items-center gap-4">
