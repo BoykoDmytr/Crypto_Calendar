@@ -91,22 +91,25 @@ function normalizeCoinEntry(coin, defaults = {}) {
   if (hasAddress) normalized.address = address;
   // preserve price_link for backwards compatibility
   if (hasPriceLink) normalized.price_link = priceLink;
+  // 👉 NEW: передаємо у нормалізований об'єкт precomputed поля,
+  // які приходять із events_approved.eventsPending або записані в coins[]
   const rawPctCirc =
-  coin.pct_circ ??
-  coin.pctCirc ??
-  coin.percent_of_circulating ??
-  null;
+    coin.pct_circ ??
+    coin.pctCirc ??
+    coin.percent_of_circulating ??
+    null;
+  const rawCircSupply =
+    coin.circ_supply ??
+    coin.circSupply ??
+    coin.circulatingSupply ??
+    null;
 
-const rawCircSupply =
-  coin.circ_supply ??
-  coin.circSupply ??
-  coin.circulatingSupply ??
-  null;
+  const pctCirc = parseCoinQuantity(rawPctCirc);
+  const circSupply = parseCoinQuantity(rawCircSupply);
 
-const pctCirc = parseCoinQuantity(rawPctCirc);      // так само парсимо як number
-const circSupply = parseCoinQuantity(rawCircSupply);
-if (pctCirc !== null) normalized.pct_circ = pctCirc;
-if (circSupply !== null) normalized.circ_supply = circSupply;
+  if (pctCirc !== null) normalized.pct_circ = pctCirc;
+  if (circSupply !== null) normalized.circ_supply = circSupply;
+
   return normalized;
 }
 

@@ -223,13 +223,11 @@ function TokenRow({ coin }) {
         ) : totalLabel ? (
           <span className="token-panel__label">
             <span className="token-panel__value">{totalLabel}</span>
-
-            {/* NEW: show % of circulating supply to the right of price */}
-            {pctCircLabel ? (
+            {pctCircLabel && (
               <span className="token-panel__muted" style={{ marginLeft: 8 }}>
                 {pctCircLabel}
               </span>
-            ) : null}
+            )}
           </span>
         ) : error ? (
           <span className="token-panel__error">Очікуємо ціну</span>
