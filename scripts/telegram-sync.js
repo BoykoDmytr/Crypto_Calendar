@@ -837,6 +837,63 @@ async function upsertPendingByCoinWindow(supabase, payload, days = 3) {
   return { action: 'inserted', id: ins.id };
 }
 
+// Після upsertPendingByCoinWindow:
+async function upsertApprovedBySourceKey(supabase, payload) {
+  const { data: existing, error: findErr } = await supabase
+    .from('events_approved')
+    .select('id')
+    .eq('source', payload.source)
+    .eq('source_key', payload.source_key)
+    .limit(1);
+  if (findErr) throw findErr;
+
+  if (existing && existing.length) {
+    const id = existing[0].id;
+    const patch = cleanPayload(payload);
+    const { error: updErr } = await supabase.from('events_approved').update(patch).eq('id', id);
+    if (updErr) throw updErr;
+    return { action: 'updated', id };
+  }
+
+  const { data: ins, error: insErr } = await supabase
+    .from('events_approved')
+    .insert(cleanPayload(payload))
+    .select('id')
+    .single();
+  if (insErr) throw insErr;
+  return { action: 'inserted', id: ins.id };
+}
+
+async function upsertApprovedByCoinWindow(supabase, payload, days = 3) {
+  const window = buildStartAtWindow(payload.start_at, days);
+  if (!window) return upsertApprovedBySourceKey(supabase, payload);
+
+  const { data: existing, error: findErr } = await supabase
+    .from('events_approved')
+    .select('id, start_at')
+    .eq('event_type_slug', payload.event_type_slug)
+    .eq('coin_name', payload.coin_name)
+    .gte('start_at', window.from)
+    .lte('start_at', window.to);
+  if (findErr) throw findErr;
+
+  const closest = pickClosestByStartAt(existing, window.target);
+  if (closest?.id) {
+    const patch = cleanPayload(payload);
+    const { error: updErr } = await supabase.from('events_approved').update(patch).eq('id', closest.id);
+    if (updErr) throw updErr;
+    return { action: 'updated', id: closest.id };
+  }
+
+  const { data: ins, error: insErr } = await supabase
+    .from('events_approved')
+    .insert(cleanPayload(payload))
+    .select('id')
+    .single();
+  if (insErr) throw insErr;
+  return { action: 'inserted', id: ins.id };
+}
+
 async function getLastMessageId(supabase, channel) {
   const { data, error } = await supabase
     .from('telegram_ingest_state')
@@ -990,8 +1047,8 @@ export async function run() {
               break;
             }
           } catch (err) {
-              void err; // явно показуємо що помилка прочитана/ігнорується
-            }
+            void err; // явно показуємо що помилка прочитана/ігнорується
+          }
         }
       }
 
@@ -1000,13 +1057,12 @@ export async function run() {
         continue;
       }
 
-
       for (const ev of parsedEvents) {
         if (!ev?.title || !ev?.startAt || !ev?.type || !ev?.event_type_slug) {
           skipped++;
           continue;
         }
-        
+
         const inferredCoinPriceLink =
           ev.coin_price_link ||
           buildMexcExchangeLink(ev.coin_name || ev.coins?.[0]?.name);
@@ -1028,16 +1084,23 @@ export async function run() {
           event_type_slug: ev.event_type_slug,
         };
 
+        // ✅ Launchpool лишаємо в auto_events_pending, все інше — одразу в events_approved
+        const isLaunchpool = payload.event_type_slug === 'launchpool';
+        const isBinanceAlpha = payload.event_type_slug === 'binance-alpha';
+
+        const targetTable = isLaunchpool ? 'auto_events_pending' : 'events_approved';
+
         // Якщо є source/source_key, перевіряємо чи вже є затверджена подія.
+        // (для Launchpool ми НЕ робимо event_edits_pending — це все одно pending черга)
         if (payload.source && payload.source_key) {
-          const isBinanceAlpha = payload.event_type_slug === 'binance-alpha';
           const baseSelect =
             'id, title, description, start_at, end_at, timezone, type, link, coins, coin_name, coin_quantity, coin_price_link, event_type_slug';
 
           let approved = null;
           let approvedErr = null;
 
-          if (isBinanceAlpha && payload.coin_name) {
+          // Для Binance Alpha робимо “вікно” по часу (щоб не плодити дублікати)
+          if (!isLaunchpool && isBinanceAlpha && payload.coin_name) {
             const window = buildStartAtWindow(payload.start_at, 5);
             if (window) {
               const { data, error } = await supabase
@@ -1047,8 +1110,10 @@ export async function run() {
                 .eq('coin_name', payload.coin_name)
                 .gte('start_at', window.from)
                 .lte('start_at', window.to);
+
               approved = data;
               approvedErr = error;
+
               if (!approvedErr) {
                 const closest = pickClosestByStartAt(approved, window.target);
                 approved = closest ? [closest] : [];
@@ -1056,7 +1121,8 @@ export async function run() {
             }
           }
 
-          if (!approvedErr && (!approved || approved.length === 0)) {
+          // fallback exact match (або якщо не binance-alpha)
+          if (!approvedErr && (!approved || approved.length === 0) && !isLaunchpool) {
             const { data, error } = await supabase
               .from('events_approved')
               .select(baseSelect)
@@ -1064,11 +1130,13 @@ export async function run() {
               .eq('coin_name', payload.coin_name)
               .eq('start_at', payload.start_at)
               .limit(1);
+
             approved = data;
             approvedErr = error;
           }
 
-          if (!approvedErr && approved && approved.length) {
+          // Якщо вже є схвалена подія — для НЕ-launchpool створюємо edits_pending, або пропускаємо
+          if (!isLaunchpool && !approvedErr && approved && approved.length) {
             const existing = approved[0];
 
             // визначаємо відмінності
@@ -1109,32 +1177,48 @@ export async function run() {
               });
               inserted++;
             } else {
-              // нічого не змінилося
               skipped++;
             }
           } else {
-            // немає затвердженої події – записуємо у auto_events_pending
-            const r =
-              payload.event_type_slug === 'binance-alpha' && payload.coin_name
-                ? await upsertPendingByCoinWindow(supabase, payload, 3)
-                : await upsertPendingBySourceKey(supabase, payload);
-            if (r.action === 'inserted') inserted++;
-            else skipped++;
+            // ✅ Немає existing approved (або це launchpool) — робимо upsert у потрібну таблицю
+            if (isLaunchpool) {
+              const r =
+                isBinanceAlpha && payload.coin_name
+                  ? await upsertPendingByCoinWindow(supabase, payload, 3)
+                  : await upsertPendingBySourceKey(supabase, payload);
+
+              if (r.action === 'inserted') inserted++;
+              else skipped++;
+            } else {
+              // upsert в events_approved
+              const r =
+                isBinanceAlpha && payload.coin_name
+                  ? await upsertApprovedByCoinWindow(supabase, payload, 3)
+                  : await upsertApprovedBySourceKey(supabase, payload);
+
+              if (r.action === 'inserted') inserted++;
+              else skipped++;
+            }
           }
-        } else {          
-          // якщо немає source_key — все одно upsert по link+start+title (просто пропускаємо)
-          const { data: exists } = await supabase
-            .from('auto_events_pending')
+        } else {
+          // якщо немає source_key — дедуп по title+start+link у targetTable
+          const { data: exists, error: existsErr } = await supabase
+            .from(targetTable)
             .select('id')
             .eq('title', payload.title)
             .eq('start_at', payload.start_at)
             .eq('link', payload.link)
             .limit(1);
 
-          if (exists && exists.length) skipped++;
-          else {
-            const { error } = await supabase.from('auto_events_pending').insert(cleanPayload(payload));
-            if (error) throw error;
+          if (existsErr) throw existsErr;
+
+          if (exists && exists.length) {
+            skipped++;
+          } else {
+            const { error: insErr } = await supabase
+              .from(targetTable)
+              .insert(cleanPayload(payload));
+            if (insErr) throw insErr;
             inserted++;
           }
         }
@@ -1144,7 +1228,13 @@ export async function run() {
     // оновлюємо state
     if (maxSeen > lastId) await setLastMessageId(supabase, channel, maxSeen);
 
-    summary.push({ channel, new_posts: newPosts.length, inserted, skipped, last_id: maxSeen });
+    summary.push({
+      channel,
+      new_posts: newPosts.length,
+      inserted,
+      skipped,
+      last_id: maxSeen,
+    });
   }
 
   console.table(summary);
@@ -1165,3 +1255,4 @@ if (isDirectRun) {
     process.exitCode = 1;
   });
 }
+
