@@ -14,6 +14,170 @@ const KYIV_TZ = 'Europe/Kyiv';
 
 /**
  * =========================
+ * MCAP enrichment (for auto insert into events_approved)
+ * =========================
+ */
+
+// витягаємо тикер з coin_price_link (MEXC futures/spot link) або з coin_name
+function extractSymbolFromMexcLinkOrName(coinName, link) {
+  // 1) спроба з лінка /futures/TOKEN_USDT або /exchange/TOKEN_USDT
+  if (link && typeof link === 'string') {
+    const m = link.match(/\/(futures|exchange)\/([A-Z0-9]+)_([A-Z0-9]+)/i);
+    if (m) return (m[2] || '').toUpperCase();
+    // fallback: TOKEN_USDT десь у рядку
+    const m2 = link.match(/([A-Z0-9]{2,})_USDT/i);
+    if (m2) return (m2[1] || '').toUpperCase();
+  }
+
+  // 2) fallback з coinName
+  if (coinName) {
+    const raw = String(coinName).trim();
+    const tok = raw.split(/[\s(]/)[0].replace(/[^A-Za-z0-9]/g, '').toUpperCase();
+    if (tok) return tok;
+  }
+
+  return null;
+}
+
+// MEXC spot price (працює для більшості TOKENUSDT)
+async function fetchMexcSpotPriceUSDT(symbol) {
+  if (!symbol) return null;
+  const pair = `${symbol}USDT`;
+
+  try {
+    const url = `https://api.mexc.com/api/v3/ticker/price?symbol=${encodeURIComponent(pair)}`;
+    const r = await fetch(url, {
+      headers: { 'user-agent': 'Mozilla/5.0', accept: 'application/json' },
+    });
+    if (!r.ok) return null;
+    const j = await r.json();
+    const p = Number(j?.price);
+    return Number.isFinite(p) ? p : null;
+  } catch {
+    return null;
+  }
+}
+
+// виклик edge function dropstab-circ напряму (SERVICE_ROLE_KEY у тебе є)
+async function fetchCircSupplyDropstabFn({ supabaseUrl, serviceRoleKey, coinSymbol }) {
+  if (!supabaseUrl || !serviceRoleKey || !coinSymbol) return null;
+
+  const url = `${supabaseUrl.replace(/\/+$/, '')}/functions/v1/dropstab-circ`;
+
+  try {
+    const r = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        apikey: serviceRoleKey,
+        authorization: `Bearer ${serviceRoleKey}`,
+      },
+      body: JSON.stringify({ coinSymbol }),
+    });
+
+    // edge function завжди відповідає 200 і кладе результат в JSON
+    const j = await r.json().catch(() => null);
+
+    const circ = Number(j?.circulatingSupply);
+    return Number.isFinite(circ) ? circ : null;
+  } catch {
+    return null;
+  }
+}
+
+// нормалізація coins: у БД events_approved.coins = TEXT, тому пишемо JSON.stringify
+function normalizeCoinsForDb(payload) {
+  // coins може бути масивом (як зараз), або строкою
+  if (Array.isArray(payload.coins)) return payload.coins;
+  if (typeof payload.coins === 'string' && payload.coins.trim()) {
+    try {
+      const parsed = JSON.parse(payload.coins);
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
+  }
+  return [];
+}
+
+/**
+ * Головний enrich:
+ * - тільки якщо payload йде в events_approved
+ * - тільки якщо можемо (є symbol + quantity)
+ * - пише:
+ *    payload.coins (TEXT) = JSON.stringify(enrichedCoins)
+ *    payload.coin_circ_supply (TEXT) = "...\n..."
+ *    payload.coin_pct_circ (TEXT) = "...\n..."
+ *    payload.coin_circulating_supply (NUMERIC) (для першої монети)
+ *    payload.event_usd_value (NUMERIC) = qty*price (для першої монети)
+ *    payload.mcap_usd (NUMERIC) = price*circ (для першої монети)
+ */
+async function enrichApprovedWithMcap(env, payload) {
+  // ✅ не чіпаємо, якщо це вже пораховано
+  if (payload?.mcap_usd != null && payload?.event_usd_value != null) {
+    // але coins все одно нормалізуємо під TEXT, якщо масив
+    if (Array.isArray(payload.coins)) payload.coins = JSON.stringify(payload.coins);
+    return payload;
+  }
+
+  const coinsArr = normalizeCoinsForDb(payload);
+  if (!coinsArr.length) {
+    // якщо coins нема — нічого рахувати
+    return payload;
+  }
+
+  // беремо першу монету як “основну” для mcap/event_usd_value
+  const first = coinsArr[0] || {};
+  const qty = Number(first?.quantity);
+  const name = (first?.name || payload.coin_name || '').toString().trim();
+  if (!name || !Number.isFinite(qty) || qty <= 0) {
+    // coins є, але нема коректної кількості/назви
+    payload.coins = JSON.stringify(coinsArr);
+    return payload;
+  }
+
+  const symbol = extractSymbolFromMexcLinkOrName(name, payload.coin_price_link);
+
+  // 1) ціна (USD) — через MEXC spot
+  const price = await fetchMexcSpotPriceUSDT(symbol);
+
+  // 2) circulating supply — через dropstab-circ edge function
+  const circ = await fetchCircSupplyDropstabFn({
+    supabaseUrl: env.SUPABASE_URL,
+    serviceRoleKey: env.SUPABASE_SERVICE_ROLE_KEY,
+    coinSymbol: symbol || name,
+  });
+
+  // 3) pct of circ
+  const pct = circ && circ > 0 ? (qty / circ) * 100 : null;
+
+  // 4) event_usd_value та mcap_usd
+  const eventUsd = price != null ? price * qty : null;
+  const mcapUsd = price != null && circ != null ? price * circ : null;
+
+  // 5) записуємо back у coins + текстові списки (як у адмінці)
+  const enrichedCoins = coinsArr.map((c, idx) => {
+    if (idx !== 0) return c;
+    return { ...c, circ_supply: circ, pct_circ: pct };
+  });
+
+  const circList = enrichedCoins.map((c) => (c?.circ_supply != null ? String(c.circ_supply) : ''));
+  const pctList = enrichedCoins.map((c) => (c?.pct_circ != null ? String(c.pct_circ) : ''));
+
+  payload.coins = JSON.stringify(enrichedCoins);
+  payload.coin_circ_supply = circList.join('\n');
+  payload.coin_pct_circ = pctList.join('\n');
+
+  // numeric колонки
+  payload.coin_circulating_supply = circ != null ? circ : null;
+  payload.event_usd_value = eventUsd != null ? eventUsd : null;
+  payload.mcap_usd = mcapUsd != null ? mcapUsd : null;
+
+  return payload;
+}
+
+/**
+ * =========================
  * CONFIG: channels + triggers
  * =========================
  */
@@ -1089,7 +1253,17 @@ export async function run() {
         const isBinanceAlpha = payload.event_type_slug === 'binance-alpha';
 
         const targetTable = isLaunchpool ? 'auto_events_pending' : 'events_approved';
-
+        // ✅ AUTO MCAP ENRICH: тільки для events_approved (не для launchpool pending)
+        if (targetTable === 'events_approved') {
+          await enrichApprovedWithMcap(
+            { SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY },
+            payload
+          );
+        }
+        // safety: якщо coins масив — все одно зробити string для events_approved
+        if (targetTable === 'events_approved' && Array.isArray(payload.coins)) {
+          payload.coins = JSON.stringify(payload.coins);
+        }
         // Якщо є source/source_key, перевіряємо чи вже є затверджена подія.
         // (для Launchpool ми НЕ робимо event_edits_pending — це все одно pending черга)
         if (payload.source && payload.source_key) {
