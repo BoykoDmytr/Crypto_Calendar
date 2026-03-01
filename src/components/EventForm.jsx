@@ -87,7 +87,6 @@ export default function EventForm({ onSubmit, loading, initial = {} }) {
     const base = {
       title: '',
       description: '',
-      nickname: '',
       // важливо: тепер зберігаємо slug типу
       event_type_slug: initial?.event_type_slug || 'listing-tge',
       type: initial?.type || 'Listing (TGE)', // лишаємо для відображення у картках/легасі
@@ -112,6 +111,9 @@ export default function EventForm({ onSubmit, loading, initial = {} }) {
     merged.link = normalizeLinkValue(merged.link);
     return merged;
   });
+  const isEditing = useMemo(() => {
+    return initial && Object.keys(initial).length > 0;
+  }, [initial]);
 
   const hydratedRef = useRef(false);
   const hydratedWithTypesRef = useRef(false);
@@ -256,7 +258,6 @@ export default function EventForm({ onSubmit, loading, initial = {} }) {
       delete next.coin_name;
       delete next.coin_quantity;
       delete next.coin_price_link;
-      next.nickname = next.nickname || '';
       next.link = normalizeLinkValue(next.link);
       return next;
     });
@@ -483,14 +484,6 @@ export default function EventForm({ onSubmit, loading, initial = {} }) {
       delete payload.coin_quantity;
       delete payload.coin_price_link;
     }
-    const nickname = (form.nickname || '').trim();
-    if (nickname) {
-      payload.nickname = nickname;
-    } else if (initial?.nickname) {
-      payload.nickname = null;
-    } else {
-      delete payload.nickname;
-    }
     onSubmit?.(payload);
   };
   const coinsList = Array.isArray(form.coins) ? form.coins : [];
@@ -505,16 +498,18 @@ export default function EventForm({ onSubmit, loading, initial = {} }) {
   })();
   return (
     <form onSubmit={submit} className="space-y-3">
-      {/* Нікнейм відправника */}
-      <div>
-        <label className="label">Нікнейм (опц.)</label>
-        <input
-          className="input"
-          value={form.nickname || ''}
-          onChange={(e) => change('nickname', e.target.value)}
-          placeholder="Напр., cryptofan"
-        />
-      </div>
+      {/* Нікнейм відправника (показуємо лише при редагуванні) */}
+      {isEditing && (
+        <div>
+          <label className="label">Нікнейм (опц.)</label>
+          <input
+            className="input"
+            value={form.nickname || ''}
+            onChange={(e) => change('nickname', e.target.value)}
+            placeholder="Напр., cryptofan"
+          />
+        </div>
+      )}
       {/* Заголовок */}
       <div>
         <label className="label">Заголовок *</label>
