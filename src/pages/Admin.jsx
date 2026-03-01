@@ -387,7 +387,7 @@ export default function Admin() {
         .select('*')
         .order('created_at', { ascending: true }),
       supabase.from('events_pending').select('*').order('created_at', { ascending: true }),
-      supabase.from('events_approved').select('*').order('start_at', { ascending: true }),
+      supabase.from('events_approved').select('*').order('created_at', { ascending: false }),
       supabase
         .from('event_edits_pending')
         .select(
