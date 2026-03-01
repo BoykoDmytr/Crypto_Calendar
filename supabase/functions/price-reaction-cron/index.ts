@@ -263,7 +263,64 @@ serve(async (_req: Request) => {
         continue;
       }
 
-      const row = map.get(ev.id);
+      let row = map.get(ev.id);
+      // ✅ If event start time changed (before series is built) => reset reaction row
+if (row) {
+  const hasSeries = Array.isArray(row.series_close) && row.series_close.length === 61;
+
+  const dbT0 = dayjs.utc(row.t0_time).startOf("minute").toISOString();
+  const evT0 = t0.startOf("minute").toISOString();
+
+  if (dbT0 !== evT0 && !hasSeries) {
+    const resetPatch: any = {
+      // update times
+      t0_time: t0.toISOString(),
+      t_plus_5_time: t5.toISOString(),
+      t_plus_15_time: t15.toISOString(),
+
+      // (optional but good) keep meta in sync
+      coin_name: ev.coin_name ?? null,
+      pair: market.pair,
+      exchange: "MEXC",
+
+      // reset prices
+      t0_price: null,
+      t0_percent: 0,
+      t_plus_5_price: null,
+      t_plus_5_percent: null,
+      t_plus_15_price: null,
+      t_plus_15_percent: null,
+
+      // reset ±30m series + KPIs
+      series_close: null,
+      series_high: null,
+      series_low: null,
+      pre_return_30m: null,
+      post_return_30m: null,
+      net_return_60m: null,
+      max_price: null,
+      max_offset: null,
+      min_price: null,
+      min_offset: null,
+      event_pct_mcap: null,
+    };
+
+    const { error: resetErr } = await supabase
+      .from("event_price_reaction")
+      .update(resetPatch)
+      .eq("event_id", ev.id);
+
+    if (resetErr) {
+      errors++;
+      continue;
+    }
+
+    // update local cache so later logic uses fresh times
+    row = { ...row, ...resetPatch };
+    map.set(ev.id, row);
+    updated++;
+  }
+}
 
       // insert stub if not exists
       if (!row) {
