@@ -172,7 +172,7 @@ export default function EventCard({ ev, isPast = false }) {
             download={`${(ev?.title || 'event').replace(/[^a-zA-Z0-9_-]/g, '_')}.ics`}
             className="block px-4 py-2 text-sm hover:bg-gray-100 dark:hover:bg-gray-700"
           >
-            Apple / iOS (.ics)
+            Apple / iOS
           </a>
         </div>
       )}
