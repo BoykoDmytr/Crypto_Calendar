@@ -126,22 +126,19 @@ export default function ReactionChart({
 
   // init viewport on phone-like (center around EVENT)
   useEffect(() => {
-    if (!phoneLike) {
-      // reset to desktop defaults
-      didInitRef.current = false;
-      setViewCount(FULL_LEN);
-      setViewStart(0);
-      return;
-    }
-    if (didInitRef.current) return;
-    didInitRef.current = true;
+  if (!phoneLike) {
+    didInitRef.current = false;
+    setViewCount(FULL_LEN);
+    setViewStart(0);
+    return;
+  }
+  if (didInitRef.current) return;
+  didInitRef.current = true;
 
-    const initialCount = 31;
-    const c = clamp(initialCount, MIN_VIEW, FULL_LEN);
-    const s = clamp(BASE_INDEX - Math.floor(c / 2), 0, FULL_LEN - c);
-    setViewCount(c);
-    setViewStart(s);
-  }, [phoneLike]);
+  // ✅ стартуємо максимально віддалено: показуємо весь діапазон (61 свічка)
+  setViewCount(FULL_LEN);
+  setViewStart(0);
+}, [phoneLike]);
 
   // keep viewStart clamped
   useEffect(() => {
