@@ -1,6 +1,7 @@
 // src/pages/Admin.jsx
 import { useEffect, useState } from 'react';
 import { toLocalInput } from "../utils/timeLocal";
+import { Link } from 'react-router-dom';
 import dayjs from 'dayjs';
 import utc from 'dayjs/plugin/utc';
 import timezone from 'dayjs/plugin/timezone';
@@ -886,9 +887,14 @@ const payload = {
       <div className="space-y-6">
         <div className="flex items-center justify-between">
           <h1 className="text-xl font-semibold">Адмін-панель</h1>
-          <button className="btn-secondary px-3 py-2 rounded-xl" onClick={refresh}>
-            Оновити
-          </button>
+          <div className="flex items-center gap-2">
+            <Link className="btn-secondary px-3 py-2 rounded-xl" to="/add">
+              + Додати івент
+            </Link>
+            <button className="btn-secondary px-3 py-2 rounded-xl" onClick={refresh}>
+              Оновити
+            </button>
+          </div>
         </div>
 
        {/* Автоматичні заявки */}

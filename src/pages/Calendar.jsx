@@ -438,13 +438,6 @@ export default function Calendar() {
             </button>
           ))}
         </FilterScroller>
-
-        {/* Кнопка «Додати івент» під фільтрами */}
-        <div className="mt-3">
-          <Link to="/add" className="btn h-9 px-3 text-sm w-full sm:w-auto">
-            + Додати івент
-          </Link>
-        </div>
       </div>
 
       {/* --- СПИСОК ПОДІЙ --- */}
