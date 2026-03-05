@@ -216,7 +216,7 @@ serve(async (_req: Request) => {
   // 2) fetch events in window
   const { data: events, error: eventsErr } = await supabase
     .from("events_approved")
-    .select("id,title,start_at,type,event_type_slug,coin_name,tge_exchanges,coin_price_link,link,event_usd_value,mcap_usd")
+    .select("id,title,start_at,type,event_type_slug,coin_name,tge_exchanges,coin_price_link,link,event_usd_value,mcap_usd,created_at")
     .gte("start_at", windowStart)
     .lte("start_at", windowEnd)
     .not("start_at", "is", null);
@@ -266,7 +266,7 @@ serve(async (_req: Request) => {
       let row = map.get(ev.id);
       // ✅ If event start time changed (before series is built) => reset reaction row
 if (row) {
-  const hasSeries = Array.isArray(row.series_close) && row.series_close.length === 61;
+  const hasSeries = Array.isArray(row.series_close) && row.series_close.length > 0;
 
   const dbT0 = dayjs.utc(row.t0_time).startOf("minute").toISOString();
   const evT0 = t0.startOf("minute").toISOString();
@@ -408,7 +408,7 @@ if (row) {
       }
 
       // if series already computed, skip heavy fetch
-      if (row.series_close && Array.isArray(row.series_close) && row.series_close.length === 61) {
+      if (row.series_close && Array.isArray(row.series_close) && row.series_close.length > 0) {
         skipped++;
         continue;
       }
@@ -422,16 +422,47 @@ if (row) {
 
       // ✅ T0 minute rule: floor to minute
       const t0Minute = t0.startOf("minute");
-      const startTs = t0Minute.subtract(30, "minute").valueOf();
+      // Determine created and listing times to anchor the window
+      const createdMinute = ev.created_at ? dayjs.utc(ev.created_at).startOf("minute") : null;
+      let listingMinute: any = null;
+      if (Array.isArray(ev.tge_exchanges)) {
+        for (const ex of ev.tge_exchanges) {
+          const time = ex?.time;
+          if (time) {
+            const dt = dayjs.utc(time).startOf("minute");
+            if (!listingMinute || dt.isAfter(listingMinute)) {
+              listingMinute = dt;
+            }
+          }
+        }
+      }
+      let anchorMinute: any = null;
+      if (createdMinute && listingMinute) {
+        anchorMinute = createdMinute.isAfter(listingMinute) ? createdMinute : listingMinute;
+      } else if (createdMinute) {
+        anchorMinute = createdMinute;
+      } else if (listingMinute) {
+        anchorMinute = listingMinute;
+      }
+      // Start at 30 minutes before T0 by default
+      let startMinute = t0Minute.subtract(30, "minute");
+      // If anchor exists and is later than default start, use it
+      if (anchorMinute && anchorMinute.isAfter(startMinute)) {
+        startMinute = anchorMinute;
+      }
+      const startTs = startMinute.valueOf();
+      // Always include 31 minutes after event
 
       // ✅ IMPORTANT: +31m so candle +30 is included
       const endTs = t0Minute.add(31, "minute").valueOf();
-
       const candles = await fetchMexcSeries(market.apiPair!, startTs, endTs);
 
-      const closeSeries: Array<number | null> = new Array(61).fill(null);
-      const highSeries: Array<number | null> = new Array(61).fill(null);
-      const lowSeries: Array<number | null> = new Array(61).fill(null);
+      // Determine total number of points: preDuration + 31
+      const preDuration = t0Minute.diff(startMinute, "minute");
+      const totalPoints = preDuration + 31;
+      const closeSeries: Array<number | null> = new Array(totalPoints).fill(null);
+      const highSeries: Array<number | null> = new Array(totalPoints).fill(null);
+      const lowSeries: Array<number | null> = new Array(totalPoints).fill(null);
 
       (candles || []).forEach((c: any) => {
         const [ts, _open, high, low, close] = c;
@@ -439,16 +470,18 @@ if (row) {
         // ✅ floor, not round (no offset drift)
         const off = Math.floor((Number(ts) - startTs) / 60000);
 
-        if (off >= 0 && off < 61) {
+        if (off >= 0 && off < totalPoints) {
           closeSeries[off] = Number(close);
           highSeries[off] = Number(high);
           lowSeries[off] = Number(low);
         }
       });
 
-      const basePrice = closeSeries[30];
+      // Index of the event (T0) is preDuration (points before T0)
+      const baseIndex = preDuration;
+      const basePrice = closeSeries[baseIndex];
       const prePrice = closeSeries[0];
-      const postPrice = closeSeries[60];
+      const postPrice = closeSeries[totalPoints - 1];
 
       const preReturn =
         prePrice != null && basePrice != null && Number(prePrice) > 0
@@ -468,19 +501,27 @@ if (row) {
       // max/min index
       let maxIdx = 0;
       let minIdx = 0;
-      for (let i = 0; i < 61; i++) {
-        if (highSeries[i] != null && (highSeries[maxIdx] == null || highSeries[i]! > highSeries[maxIdx]!)) {
+      for (let i = 0; i < totalPoints; i++) {
+        if (
+          highSeries[i] != null &&
+          (highSeries[maxIdx] == null ||
+            (highSeries[i] as number) > (highSeries[maxIdx] as number))
+        ) {
           maxIdx = i;
         }
-        if (lowSeries[i] != null && (lowSeries[minIdx] == null || lowSeries[i]! < lowSeries[minIdx]!)) {
+        if (
+          lowSeries[i] != null &&
+          (lowSeries[minIdx] == null ||
+            (lowSeries[i] as number) < (lowSeries[minIdx] as number))
+        ) {
           minIdx = i;
         }
       }
 
       const maxPrice = highSeries[maxIdx] ?? null;
       const minPrice = lowSeries[minIdx] ?? null;
-      const maxOffset = maxIdx - 30;
-      const minOffset = minIdx - 30;
+      const maxOffset = maxIdx - baseIndex;
+      const minOffset = minIdx - baseIndex;
 
       // compute event_pct_mcap
       let eventPctMcap: number | null = null;
