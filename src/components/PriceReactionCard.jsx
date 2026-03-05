@@ -51,7 +51,11 @@ export default function PriceReactionCard({ item }) {
     eventPctMcap,
   } = item;
 
-  const hasSeries = Array.isArray(seriesClose) && seriesClose.length === 61;
+  // consider series valid if it has at least 31 points (always includes +31 after event)
+  const hasSeries = Array.isArray(seriesClose) && seriesClose.length >= 31;
+
+  // dynamic base index: number of minutes before T0
+  const baseIndex = hasSeries ? seriesClose.length - 31 : 0;
 
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [needRotateHint, setNeedRotateHint] = useState(false);
@@ -67,8 +71,8 @@ export default function PriceReactionCard({ item }) {
     else setRange({ startIdx, endIdx });
   };
 
-  const startOffset = range && range.endIdx != null ? range.startIdx - 30 : null;
-  const endOffset = range && range.endIdx != null ? range.endIdx - 30 : null;
+  const startOffset = range && range.endIdx != null ? range.startIdx - baseIndex : null;
+  const endOffset = range && range.endIdx != null ? range.endIdx - baseIndex : null;
 
   useEffect(() => {
     const onFs = () => {
@@ -204,8 +208,9 @@ export default function PriceReactionCard({ item }) {
             {hasSeries ? (
               <ReactionChart
                 closeSeries={seriesClose}
-                highSeries={Array.isArray(seriesHigh) && seriesHigh.length === 61 ? seriesHigh : null}
-                lowSeries={Array.isArray(seriesLow) && seriesLow.length === 61 ? seriesLow : null}
+                // pass highSeries and lowSeries only if they match the length of closeSeries
+                highSeries={Array.isArray(seriesHigh) && seriesHigh.length === seriesClose.length ? seriesHigh : null}
+                lowSeries={Array.isArray(seriesLow) && seriesLow.length === seriesClose.length ? seriesLow : null}
                 onRangeSelect={handleRangeSelect}
                 selectedRange={range}
                 startAt={startAt}
@@ -232,6 +237,7 @@ export default function PriceReactionCard({ item }) {
           closeSeries={seriesClose}
           startOffset={startOffset}
           endOffset={endOffset}
+          baseIndex={baseIndex}
           investment={investment}
           onInvestmentChange={setInvestment}
         />

@@ -8,8 +8,8 @@ dayjs.extend(timezone);
 
 const TZ_MAP = { Kyiv: 'Europe/Kyiv' };
 
-const FULL_LEN = 61;
-const BASE_INDEX = 30;
+// Number of candles after the event (T0). There are always 31 minutes after the event.
+const LOOKAHEAD_AFTER_EVENT = 31;
 const MIN_VIEW = 8; // мін. свічок у вікні при zoom-in
 
 function clamp(n, a, b) {
@@ -50,7 +50,8 @@ export default function ReactionChart({
   const [phoneLike, setPhoneLike] = useState(false);
   const [containerW, setContainerW] = useState(null);
 
-  const [viewCount, setViewCount] = useState(FULL_LEN);
+  // initialize the number of visible candles to the length of the provided series or fallback
+  const [viewCount, setViewCount] = useState(closeSeries.length || LOOKAHEAD_AFTER_EVENT);
   const [viewStart, setViewStart] = useState(0);
   const didInitRef = useRef(false);
 
@@ -66,9 +67,9 @@ export default function ReactionChart({
   const isPinchingRef = useRef(false);
   const pinchRef = useRef({
     initialDistance: 0,
-    initialCount: FULL_LEN,
+    initialCount: closeSeries.length || LOOKAHEAD_AFTER_EVENT,
     initialStart: 0,
-    anchorIdx: BASE_INDEX,
+    anchorIdx: 0,
     anchorRel: 0.5,
   });
 
@@ -126,24 +127,24 @@ export default function ReactionChart({
 
   // init viewport on phone-like (center around EVENT)
   useEffect(() => {
-  if (!phoneLike) {
-    didInitRef.current = false;
-    setViewCount(FULL_LEN);
-    setViewStart(0);
-    return;
-  }
-  if (didInitRef.current) return;
-  didInitRef.current = true;
+    if (!phoneLike) {
+        didInitRef.current = false;
+        setViewCount(closeSeries.length || LOOKAHEAD_AFTER_EVENT);
+        setViewStart(0);
+        return;
+      }
+      if (didInitRef.current) return;
+      didInitRef.current = true;
 
-  // ✅ стартуємо максимально віддалено: показуємо весь діапазон (61 свічка)
-  setViewCount(FULL_LEN);
-  setViewStart(0);
-}, [phoneLike]);
+    setViewCount(closeSeries.length || LOOKAHEAD_AFTER_EVENT);
+      setViewStart(0);
+    }, [phoneLike, closeSeries.length]);
 
   // keep viewStart clamped
   useEffect(() => {
-    setViewStart((s) => clamp(s, 0, FULL_LEN - viewCount));
-  }, [viewCount]);
+    const fullLen = closeSeries.length;
+    setViewStart((s) => clamp(s, 0, fullLen - viewCount));
+  }, [viewCount, closeSeries.length]);
 
   // ---------------- AFTER HOOKS: SAFE COMPUTATIONS ----------------
   const length = closeSeries.length;
@@ -668,6 +669,7 @@ export default function ReactionChart({
               const pctText = `${pnlBox.pct >= 0 ? '+' : ''}${pnlBox.pct.toFixed(2)}%`;
               const usdText = pnlBox.pnlUsd == null ? null : `${Math.abs(pnlBox.pnlUsd).toFixed(4)} USDT`;
 
+              
               return (
                 <g>
                   <rect
