@@ -14,6 +14,9 @@ const SERIES_CUTOFF_MINUTES = 35;
 // Price capture window in minutes for T0, +5, +15
 const CAPTURE_WINDOW_MINUTES = 10;
 
+// In the series we ALWAYS include T0..T+30 (31 points)
+const AFTER_EVENT_POINTS = 31;
+
 function normalizeValidPrice(value: number | string | null): number | null {
   const n = Number(value);
   if (!Number.isFinite(n) || n <= 0) return null;
@@ -134,10 +137,23 @@ function calcPercent(basePrice: number | null, nextPrice: number | null) {
   return ((n - b) / b) * 100;
 }
 
-async function fetchMexcTicker(apiPair: string): Promise<number | null> {
+// ✅ Spot + Futures ticker
+async function fetchMexcTicker(market: { apiPair: string; market: "spot" | "futures" }): Promise<number | null> {
   try {
+    if (market.market === "futures") {
+      // Contract ticker: https://contract.mexc.com/api/v1/contract/ticker?symbol=BTC_USDT :contentReference[oaicite:2]{index=2}
+      const url = new URL("https://contract.mexc.com/api/v1/contract/ticker");
+      url.searchParams.set("symbol", market.apiPair);
+      const res = await fetch(url.toString());
+      if (!res.ok) return null;
+      const json = await res.json();
+      const p = Number(json?.data?.lastPrice ?? json?.data?.fairPrice ?? json?.data?.indexPrice);
+      return Number.isFinite(p) ? p : null;
+    }
+
+    // Spot ticker: https://api.mexc.com/api/v3/ticker/price?symbol=BTCUSDT
     const url = new URL("https://api.mexc.com/api/v3/ticker/price");
-    url.searchParams.set("symbol", apiPair);
+    url.searchParams.set("symbol", market.apiPair);
     const res = await fetch(url.toString());
     if (!res.ok) return null;
     const data = await res.json();
@@ -148,21 +164,92 @@ async function fetchMexcTicker(apiPair: string): Promise<number | null> {
   }
 }
 
-async function fetchMexcSeries(apiPair: string, startTs: number, endTs: number) {
+// ✅ Spot + Futures klines -> normalized candles: [tsMs, open, high, low, close]
+async function fetchMexcSeries(
+  market: { apiPair: string; market: "spot" | "futures" },
+  startTsMs: number,
+  endTsMs: number,
+): Promise<any[]> {
   try {
+    if (market.market === "futures") {
+      // Contract kline endpoint uses SECONDS and returns object arrays :contentReference[oaicite:3]{index=3}
+      const startSec = Math.floor(startTsMs / 1000);
+      const endSec = Math.floor(endTsMs / 1000);
+
+      const url = new URL(`https://contract.mexc.com/api/v1/contract/kline/${market.apiPair}`);
+      url.searchParams.set("interval", "Min1");
+      url.searchParams.set("start", String(startSec));
+      url.searchParams.set("end", String(endSec));
+
+      const res = await fetch(url.toString());
+      if (!res.ok) return [];
+      const json = await res.json();
+
+      if (!json?.success || !json?.data?.time) return [];
+
+      const t = json.data.time || [];
+      const o = json.data.open || [];
+      const h = json.data.high || [];
+      const l = json.data.low || [];
+      const c = json.data.close || [];
+
+      return t.map((sec: any, i: number) => [
+        Number(sec) * 1000,
+        o[i],
+        h[i],
+        l[i],
+        c[i],
+      ]);
+    }
+
+    // Spot klines uses MILLISECONDS and returns array-of-arrays :contentReference[oaicite:4]{index=4}
     const url = new URL("https://api.mexc.com/api/v3/klines");
-    url.searchParams.set("symbol", apiPair);
+    url.searchParams.set("symbol", market.apiPair);
     url.searchParams.set("interval", "1m");
-    url.searchParams.set("startTime", String(startTs));
-    url.searchParams.set("endTime", String(endTs));
+    url.searchParams.set("startTime", String(startTsMs));
+    url.searchParams.set("endTime", String(endTsMs));
     url.searchParams.set("limit", "1000");
     const res = await fetch(url.toString());
     if (!res.ok) return [];
     const candles = await res.json();
-    return candles;
+    if (!Array.isArray(candles)) return [];
+
+    // Normalize to [tsMs, open, high, low, close]
+    return candles.map((c: any) => [Number(c[0]), c[1], c[2], c[3], c[4]]);
   } catch {
     return [];
   }
+}
+
+// ✅ series is "ready" only if it has at least one non-null price
+function hasAnySeriesValue(series: any): boolean {
+  return Array.isArray(series) && series.some((v) => v != null);
+}
+
+// ✅ pick listing time:
+// 1) prefer MEXC listing from tge_exchanges (if entry contains "mexc")
+// 2) else earliest listing time among all entries
+function pickListingMinute(ev: any): dayjs.Dayjs | null {
+  const exchanges = Array.isArray(ev.tge_exchanges) ? ev.tge_exchanges : [];
+  let mexc: dayjs.Dayjs | null = null;
+  let earliest: dayjs.Dayjs | null = null;
+
+  for (const ex of exchanges) {
+    const t = ex?.time;
+    if (!t) continue;
+
+    const dt = dayjs.utc(t).startOf("minute");
+
+    // earliest among all
+    if (!earliest || dt.isBefore(earliest)) earliest = dt;
+
+    const label = String(ex?.exchange ?? ex?.name ?? ex?.title ?? ex?.platform ?? "").toLowerCase();
+    if (label.includes("mexc")) {
+      if (!mexc || dt.isBefore(mexc)) mexc = dt;
+    }
+  }
+
+  return mexc || earliest;
 }
 
 serve(async (_req: Request) => {
@@ -264,63 +351,63 @@ serve(async (_req: Request) => {
       }
 
       let row = map.get(ev.id);
+
       // ✅ If event start time changed (before series is built) => reset reaction row
-if (row) {
-  const hasSeries = Array.isArray(row.series_close) && row.series_close.length > 0;
+      if (row) {
+        const hasSeries = hasAnySeriesValue(row.series_close);
 
-  const dbT0 = dayjs.utc(row.t0_time).startOf("minute").toISOString();
-  const evT0 = t0.startOf("minute").toISOString();
+        const dbT0 = dayjs.utc(row.t0_time).startOf("minute").toISOString();
+        const evT0 = t0.startOf("minute").toISOString();
 
-  if (dbT0 !== evT0 && !hasSeries) {
-    const resetPatch: any = {
-      // update times
-      t0_time: t0.toISOString(),
-      t_plus_5_time: t5.toISOString(),
-      t_plus_15_time: t15.toISOString(),
+        if (dbT0 !== evT0 && !hasSeries) {
+          const resetPatch: any = {
+            // update times
+            t0_time: t0.toISOString(),
+            t_plus_5_time: t5.toISOString(),
+            t_plus_15_time: t15.toISOString(),
 
-      // (optional but good) keep meta in sync
-      coin_name: ev.coin_name ?? null,
-      pair: market.pair,
-      exchange: "MEXC",
+            // (optional but good) keep meta in sync
+            coin_name: ev.coin_name ?? null,
+            pair: market.pair,
+            exchange: "MEXC",
 
-      // reset prices
-      t0_price: null,
-      t0_percent: 0,
-      t_plus_5_price: null,
-      t_plus_5_percent: null,
-      t_plus_15_price: null,
-      t_plus_15_percent: null,
+            // reset prices
+            t0_price: null,
+            t0_percent: 0,
+            t_plus_5_price: null,
+            t_plus_5_percent: null,
+            t_plus_15_price: null,
+            t_plus_15_percent: null,
 
-      // reset ±30m series + KPIs
-      series_close: null,
-      series_high: null,
-      series_low: null,
-      pre_return_30m: null,
-      post_return_30m: null,
-      net_return_60m: null,
-      max_price: null,
-      max_offset: null,
-      min_price: null,
-      min_offset: null,
-      event_pct_mcap: null,
-    };
+            // reset series + KPIs
+            series_close: null,
+            series_high: null,
+            series_low: null,
+            pre_return_30m: null,
+            post_return_30m: null,
+            net_return_60m: null,
+            max_price: null,
+            max_offset: null,
+            min_price: null,
+            min_offset: null,
+            event_pct_mcap: null,
+          };
 
-    const { error: resetErr } = await supabase
-      .from("event_price_reaction")
-      .update(resetPatch)
-      .eq("event_id", ev.id);
+          const { error: resetErr } = await supabase
+            .from("event_price_reaction")
+            .update(resetPatch)
+            .eq("event_id", ev.id);
 
-    if (resetErr) {
-      errors++;
-      continue;
-    }
+          if (resetErr) {
+            errors++;
+            continue;
+          }
 
-    // update local cache so later logic uses fresh times
-    row = { ...row, ...resetPatch };
-    map.set(ev.id, row);
-    updated++;
-  }
-}
+          row = { ...row, ...resetPatch };
+          map.set(ev.id, row);
+          updated++;
+        }
+      }
 
       // insert stub if not exists
       if (!row) {
@@ -342,7 +429,6 @@ if (row) {
           t_plus_15_price: null,
           t_plus_15_percent: null,
 
-          // new fields for ±30m
           series_close: null,
           series_high: null,
           series_low: null,
@@ -367,9 +453,8 @@ if (row) {
       // update T0, +5, +15 if needed
       const patch: any = {};
 
-      // capture T0
       if (row.t0_price == null && shouldCapture(nowUtc, t0)) {
-        const p0 = await fetchMexcTicker(market.apiPair!);
+        const p0 = await fetchMexcTicker({ apiPair: market.apiPair!, market: market.market });
         if (p0 != null) {
           patch.t0_price = p0;
           patch.t0_percent = 0;
@@ -378,25 +463,22 @@ if (row) {
 
       const base = patch.t0_price ?? row.t0_price;
 
-      // capture +5
       if (row.t_plus_5_price == null && base != null && shouldCapture(nowUtc, t5)) {
-        const p5 = await fetchMexcTicker(market.apiPair!);
+        const p5 = await fetchMexcTicker({ apiPair: market.apiPair!, market: market.market });
         if (p5 != null) {
           patch.t_plus_5_price = p5;
           patch.t_plus_5_percent = calcPercent(base, p5);
         }
       }
 
-      // capture +15
       if (row.t_plus_15_price == null && base != null && shouldCapture(nowUtc, t15)) {
-        const p15 = await fetchMexcTicker(market.apiPair!);
+        const p15 = await fetchMexcTicker({ apiPair: market.apiPair!, market: market.market });
         if (p15 != null) {
           patch.t_plus_15_price = p15;
           patch.t_plus_15_percent = calcPercent(base, p15);
         }
       }
 
-      // update simple fields if any patch
       if (Object.keys(patch).length) {
         const { error } = await supabase
           .from("event_price_reaction")
@@ -407,77 +489,74 @@ if (row) {
         updated++;
       }
 
-      // if series already computed, skip heavy fetch
-      if (row.series_close && Array.isArray(row.series_close) && row.series_close.length > 0) {
+      // ✅ if series already computed with at least one real value, skip heavy fetch
+      if (hasAnySeriesValue(row.series_close)) {
         skipped++;
         continue;
       }
 
-      // Wait until +35m after T0 to fetch ±30m series
+      // Wait until +35m after T0 to fetch series
       const cutoff = t0.add(SERIES_CUTOFF_MINUTES, "minute");
       if (nowUtc.isBefore(cutoff)) {
         skipped++;
         continue;
       }
 
-      // ✅ T0 minute rule: floor to minute
+      // ✅ T0 minute rule
       const t0Minute = t0.startOf("minute");
-      // Determine created and listing times to anchor the window
+
+      // anchor = max(created_at, listing_time)
       const createdMinute = ev.created_at ? dayjs.utc(ev.created_at).startOf("minute") : null;
-      let listingMinute: any = null;
-      if (Array.isArray(ev.tge_exchanges)) {
-        for (const ex of ev.tge_exchanges) {
-          const time = ex?.time;
-          if (time) {
-            const dt = dayjs.utc(time).startOf("minute");
-            if (!listingMinute || dt.isAfter(listingMinute)) {
-              listingMinute = dt;
-            }
-          }
-        }
-      }
+      const listingMinute = pickListingMinute(ev);
+
       let anchorMinute: any = null;
       if (createdMinute && listingMinute) {
         anchorMinute = createdMinute.isAfter(listingMinute) ? createdMinute : listingMinute;
-      } else if (createdMinute) {
-        anchorMinute = createdMinute;
-      } else if (listingMinute) {
-        anchorMinute = listingMinute;
+      } else {
+        anchorMinute = createdMinute || listingMinute || null;
       }
-      // Start at 30 minutes before T0 by default
+
+      // default start = t0-30m
       let startMinute = t0Minute.subtract(30, "minute");
-      // If anchor exists and is later than default start, use it
+
+      // move start forward if anchor is later
       if (anchorMinute && anchorMinute.isAfter(startMinute)) {
         startMinute = anchorMinute;
       }
+
+      // never start AFTER T0 (avoid negative preDuration)
+      if (startMinute.isAfter(t0Minute)) {
+        startMinute = t0Minute;
+      }
+
       const startTs = startMinute.valueOf();
-      // Always include 31 minutes after event
+      const endTs = t0Minute.add(31, "minute").valueOf(); // include +30 candle
 
-      // ✅ IMPORTANT: +31m so candle +30 is included
-      const endTs = t0Minute.add(31, "minute").valueOf();
-      const candles = await fetchMexcSeries(market.apiPair!, startTs, endTs);
+      const candles = await fetchMexcSeries(
+        { apiPair: market.apiPair!, market: market.market },
+        startTs,
+        endTs,
+      );
 
-      // Determine total number of points: preDuration + 31
       const preDuration = t0Minute.diff(startMinute, "minute");
-      const totalPoints = preDuration + 31;
+      const totalPoints = preDuration + AFTER_EVENT_POINTS;
+
       const closeSeries: Array<number | null> = new Array(totalPoints).fill(null);
       const highSeries: Array<number | null> = new Array(totalPoints).fill(null);
       const lowSeries: Array<number | null> = new Array(totalPoints).fill(null);
 
-      (candles || []).forEach((c: any) => {
-        const [ts, _open, high, low, close] = c;
+      for (const c of candles || []) {
+        // normalized: [tsMs, open, high, low, close]
+        const [tsMs, _open, high, low, close] = c;
 
-        // ✅ floor, not round (no offset drift)
-        const off = Math.floor((Number(ts) - startTs) / 60000);
-
+        const off = Math.floor((Number(tsMs) - startTs) / 60000);
         if (off >= 0 && off < totalPoints) {
-          closeSeries[off] = Number(close);
-          highSeries[off] = Number(high);
-          lowSeries[off] = Number(low);
+          closeSeries[off] = normalizeValidPrice(close);
+          highSeries[off] = normalizeValidPrice(high);
+          lowSeries[off] = normalizeValidPrice(low);
         }
-      });
+      }
 
-      // Index of the event (T0) is preDuration (points before T0)
       const baseIndex = preDuration;
       const basePrice = closeSeries[baseIndex];
       const prePrice = closeSeries[0];
@@ -504,15 +583,13 @@ if (row) {
       for (let i = 0; i < totalPoints; i++) {
         if (
           highSeries[i] != null &&
-          (highSeries[maxIdx] == null ||
-            (highSeries[i] as number) > (highSeries[maxIdx] as number))
+          (highSeries[maxIdx] == null || (highSeries[i] as number) > (highSeries[maxIdx] as number))
         ) {
           maxIdx = i;
         }
         if (
           lowSeries[i] != null &&
-          (lowSeries[minIdx] == null ||
-            (lowSeries[i] as number) < (lowSeries[minIdx] as number))
+          (lowSeries[minIdx] == null || (lowSeries[i] as number) < (lowSeries[minIdx] as number))
         ) {
           minIdx = i;
         }
