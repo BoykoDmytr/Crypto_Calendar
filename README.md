@@ -54,5 +54,3 @@ Use a `.env.local` file for optional features and integrations.
 PRs are welcome. Keep changes focused and include screenshots for UI updates when possible.
 
 ---
-
-Made for builders who prefer clarity over noise.
