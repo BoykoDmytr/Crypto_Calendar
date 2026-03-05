@@ -147,8 +147,10 @@ export default function ReactionChart({
   }, [viewCount, closeSeries.length]);
 
   // ---------------- AFTER HOOKS: SAFE COMPUTATIONS ----------------
-  const length = closeSeries.length;
-  const hasData = length === FULL_LEN;
+  const fullLen = closeSeries.length;
+  // Index of the event (T0) is the number of pre-event candles.
+  const baseIndex = fullLen >= LOOKAHEAD_AFTER_EVENT ? fullLen - LOOKAHEAD_AFTER_EVENT : 0;
+  const hasData = fullLen >= LOOKAHEAD_AFTER_EVENT;
 
   // still after hooks => eslint ok
   if (!hasData) {
@@ -159,20 +161,20 @@ export default function ReactionChart({
     );
   }
 
-  const effectiveViewCount = phoneLike ? viewCount : FULL_LEN;
+  const effectiveViewCount = phoneLike ? viewCount : fullLen;
   const effectiveViewStart = phoneLike ? viewStart : 0;
   const viewEnd = effectiveViewStart + effectiveViewCount - 1;
 
   // build derived series
-  const basePrice = closeSeries[BASE_INDEX];
+  const basePrice = closeSeries[baseIndex];
 
   const openFull = closeSeries.map((cl, idx) => (idx === 0 ? cl : closeSeries[idx - 1]));
   const highsFull =
-    Array.isArray(highSeries) && highSeries.length === FULL_LEN
+    Array.isArray(highSeries) && highSeries.length === fullLen
       ? highSeries
       : closeSeries.map((cl, idx) => Math.max(cl ?? 0, openFull[idx] ?? 0));
   const lowsFull =
-    Array.isArray(lowSeries) && lowSeries.length === FULL_LEN
+    Array.isArray(lowSeries) && lowSeries.length === fullLen
       ? lowSeries
       : closeSeries.map((cl, idx) => Math.min(cl ?? 0, openFull[idx] ?? 0));
 
@@ -221,7 +223,7 @@ export default function ReactionChart({
   if (startTime) {
     const candidates = [];
     for (let gi = effectiveViewStart; gi <= viewEnd; gi++) {
-      const offset = gi - BASE_INDEX;
+      const offset = gi - baseIndex;
       if (offset % 5 === 0) candidates.push(gi);
     }
     const maxLabels = 7;
@@ -231,7 +233,7 @@ export default function ReactionChart({
     for (const gi of picked) {
       const vi = gi - effectiveViewStart;
       const x = xPositions[vi];
-      const offset = gi - BASE_INDEX;
+      const offset = gi - baseIndex;
       xTicks.push({ x, label: startTime.add(offset, 'minute').format('HH:mm') });
     }
   }
@@ -298,8 +300,8 @@ export default function ReactionChart({
 
     let rangeText = `${Math.abs(selE - selS)}m`;
     if (startTime) {
-      const t1 = startTime.add(selS - BASE_INDEX, 'minute').format('HH:mm');
-      const t2 = startTime.add(selE - BASE_INDEX, 'minute').format('HH:mm');
+      const t1 = startTime.add(selS - baseIndex, 'minute').format('HH:mm');
+      const t2 = startTime.add(selE - baseIndex, 'minute').format('HH:mm');
       rangeText = `${t1} – ${t2}`;
     }
 
@@ -316,9 +318,9 @@ export default function ReactionChart({
   const boxH = isFullscreen ? 90 : 78;
 
   // EVENT marker only if visible in viewport
-  const eventVisible = BASE_INDEX >= effectiveViewStart && BASE_INDEX <= viewEnd;
-  const eventX = eventVisible ? xPositions[BASE_INDEX - effectiveViewStart] : null;
-  const eventPct = ((closeSeries[BASE_INDEX] - basePrice) / basePrice) * 100;
+  const eventVisible = baseIndex >= effectiveViewStart && baseIndex <= viewEnd;
+  const eventX = eventVisible ? xPositions[baseIndex - effectiveViewStart] : null;
+  const eventPct = ((closeSeries[baseIndex] - basePrice) / basePrice) * 100;
   const eventY = toY(eventPct);
 
   // ---------------- INTERACTIONS ----------------
@@ -343,7 +345,7 @@ export default function ReactionChart({
 
     // phone-like:
     // if zoomed in => default action is PAN, selection via long-press
-    if (effectiveViewCount < FULL_LEN) {
+    if (effectiveViewCount < fullLen) {
       modeRef.current = 'pending';
       clearLongPress();
       longPressTimerRef.current = setTimeout(() => {
@@ -389,7 +391,7 @@ export default function ReactionChart({
       const nextStart = clamp(
         panRef.current.startViewStart - shiftCandles,
         0,
-        FULL_LEN - effectiveViewCount,
+        fullLen - effectiveViewCount,
       );
 
       // only meaningful on phone-like
@@ -446,7 +448,7 @@ export default function ReactionChart({
       initialDistance: dist,
       initialCount: effectiveViewCount,
       initialStart: effectiveViewStart,
-      anchorIdx: clamp(anchorIdx, 0, FULL_LEN - 1),
+      anchorIdx: clamp(anchorIdx, 0, fullLen - 1),
       anchorRel,
     };
   };
@@ -466,10 +468,10 @@ export default function ReactionChart({
 
     // dist ↑ => zoom-in => fewer candles
     let nextCount = Math.round(p.initialCount / ratio);
-    nextCount = clamp(nextCount, MIN_VIEW, FULL_LEN);
+    nextCount = clamp(nextCount, MIN_VIEW, fullLen);
 
     let nextStart = Math.round(p.anchorIdx - p.anchorRel * (nextCount - 1));
-    nextStart = clamp(nextStart, 0, FULL_LEN - nextCount);
+    nextStart = clamp(nextStart, 0, fullLen - nextCount);
 
     setViewCount(nextCount);
     setViewStart(nextStart);

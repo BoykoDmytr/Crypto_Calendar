@@ -15,12 +15,14 @@ export default function ProfitCalculator({
   closeSeries = [],
   startOffset = null,
   endOffset = null,
+  baseIndex = 30,
   investment = 100,
   onInvestmentChange,
 }) {
   const suggestedInvestments = [100, 500, 1000, 1500, 2000];
 
-  const toIndex = (offset) => (offset != null ? offset + 30 : null);
+  // convert offset (in minutes) to index within closeSeries based off dynamic base index
+  const toIndex = (offset) => (offset != null ? offset + baseIndex : null);
   const entryIndex = startOffset != null ? toIndex(startOffset) : null;
   const exitIndex = endOffset != null ? toIndex(endOffset) : null;
 
