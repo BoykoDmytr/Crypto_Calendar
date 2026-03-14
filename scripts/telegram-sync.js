@@ -437,13 +437,19 @@ export function parseOkxAlpha(message, channel) {
   const launchLine =
     normalizedLines.find((l) => /X\s+Launch/i.test(l) && !/Event/i.test(l)) || null;
 
-  const vision = launchLine
-    ? normalizeSpaces(launchLine.replace(/\bX\s+Launch\b/i, '').trim())
-    : null;
+  const cleanVision = launchLine
+  ? normalizeSpaces(
+      stripEmoji(
+        launchLine.replace(/\bX\s+Launch\b/i, '')
+      )
+        .replace(/[⚡✨🔥🚀🎉⭐️🌟💥]+/gu, '')
+        .trim()
+    )
+  : null;
 
-  const title = vision
-    ? `${vision} OKX Boost X Launch Event!`
-    : 'OKX Boost X Launch Event!';
+const title = cleanVision
+  ? `${cleanVision} OKX Boost X Launch Event!`
+  : 'OKX Boost X Launch Event!';
 
   const rewardsLine =
     normalizedLines.find((l) => /^Total\s+Reward[s]?\s*:/i.test(l)) || null;
