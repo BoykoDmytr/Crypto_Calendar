@@ -3,8 +3,8 @@ import React from 'react';
 /**
  * ProfitCalculator
  *
- * Відображає прибуток для вибраного діапазону.
- * Працює і для short, і для long.
+ * Відкривне вікно калькулятора.
+ * Тут залишаємо тільки investment controls.
  *
  * Props:
  *   closeSeries (number[])      – масив цін закриття
@@ -48,51 +48,16 @@ export default function ProfitCalculator({
     const qty = normalizedInvestment / entryPrice;
 
     if (direction === 'long') {
-      // long: прибуток росте, коли ціна зростає
       pnl = qty * (exitPrice - entryPrice);
     } else {
-      // short: прибуток росте, коли ціна падає
       pnl = qty * (entryPrice - exitPrice);
     }
 
     pnlPct = normalizedInvestment ? (pnl / normalizedInvestment) * 100 : null;
   }
 
-  const pnlColor =
-    pnl == null
-      ? 'text-gray-500'
-      : pnl > 0
-      ? 'text-emerald-500'
-      : pnl < 0
-      ? 'text-red-500'
-      : 'text-amber-500';
-
-  const pnlPctColor =
-    pnlPct == null
-      ? 'text-gray-500'
-      : pnlPct > 0
-      ? 'text-emerald-500'
-      : pnlPct < 0
-      ? 'text-red-500'
-      : 'text-amber-500';
-
-  const positionLabel = direction === 'long' ? 'Long' : 'Short';
-  const positionBadgeClass =
-    direction === 'long'
-      ? 'border-emerald-400/30 bg-emerald-400/15 text-emerald-200'
-      : 'border-red-400/30 bg-red-400/15 text-red-200';
-
   return (
     <div className="mt-4 rounded-2xl border border-indigo-200/50 bg-gradient-to-br from-[#161d3d] via-[#101735] to-[#0b1127] p-4 text-white shadow-[0_10px_30px_rgba(10,16,38,0.35)] dark:border-white/10">
-      <div className="mb-3 flex items-center justify-between gap-2">
-        <h4 className="text-sm font-semibold tracking-wide text-white/90">Profit</h4>
-        <span
-          className={`rounded-full border px-2.5 py-1 text-[11px] font-semibold ${positionBadgeClass}`}
-        >
-          {positionLabel}
-        </span>
-      </div>
-
       <div className="grid grid-cols-1 gap-2 text-sm">
         <label className="space-y-1">
           <span className="text-xs uppercase tracking-wide text-white/65">
@@ -130,38 +95,6 @@ export default function ProfitCalculator({
             </div>
           </div>
         </label>
-      </div>
-
-      <div className="mt-4 space-y-1 text-sm">
-        {entryPrice != null && exitPrice != null ? (
-          <>
-            <div className="text-white/65">Result</div>
-
-            <div className="text-base font-semibold">
-              PnL:{' '}
-              <span className={pnlColor}>
-                {pnl >= 0 ? '+' : ''}
-                {Number(pnl).toFixed(4)} USDT
-              </span>
-            </div>
-
-            <div className="text-xs">
-              PnL%:{' '}
-              <span className={pnlPctColor}>
-                {pnlPct >= 0 ? '+' : ''}
-                {Number(pnlPct).toFixed(2)}%
-              </span>
-            </div>
-
-            <div className="pt-1 text-[11px] text-white/45">
-              Entry: {Number(entryPrice).toFixed(6)} → Exit: {Number(exitPrice).toFixed(6)}
-            </div>
-          </>
-        ) : (
-          <div className="text-white/60">
-            Оберіть дві свічки на графіку, щоб порахувати прибуток.
-          </div>
-        )}
       </div>
     </div>
   );

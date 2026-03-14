@@ -89,7 +89,7 @@ function extractMexcSymbolFromLink(link) {
   return { symbol: `${base}${quote}`, market: 'spot' }; // BTCUSDT
 }
 
-function TokenRow({ coin, idx = 0, pctText = null }) {
+function TokenRow({ coin, idx = 0, pctText = null, showMcap = true }) {
   const name = (coin?.name || '').trim();
   const hasQuantity = Object.prototype.hasOwnProperty.call(coin || {}, 'quantity');
   const quantityValue = hasQuantity ? coin.quantity : null;
@@ -238,13 +238,14 @@ if (pctCircRaw == null && typeof pctText === 'string' && pctText.trim()) {
         {name && <span className="token-panel__name">{name}</span>}
       </div>
 
-      {showPriceInfo &&
-        (loading ? (
+      {showPriceInfo && (
+        loading ? (
           <span className="token-panel__muted">Оновлюємо ціну…</span>
         ) : totalLabel ? (
           <span className="token-panel__label">
             <span className="token-panel__value">{totalLabel}</span>
-            {pctCircLabel && (
+            {/* Відображати відсоток тільки якщо showMcap = true */}
+            {showMcap && pctCircLabel && (
               <span className="token-panel__muted" style={{ marginLeft: 8 }}>
                 {pctCircLabel}
               </span>
@@ -254,12 +255,13 @@ if (pctCircRaw == null && typeof pctText === 'string' && pctText.trim()) {
           <span className="token-panel__error">Очікуємо ціну</span>
         ) : (
           <span className="token-panel__muted">Очікуємо ціну…</span>
-        ))}
+        )
+      )}
     </div>
   );
 }
 
-export default function EventTokenInfo({ coins = [], pctText = null }) {
+export default function EventTokenInfo({ coins = [], pctText = null, showMcap = true }) {
   const entries = Array.isArray(coins)
     ? coins.filter(
         (coin) =>
@@ -279,6 +281,7 @@ export default function EventTokenInfo({ coins = [], pctText = null }) {
           coin={coin}
           idx={index}
           pctText={pctText}
+          showMcap={showMcap}
         />
       ))}
     </div>

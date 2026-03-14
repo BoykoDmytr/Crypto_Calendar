@@ -99,6 +99,7 @@ export default function EventForm({ onSubmit, loading, initial = {} }) {
       link: normalizeLinkValue(initial?.link),
       coins: [],
       tge_exchanges: [],
+      show_mcap: initial?.show_mcap !== undefined ? initial.show_mcap : true,
     };
 
     const merged = { ...base, ...(initial || {}) };
@@ -259,6 +260,7 @@ export default function EventForm({ onSubmit, loading, initial = {} }) {
       delete next.coin_quantity;
       delete next.coin_price_link;
       next.link = normalizeLinkValue(next.link);
+      next.show_mcap = initial?.show_mcap !== undefined ? initial.show_mcap : prev.show_mcap;
       return next;
     });
 
@@ -719,6 +721,21 @@ export default function EventForm({ onSubmit, loading, initial = {} }) {
           <p className="text-xs text-gray-500">Дата й (за потреби) час задаються вище, нижче — часи для конкретних бірж.</p>
         </div>
       )}
+
+      {/* NEW: MCAP toggle */}
+      <div>
+        <label className="label inline-flex items-center gap-2">
+          <input
+            type="checkbox"
+            checked={!!form.show_mcap}
+            onChange={(e) => change('show_mcap', e.target.checked)}
+          />
+          <span>Показувати % MCAP</span>
+        </label>
+        <p className="text-xs text-gray-500 mt-1">
+          Відключи, щоб приховати відсоток циркулюючої пропозиції для кожної монети.
+        </p>
+      </div>
 
       <div className="pt-2">
         <button disabled={loading} className="btn">

@@ -516,7 +516,7 @@ const enrichPayloadWithCircPct = async (payload) => {
 const approve = async (ev, table = 'events_pending') => {
   const allowed = [
     'title','description','start_at','end_at','timezone','type','tge_exchanges','link','nickname','coins',
-    'coin_name','coin_quantity','coin_price_link',
+    'coin_name','coin_quantity','coin_price_link','show_mcap',
   ];
 
   const payload = Object.fromEntries(Object.entries(ev).filter(([k]) => allowed.includes(k)));
@@ -638,7 +638,7 @@ const approve = async (ev, table = 'events_pending') => {
 const approveEdit = async (edit) => {
   const allowed = [
     'title','description','start_at','end_at','timezone','type','tge_exchanges','link','nickname','coins',
-    'coin_name','coin_quantity','coin_price_link',
+    'coin_name','coin_quantity','coin_price_link','show_mcap',
   ];
 
   const patch = Object.fromEntries(

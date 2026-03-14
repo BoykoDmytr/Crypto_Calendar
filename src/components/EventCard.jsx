@@ -225,9 +225,13 @@ export default function EventCard({ ev, isPast = false }) {
             </div>
           )}
 
-          {/* Інформація про токени */}
           {tokenEntries.length > 0 && (
-            <EventTokenInfo coins={tokenEntries} pctText={ev?.coin_pct_circ} />
+            // Передаємо showMcap, щоб EventTokenInfo міг ховати відсоток
+            <EventTokenInfo
+              coins={tokenEntries}
+              pctText={ev?.coin_pct_circ}
+              showMcap={ev?.show_mcap !== false}
+            />
           )}
 
           {/* Лайки / дизлайки та календар */}
