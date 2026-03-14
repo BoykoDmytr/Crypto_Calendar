@@ -888,7 +888,7 @@ const payload = {
         <div className="flex items-center justify-between">
           <h1 className="text-xl font-semibold">Адмін-панель</h1>
           <div className="flex items-center gap-2">
-            <Link className="btn-secondary px-3 py-2 rounded-xl" to="/add">
+            <Link className="btn-secondary px-3 py-2 rounded-xl" to="/add" state={{ fromAdmin: true }}>
               + Додати івент
             </Link>
             <button className="btn-secondary px-3 py-2 rounded-xl" onClick={refresh}>
