@@ -411,7 +411,9 @@ function parseClaimDateKyiv(lines) {
 // OKX
 export function parseOkxAlpha(message, channel) {
   const rawText = message.text || '';
-  if (!matchesTrigger(rawText, channel?.trigger)) return [];
+  const hasLegacyTrigger = matchesTrigger(rawText, channel?.trigger);
+  const hasNewOkxPattern = /\bX\s+Launch\b/i.test(normalizeTriggerText(rawText));
+  if (!hasLegacyTrigger && !hasNewOkxPattern) return [];
 
   const raw = decodeEntities(rawText);
   const lines = raw
@@ -421,7 +423,10 @@ export function parseOkxAlpha(message, channel) {
     .filter((line) => !/^Go to Launch\b/i.test(line));
   if (!lines.length) return [];
 
-  const launchLine = lines.find((l) => /X\s+Launch/i.test(l) && !/Event/i.test(l)) || null;
+  const stripListPrefix = (line) => line.replace(/^[•·\-*\s]+/, '').trim();
+  const normalizedLines = lines.map(stripListPrefix);
+
+  const launchLine = normalizedLines.find((l) => /X\s+Launch/i.test(l) && !/Event/i.test(l)) || null;
 
 
   const vision = launchLine
@@ -430,8 +435,8 @@ export function parseOkxAlpha(message, channel) {
 
   const title = vision ? `${vision} OKX Boost X Launch Event!` : 'OKX Boost X Launch Event!';
 
-  const rewardsLine = lines.find((l) => /^Total Rewards\s*:/i.test(l)) || null;
-  const poolLine = lines.find((l) => /^Pool\s*:/i.test(l)) || null;
+  const rewardsLine = normalizedLines.find((l) => /^Total Rewards\s*:/i.test(l)) || null;
+  const poolLine = normalizedLines.find((l) => /^Pool\s*:/i.test(l)) || null;
 
   let poolText = null;
   let quantity = null;
@@ -446,16 +451,14 @@ export function parseOkxAlpha(message, channel) {
   }
 
   // ✅ startAt = Claim Date
-  const claimIso = parseClaimDateKyiv(lines);
-  console.log('OKX DEBUG lines:', lines);
-  console.log('OKX DEBUG claimIso:', claimIso);
+  const claimIso = parseClaimDateKyiv(normalizedLines);
   if (!claimIso) return [];
 
-  const requirements = lines
+  const requirements = normalizedLines
     .filter((line) => /Min\.\s*Boost\s*(Balance|Volume)\s*:/i.test(line))
     .map((line) => normalizeSpaces(line.replace(/^[•\-\s]+/, '').trim()));
 
-  const claimLine = lines.find((line) => /Claim Date\s*:/i.test(line)) || null;
+  const claimLine = normalizedLines.find((line) => /Claim Date\s*:/i.test(line)) || null;
   const claimDescription = claimLine
     ? normalizeSpaces(claimLine.replace(/^Claim Date\s*:\s*/i, '').trim())
     : null;
