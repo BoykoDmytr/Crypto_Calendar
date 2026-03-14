@@ -42,15 +42,14 @@ export default function ReactionChart({
   height: heightProp = 200,
   investment,
   isFullscreen = false,
+  direction = 'short',
 }) {
-  // ---------------- HOOKS (MUST ALWAYS RUN) ----------------
   const svgRef = useRef(null);
   const wrapRef = useRef(null);
 
   const [phoneLike, setPhoneLike] = useState(false);
   const [containerW, setContainerW] = useState(null);
 
-  // initialize the number of visible candles to the length of the provided series or fallback
   const [viewCount, setViewCount] = useState(closeSeries.length || LOOKAHEAD_AFTER_EVENT);
   const [viewStart, setViewStart] = useState(0);
   const didInitRef = useRef(false);
@@ -73,7 +72,6 @@ export default function ReactionChart({
     anchorRel: 0.5,
   });
 
-  // detect phone-like (touch/coarse + width<1024)
   useEffect(() => {
     const compute = () => {
       if (typeof window === 'undefined') return;
@@ -92,16 +90,17 @@ export default function ReactionChart({
 
     const mq = window.matchMedia?.('(pointer: coarse)');
     const onMq = () => compute();
+
     try {
       mq?.addEventListener?.('change', onMq);
     } catch {
-      // older safari
       mq?.addListener?.(onMq);
     }
 
     return () => {
       window.removeEventListener('resize', compute);
       window.removeEventListener('orientationchange', compute);
+
       try {
         mq?.removeEventListener?.('change', onMq);
       } catch {
@@ -110,7 +109,6 @@ export default function ReactionChart({
     };
   }, []);
 
-  // ResizeObserver for container width (only matters on phone-like)
   useEffect(() => {
     if (!phoneLike) return;
     if (!wrapRef.current) return;
@@ -125,34 +123,30 @@ export default function ReactionChart({
     return () => ro.disconnect();
   }, [phoneLike]);
 
-  // init viewport on phone-like (center around EVENT)
   useEffect(() => {
     if (!phoneLike) {
-        didInitRef.current = false;
-        setViewCount(closeSeries.length || LOOKAHEAD_AFTER_EVENT);
-        setViewStart(0);
-        return;
-      }
-      if (didInitRef.current) return;
-      didInitRef.current = true;
+      didInitRef.current = false;
+      setViewCount(closeSeries.length || LOOKAHEAD_AFTER_EVENT);
+      setViewStart(0);
+      return;
+    }
+
+    if (didInitRef.current) return;
+    didInitRef.current = true;
 
     setViewCount(closeSeries.length || LOOKAHEAD_AFTER_EVENT);
-      setViewStart(0);
-    }, [phoneLike, closeSeries.length]);
+    setViewStart(0);
+  }, [phoneLike, closeSeries.length]);
 
-  // keep viewStart clamped
   useEffect(() => {
     const fullLen = closeSeries.length;
-    setViewStart((s) => clamp(s, 0, fullLen - viewCount));
+    setViewStart((s) => clamp(s, 0, Math.max(0, fullLen - viewCount)));
   }, [viewCount, closeSeries.length]);
 
-  // ---------------- AFTER HOOKS: SAFE COMPUTATIONS ----------------
   const fullLen = closeSeries.length;
-  // Index of the event (T0) is the number of pre-event candles.
   const baseIndex = fullLen >= LOOKAHEAD_AFTER_EVENT ? fullLen - LOOKAHEAD_AFTER_EVENT : 0;
   const hasData = fullLen >= LOOKAHEAD_AFTER_EVENT;
 
-  // still after hooks => eslint ok
   if (!hasData) {
     return (
       <p className="text-sm text-gray-500 dark:text-gray-400">
@@ -165,7 +159,6 @@ export default function ReactionChart({
   const effectiveViewStart = phoneLike ? viewStart : 0;
   const viewEnd = effectiveViewStart + effectiveViewCount - 1;
 
-  // build derived series
   const basePrice = closeSeries[baseIndex];
 
   const openFull = closeSeries.map((cl, idx) => (idx === 0 ? cl : closeSeries[idx - 1]));
@@ -173,31 +166,30 @@ export default function ReactionChart({
     Array.isArray(highSeries) && highSeries.length === fullLen
       ? highSeries
       : closeSeries.map((cl, idx) => Math.max(cl ?? 0, openFull[idx] ?? 0));
+
   const lowsFull =
     Array.isArray(lowSeries) && lowSeries.length === fullLen
       ? lowSeries
       : closeSeries.map((cl, idx) => Math.min(cl ?? 0, openFull[idx] ?? 0));
 
-  // sizing
   const height = isFullscreen ? Math.max(heightProp, 420) : heightProp;
   const paddingX = isFullscreen ? 72 : 60;
   const paddingY = isFullscreen ? 36 : 30;
 
   const desktopWidth = isFullscreen ? 1280 : 600;
-  const width = phoneLike
-    ? Math.max(320, Math.floor(containerW || 360))
-    : desktopWidth;
+  const width = phoneLike ? Math.max(320, Math.floor(containerW || 360)) : desktopWidth;
 
   const innerWidth = width - paddingX * 2;
   const innerHeight = height - paddingY * 2;
 
-  // autoscale Y based on visible window (exchange-like)
   const visHighPcts = [];
   const visLowPcts = [];
+
   for (let gi = effectiveViewStart; gi <= viewEnd; gi++) {
     visHighPcts.push(((highsFull[gi] - basePrice) / basePrice) * 100);
     visLowPcts.push(((lowsFull[gi] - basePrice) / basePrice) * 100);
   }
+
   const maxPercent = Math.max(...visHighPcts);
   const minPercent = Math.min(...visLowPcts);
   const pctRange = maxPercent - minPercent || 1;
@@ -207,7 +199,6 @@ export default function ReactionChart({
   const stepX = effectiveViewCount > 1 ? innerWidth / (effectiveViewCount - 1) : innerWidth;
   const xPositions = Array.from({ length: effectiveViewCount }, (_, i) => paddingX + i * stepX);
 
-  // ticks
   const zone = TZ_MAP[tz] || tz || 'UTC';
   const startTime = startAt ? dayjs.utc(startAt).tz(zone) : null;
 
@@ -226,6 +217,7 @@ export default function ReactionChart({
       const offset = gi - baseIndex;
       if (offset % 5 === 0) candidates.push(gi);
     }
+
     const maxLabels = 7;
     const stride = Math.max(1, Math.ceil(candidates.length / maxLabels));
     const picked = candidates.filter((_, i) => i % stride === 0);
@@ -238,7 +230,6 @@ export default function ReactionChart({
     }
   }
 
-  // selection helpers (use internal start idx so no parent-state lag)
   const startSelect = (idx) => {
     if (idx == null) return;
     setIsSelecting(true);
@@ -278,7 +269,6 @@ export default function ReactionChart({
     return effectiveViewStart + vi;
   };
 
-  // selection rendering (clip to viewport)
   const hasSelection =
     selectedRange && selectedRange.startIdx != null && selectedRange.endIdx != null;
 
@@ -291,18 +281,21 @@ export default function ReactionChart({
   const clipS = selectionOverlaps ? clamp(selS, effectiveViewStart, viewEnd) : null;
   const clipE = selectionOverlaps ? clamp(selE, effectiveViewStart, viewEnd) : null;
 
-  // pnl tooltip only if fully inside current window
   let pnlBox = null;
   if (hasSelection && selS !== selE && selS >= effectiveViewStart && selE <= viewEnd) {
     const entry = closeSeries[selS];
     const exit = closeSeries[selE];
-    const pct = ((entry - exit) / entry) * 100;
+
+    const pct =
+      direction === 'long'
+        ? ((exit - entry) / entry) * 100
+        : ((entry - exit) / entry) * 100;
 
     let rangeText = `${Math.abs(selE - selS)}m`;
     if (startTime) {
       const t1 = startTime.add(selS - baseIndex, 'minute').format('HH:mm');
       const t2 = startTime.add(selE - baseIndex, 'minute').format('HH:mm');
-      rangeText = `${t1} – ${t2}`;
+      rangeText = `${t1} → ${t2}`;
     }
 
     const inv = Number(investment);
@@ -310,20 +303,26 @@ export default function ReactionChart({
 
     const xs = xPositions[selS - effectiveViewStart];
     const xe = xPositions[selE - effectiveViewStart];
+    const midX = (xs + xe) / 2;
 
-    pnlBox = { entry, exit, pct, pnlUsd, rangeText, midX: (xs + xe) / 2 };
+    pnlBox = {
+      entry,
+      exit,
+      pct,
+      pnlUsd,
+      rangeText,
+      side: midX < width / 2 ? 'right' : 'left',
+    };
   }
 
-  const boxW = isFullscreen ? 280 : 230;
-  const boxH = isFullscreen ? 90 : 78;
+  const boxW = isFullscreen ? 285 : 225;
+  const boxH = isFullscreen ? 86 : 72;
 
-  // EVENT marker only if visible in viewport
   const eventVisible = baseIndex >= effectiveViewStart && baseIndex <= viewEnd;
   const eventX = eventVisible ? xPositions[baseIndex - effectiveViewStart] : null;
   const eventPct = ((closeSeries[baseIndex] - basePrice) / basePrice) * 100;
   const eventY = toY(eventPct);
 
-  // ---------------- INTERACTIONS ----------------
   const handlePointerDown = (ev) => {
     ev.preventDefault();
 
@@ -336,15 +335,12 @@ export default function ReactionChart({
     panRef.current.startX = ev.clientX;
     panRef.current.startViewStart = effectiveViewStart;
 
-    // desktop => always select (as before)
     if (!phoneLike) {
       modeRef.current = 'select';
       startSelect(getIdxFromClientX(ev.clientX));
       return;
     }
 
-    // phone-like:
-    // if zoomed in => default action is PAN, selection via long-press
     if (effectiveViewCount < fullLen) {
       modeRef.current = 'pending';
       clearLongPress();
@@ -357,7 +353,6 @@ export default function ReactionChart({
       return;
     }
 
-    // if fully zoomed out => drag behaves like selection (old behavior)
     modeRef.current = 'select';
     startSelect(getIdxFromClientX(ev.clientX));
   };
@@ -376,7 +371,6 @@ export default function ReactionChart({
     const dxPx = ev.clientX - panRef.current.startX;
     if (Math.abs(dxPx) > 6) movedRef.current = true;
 
-    // pending -> pan when finger moves
     if (mode === 'pending' && movedRef.current) {
       clearLongPress();
       modeRef.current = 'pan';
@@ -394,7 +388,6 @@ export default function ReactionChart({
         fullLen - effectiveViewCount,
       );
 
-      // only meaningful on phone-like
       setViewStart(nextStart);
       return;
     }
@@ -416,7 +409,6 @@ export default function ReactionChart({
     movedRef.current = false;
   };
 
-  // pinch zoom (touch)
   const handleTouchStart = (e) => {
     if (!phoneLike) return;
     if (e.touches.length !== 2) return;
@@ -424,7 +416,6 @@ export default function ReactionChart({
     e.preventDefault();
     clearLongPress();
 
-    // cancel any selection/pan
     if (isSelecting) endSelect();
     modeRef.current = 'none';
 
@@ -466,7 +457,6 @@ export default function ReactionChart({
     const p = pinchRef.current;
     const ratio = dist / (p.initialDistance || dist);
 
-    // dist ↑ => zoom-in => fewer candles
     let nextCount = Math.round(p.initialCount / ratio);
     nextCount = clamp(nextCount, MIN_VIEW, fullLen);
 
@@ -482,15 +472,17 @@ export default function ReactionChart({
     if (e.touches.length < 2) isPinchingRef.current = false;
   };
 
-  // ---------------- RENDER ----------------
   return (
-    <div ref={wrapRef} className={`w-full ${isFullscreen ? 'h-full flex items-center justify-center' : ''}`}>
+    <div
+      ref={wrapRef}
+      className={`w-full ${isFullscreen ? 'flex h-full items-center justify-center' : ''}`}
+    >
       <svg
         ref={svgRef}
         width={width}
         height={height}
         viewBox={`0 0 ${width} ${height}`}
-        className={`block mx-auto ${isFullscreen ? 'w-full h-full' : ''}`}
+        className={`block mx-auto ${isFullscreen ? 'h-full w-full' : ''}`}
         style={{ touchAction: 'none' }}
         onPointerDown={handlePointerDown}
         onPointerMove={handlePointerMove}
@@ -508,7 +500,6 @@ export default function ReactionChart({
         onTouchEnd={handleTouchEnd}
         onTouchCancel={handleTouchEnd}
       >
-        {/* Y grid + labels */}
         {yTicks.map((tick, i) => (
           <g key={`y-${i}`}>
             <line
@@ -534,7 +525,6 @@ export default function ReactionChart({
           </g>
         ))}
 
-        {/* X grid + labels */}
         {xTicks.map((tick, i) => (
           <g key={`x-${i}`}>
             <line
@@ -559,7 +549,6 @@ export default function ReactionChart({
           </g>
         ))}
 
-        {/* Event marker */}
         {eventVisible && (
           <g>
             <line
@@ -588,13 +577,21 @@ export default function ReactionChart({
           </g>
         )}
 
-        {/* selection highlight (clipped) */}
         {selectionOverlaps && clipS != null && clipE != null && clipS !== clipE && (
           <>
             <rect
-              x={Math.min(xPositions[clipS - effectiveViewStart], xPositions[clipE - effectiveViewStart]) - stepX / 2}
+              x={
+                Math.min(
+                  xPositions[clipS - effectiveViewStart],
+                  xPositions[clipE - effectiveViewStart],
+                ) - stepX / 2
+              }
               y={paddingY}
-              width={Math.abs(xPositions[clipE - effectiveViewStart] - xPositions[clipS - effectiveViewStart]) + stepX}
+              width={
+                Math.abs(
+                  xPositions[clipE - effectiveViewStart] - xPositions[clipS - effectiveViewStart],
+                ) + stepX
+              }
               height={innerHeight}
               fill="#60a5fa"
               opacity="0.14"
@@ -620,7 +617,6 @@ export default function ReactionChart({
           </>
         )}
 
-        {/* candles (viewport only) */}
         {Array.from({ length: effectiveViewCount }, (_, vi) => {
           const gi = effectiveViewStart + vi;
           const close = closeSeries[gi];
@@ -661,48 +657,43 @@ export default function ReactionChart({
           );
         })}
 
-        {/* PNL box */}
-        {pnlBox && (
-          <>
-            {(() => {
-              const x = clamp(pnlBox.midX - boxW / 2, paddingX, width - paddingX - boxW);
-              const y = paddingY + 6;
+        {pnlBox &&
+          (() => {
+            const x = pnlBox.side === 'right' ? width - paddingX - boxW : paddingX;
+            const y = paddingY + 6;
 
-              const pctText = `${pnlBox.pct >= 0 ? '+' : ''}${pnlBox.pct.toFixed(2)}%`;
-              const usdText = pnlBox.pnlUsd == null ? null : `${Math.abs(pnlBox.pnlUsd).toFixed(4)} USDT`;
+            const pctText = `${pnlBox.pct >= 0 ? '+' : ''}${pnlBox.pct.toFixed(2)}%`;
+            const usdText =
+              pnlBox.pnlUsd == null
+                ? null
+                : `${pnlBox.pnlUsd >= 0 ? '+' : ''}${pnlBox.pnlUsd.toFixed(4)} USDT`;
 
-              
-              return (
-                <g>
-                  <rect
-                    x={x}
-                    y={y}
-                    width={boxW}
-                    height={boxH}
-                    rx="10"
-                    fill="rgba(15, 23, 42, 0.92)"
-                    stroke="rgba(148, 163, 184, 0.25)"
-                  />
-                  <text x={x + 10} y={y + 18} fill="#e2e8f0" fontSize={isFullscreen ? 13 : 11}>
-                    PNL%:{' '}
-                    <tspan fill={pnlBox.pct >= 0 ? '#22c55e' : '#ef4444'}>{pctText}</tspan>
-                    {usdText && (
-                      <tspan fill={pnlBox.pct >= 0 ? '#22c55e' : '#ef4444'}>{`  •  ${usdText}`}</tspan>
-                    )}
-                  </text>
+            const accent = pnlBox.pct >= 0 ? '#86efac' : '#f87171';
 
-                  <text x={x + 10} y={y + 36} fill="#94a3b8" fontSize={isFullscreen ? 12 : 10}>
-                    {pnlBox.rangeText}
-                  </text>
-
-                  <text x={x + 10} y={y + 54} fill="#94a3b8" fontSize={isFullscreen ? 12 : 10}>
-                    Entry: {pnlBox.entry.toFixed(6)} → Exit: {pnlBox.exit.toFixed(6)}
-                  </text>
-                </g>
-              );
-            })()}
-          </>
-        )}
+            return (
+              <g>
+                <rect
+                  x={x}
+                  y={y}
+                  width={boxW}
+                  height={boxH}
+                  rx="12"
+                  fill="rgba(15, 23, 42, 0.94)"
+                  stroke="rgba(148, 163, 184, 0.22)"
+                />
+                <text x={x + 10} y={y + 17} fill="#cbd5e1" fontSize={isFullscreen ? 11 : 10}>
+                  {pnlBox.rangeText}
+                </text>
+                <text x={x + 10} y={y + 34} fill={accent} fontSize={isFullscreen ? 12 : 11} fontWeight={700}>
+                  {pctText}
+                  {usdText ? ` • ${usdText}` : ''}
+                </text>
+                <text x={x + 10} y={y + 54} fill="#94a3b8" fontSize={isFullscreen ? 11 : 10}>
+                  Entry: {pnlBox.entry.toFixed(6)} → Exit: {pnlBox.exit.toFixed(6)}
+                </text>
+              </g>
+            );
+          })()}
       </svg>
     </div>
   );

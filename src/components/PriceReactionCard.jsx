@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import dayjs from 'dayjs';
 import utc from 'dayjs/plugin/utc';
 import timezone from 'dayjs/plugin/timezone';
@@ -18,16 +18,12 @@ function formatMcapPercent(value) {
 
   const abs = Math.abs(n);
 
-  // ✅ дуже малі значення — показуємо поріг
-  if (abs > 0 && abs < 0.0001) return "<0.0001%";
-
-  // звичайне форматування
+  if (abs > 0 && abs < 0.0001) return '<0.0001%';
   if (abs >= 1) return `${n.toFixed(2)}%`;
   if (abs >= 0.1) return `${n.toFixed(3)}%`;
   if (abs >= 0.01) return `${n.toFixed(4)}%`;
 
-  // малі, але не надто малі — без scientific notation
-  return `${n.toFixed(6).replace(/\.?0+$/, "")}%`;
+  return `${n.toFixed(6).replace(/\.?0+$/, '')}%`;
 }
 
 function formatDate(iso, tz) {
@@ -51,10 +47,7 @@ export default function PriceReactionCard({ item }) {
     eventPctMcap,
   } = item;
 
-  // consider series valid if it has at least 31 points (always includes +31 after event)
   const hasSeries = Array.isArray(seriesClose) && seriesClose.length >= 31;
-
-  // dynamic base index: number of minutes before T0
   const baseIndex = hasSeries ? seriesClose.length - 31 : 0;
 
   const [isFullscreen, setIsFullscreen] = useState(false);
@@ -62,9 +55,9 @@ export default function PriceReactionCard({ item }) {
   const chartFsRef = useRef(null);
 
   const [range, setRange] = useState(null);
-
-  // ✅ investment shared between chart tooltip and ProfitCalculator
   const [investment, setInvestment] = useState(100);
+  const [direction, setDirection] = useState('short');
+  const [showProfit, setShowProfit] = useState(false);
 
   const handleRangeSelect = ({ startIdx, endIdx }) => {
     if (endIdx == null) setRange({ startIdx, endIdx: null });
@@ -74,12 +67,40 @@ export default function PriceReactionCard({ item }) {
   const startOffset = range && range.endIdx != null ? range.startIdx - baseIndex : null;
   const endOffset = range && range.endIdx != null ? range.endIdx - baseIndex : null;
 
+  const pnlSummary = useMemo(() => {
+    if (!hasSeries || range?.endIdx == null) return null;
+
+    const entryPrice = seriesClose?.[range.startIdx];
+    const exitPrice = seriesClose?.[range.endIdx];
+    const inv = Number(investment);
+
+    if (
+      entryPrice == null ||
+      exitPrice == null ||
+      !Number.isFinite(inv) ||
+      inv <= 0
+    ) {
+      return null;
+    }
+
+    const qty = inv / entryPrice;
+    const pnl =
+      direction === 'long'
+        ? qty * (exitPrice - entryPrice)
+        : qty * (entryPrice - exitPrice);
+
+    const pnlPct = inv ? (pnl / inv) * 100 : null;
+
+    return { pnl, pnlPct };
+  }, [hasSeries, range, seriesClose, investment, direction]);
+
   useEffect(() => {
     const onFs = () => {
       const active = !!document.fullscreenElement;
       setIsFullscreen(active);
       if (!active) setNeedRotateHint(false);
     };
+
     document.addEventListener('fullscreenchange', onFs);
     return () => document.removeEventListener('fullscreenchange', onFs);
   }, []);
@@ -100,14 +121,12 @@ export default function PriceReactionCard({ item }) {
         try {
           await screen.orientation.lock('landscape');
         } catch {
-          void 0;
           setNeedRotateHint(true);
         }
       } else {
         setNeedRotateHint(true);
       }
     } catch {
-      void 0;
       setNeedRotateHint(true);
     }
   };
@@ -118,16 +137,26 @@ export default function PriceReactionCard({ item }) {
         try {
           screen.orientation.unlock();
         } catch {
-          void 0;
+          // ignore
         }
       }
+
       if (document.exitFullscreen) {
         await document.exitFullscreen();
       }
     } catch {
-      void 0;
+      // ignore
     }
   };
+
+  const summaryColor =
+    pnlSummary == null
+      ? 'text-white/55'
+      : pnlSummary.pnl > 0
+      ? 'text-emerald-400'
+      : pnlSummary.pnl < 0
+      ? 'text-red-400'
+      : 'text-amber-400';
 
   return (
     <article className="relative overflow-hidden rounded-3xl border border-gray-200 bg-white/90 px-4 py-5 text-slate-900 shadow-xl backdrop-blur-sm dark:border-slate-800 dark:bg-gradient-to-br dark:from-[#0b0f1a] dark:via-[#0f172a] dark:to-[#0b111f] dark:text-white">
@@ -136,20 +165,18 @@ export default function PriceReactionCard({ item }) {
         aria-hidden
       />
 
-      {/* Заголовки */}
-      <div className="relative flex flex-wrap items-center gap-2 text-[11px] font-semibold mb-3">
-        <span className="rounded-full bg-emerald-100 text-emerald-800 px-2.5 py-1 border border-emerald-200 shadow-sm dark:bg-emerald-500/15 dark:text-emerald-200 dark:border-emerald-500/30">
+      <div className="relative mb-3 flex flex-wrap items-center gap-2 text-[11px] font-semibold">
+        <span className="rounded-full border border-emerald-200 bg-emerald-100 px-2.5 py-1 text-emerald-800 shadow-sm dark:border-emerald-500/30 dark:bg-emerald-500/15 dark:text-emerald-200">
           Completed
         </span>
 
-        <span className="rounded-full bg-gray-100 text-gray-700 px-2.5 py-1 border border-gray-200 shadow-sm dark:bg-white/5 dark:text-gray-200 dark:border-white/10">
+        <span className="rounded-full border border-gray-200 bg-gray-100 px-2.5 py-1 text-gray-700 shadow-sm dark:border-white/10 dark:bg-white/5 dark:text-gray-200">
           {type || 'Event'}
         </span>
       </div>
 
-      {/* Назва */}
-      <div className="relative flex flex-col gap-1 mb-4">
-        <h3 className="font-semibold text-lg leading-snug line-clamp-2 break-words">{title}</h3>
+      <div className="relative mb-4 flex flex-col gap-1">
+        <h3 className="line-clamp-2 break-words text-lg font-semibold leading-snug">{title}</h3>
 
         <div className="flex flex-wrap items-center gap-2 text-xs text-gray-500 dark:text-gray-400">
           <span className="whitespace-nowrap">{formatDate(startAt, tz)}</span>
@@ -161,28 +188,24 @@ export default function PriceReactionCard({ item }) {
         </div>
       </div>
 
-      {/* Wrapper fullscreen */}
       <div
         ref={chartFsRef}
         className={`relative ${
-          isFullscreen
-            ? 'w-screen h-screen bg-[#020617] flex items-center justify-center p-2 sm:p-4'
-            : ''
+          isFullscreen ? 'flex h-screen w-screen items-center justify-center bg-[#020617] p-2 sm:p-4' : ''
         }`}
       >
         <div
-          className={`relative border border-gray-100 bg-gradient-to-b from-gray-50 via-white to-white shadow-sm backdrop-blur-sm
-                     dark:border-white/5 dark:from-white/10 dark:via-white/5 dark:to-white/0 ${
-                       isFullscreen
-                         ? 'w-full h-full max-w-[1600px] max-h-[900px] rounded-2xl overflow-hidden mb-0'
-                         : 'rounded-2xl overflow-x-auto md:overflow-x-hidden mb-4'
-                     }`}
+          className={`relative border border-gray-100 bg-gradient-to-b from-gray-50 via-white to-white shadow-sm backdrop-blur-sm dark:border-white/5 dark:from-white/10 dark:via-white/5 dark:to-white/0 ${
+            isFullscreen
+              ? 'mb-0 h-full w-full max-h-[900px] max-w-[1600px] overflow-hidden rounded-2xl'
+              : 'mb-3 overflow-x-auto rounded-2xl md:overflow-x-hidden'
+          }`}
         >
           {hasSeries && (
             <button
               type="button"
               onClick={enterFullscreen}
-              className="md:hidden absolute right-3 top-3 z-10 rounded-lg border border-white/10 bg-black/40 px-2.5 py-1.5 text-xs text-white backdrop-blur hover:bg-black/55"
+              className="absolute right-3 top-3 z-10 rounded-lg border border-white/10 bg-black/40 px-2.5 py-1.5 text-xs text-white backdrop-blur hover:bg-black/55 md:hidden"
             >
               ⤢ Fullscreen
             </button>
@@ -192,14 +215,14 @@ export default function PriceReactionCard({ item }) {
             <button
               type="button"
               onClick={exitFullscreen}
-              className="md:hidden absolute left-3 top-3 z-10 rounded-lg border border-white/10 bg-black/40 px-2.5 py-1.5 text-xs text-white backdrop-blur hover:bg-black/55"
+              className="absolute left-3 top-3 z-10 rounded-lg border border-white/10 bg-black/40 px-2.5 py-1.5 text-xs text-white backdrop-blur hover:bg-black/55 md:hidden"
             >
               ✕
             </button>
           )}
 
           {needRotateHint && isFullscreen && (
-            <div className="md:hidden absolute bottom-3 left-1/2 -translate-x-1/2 z-10 rounded-xl border border-white/10 bg-black/50 px-3 py-1.5 text-xs text-white">
+            <div className="absolute bottom-3 left-1/2 z-10 -translate-x-1/2 rounded-xl border border-white/10 bg-black/50 px-3 py-1.5 text-xs text-white md:hidden">
               Поверни телефон горизонтально ↻
             </div>
           )}
@@ -208,14 +231,23 @@ export default function PriceReactionCard({ item }) {
             {hasSeries ? (
               <ReactionChart
                 closeSeries={seriesClose}
-                // pass highSeries and lowSeries only if they match the length of closeSeries
-                highSeries={Array.isArray(seriesHigh) && seriesHigh.length === seriesClose.length ? seriesHigh : null}
-                lowSeries={Array.isArray(seriesLow) && seriesLow.length === seriesClose.length ? seriesLow : null}
+                highSeries={
+                  Array.isArray(seriesHigh) && seriesHigh.length === seriesClose.length
+                    ? seriesHigh
+                    : null
+                }
+                lowSeries={
+                  Array.isArray(seriesLow) && seriesLow.length === seriesClose.length
+                    ? seriesLow
+                    : null
+                }
                 onRangeSelect={handleRangeSelect}
                 selectedRange={range}
                 startAt={startAt}
                 timezone={tz}
-                investment={investment} // ✅
+                investment={investment}
+                direction={direction}
+                isFullscreen={isFullscreen}
               />
             ) : (
               <div className="text-sm text-gray-600 dark:text-gray-300">
@@ -226,21 +258,85 @@ export default function PriceReactionCard({ item }) {
         </div>
       </div>
 
-      {eventPctMcap != null && (
-        <div className="text-xs text-gray-600 dark:text-gray-400 mb-3">
-          % of MCap: {formatMcapPercent(eventPctMcap)}
-        </div>
+      {hasSeries && (
+        <>
+          <div className="mt-1 flex items-center gap-2">
+            <div className="inline-flex rounded-xl border border-white/10 bg-[#111931]/70 p-1 shadow-[0_8px_22px_rgba(10,16,38,0.25)]">
+              <button
+                type="button"
+                onClick={() => setDirection('short')}
+                className={`min-w-[76px] rounded-lg px-4 py-2 text-sm font-semibold transition ${
+                  direction === 'short'
+                    ? 'bg-red-500 text-white shadow-[0_6px_16px_rgba(239,68,68,0.35)]'
+                    : 'text-white/80 hover:bg-white/5'
+                }`}
+              >
+                Short
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setDirection('long')}
+                className={`min-w-[76px] rounded-lg px-4 py-2 text-sm font-semibold transition ${
+                  direction === 'long'
+                    ? 'bg-emerald-500 text-white shadow-[0_6px_16px_rgba(16,185,129,0.35)]'
+                    : 'text-white/80 hover:bg-white/5'
+                }`}
+              >
+                Long
+              </button>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => setShowProfit((prev) => !prev)}
+              className="inline-flex items-center gap-2 rounded-xl border border-white/10 bg-[#111931]/70 px-4 py-3 text-sm font-medium text-white/85 shadow-[0_8px_22px_rgba(10,16,38,0.25)] transition hover:bg-white/10"
+            >
+              <span>Profit</span>
+              <span className="text-white/50">{showProfit ? '▲' : '›'}</span>
+            </button>
+          </div>
+
+          <div className="mt-3 rounded-2xl border border-white/10 bg-[#0f1730]/60 px-4 py-3 text-sm shadow-[0_8px_22px_rgba(10,16,38,0.2)]">
+            {pnlSummary ? (
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div className="text-white/80">
+                  PnL{' '}
+                  <span className={`font-semibold ${summaryColor}`}>
+                    {pnlSummary.pnlPct >= 0 ? '+' : ''}
+                    {pnlSummary.pnlPct.toFixed(2)}%
+                  </span>
+                </div>
+                <div className={`font-semibold ${summaryColor}`}>
+                  {pnlSummary.pnl >= 0 ? '+' : ''}
+                  {pnlSummary.pnl.toFixed(4)} USDT
+                </div>
+              </div>
+            ) : (
+              <div className="text-white/55">
+                Оберіть дві свічки на графіку, щоб порахувати прибуток.
+              </div>
+            )}
+          </div>
+
+          {showProfit && (
+            <ProfitCalculator
+              closeSeries={seriesClose}
+              startOffset={startOffset}
+              endOffset={endOffset}
+              baseIndex={baseIndex}
+              investment={investment}
+              onInvestmentChange={setInvestment}
+              direction={direction}
+            />
+          )}
+        </>
       )}
 
-      {hasSeries && (
-        <ProfitCalculator
-          closeSeries={seriesClose}
-          startOffset={startOffset}
-          endOffset={endOffset}
-          baseIndex={baseIndex}
-          investment={investment}
-          onInvestmentChange={setInvestment}
-        />
+      {eventPctMcap != null && (
+        <div className="mb-1 mt-3 text-xs text-gray-600 dark:text-gray-400">
+          % of MCap: {formatMcapPercent(eventPctMcap)}
+        </div>
       )}
     </article>
   );
