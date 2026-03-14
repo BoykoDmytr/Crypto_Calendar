@@ -230,13 +230,6 @@ export default function EventCard({ ev, isPast = false }) {
             <EventTokenInfo coins={tokenEntries} pctText={ev?.coin_pct_circ} />
           )}
 
-          {/* Відсоток від капіталізації */}
-          {eventPctMcapLabel && (
-            <div className="mt-2 text-sm text-gray-600 dark:text-gray-300">
-              % від MCap: <span className="font-semibold">{eventPctMcapLabel}</span>
-            </div>
-          )}
-
           {/* Лайки / дизлайки та календар */}
           <div className="mt-3 flex items-center gap-4">
             {/* DISLIKE */}
