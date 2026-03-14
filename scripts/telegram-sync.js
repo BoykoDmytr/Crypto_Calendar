@@ -366,10 +366,14 @@ function matchesTrigger(rawText, trigger) {
 
 
 function parseClaimDateKyiv(lines) {
-  const claim = lines.find((line) => /claim\s*date/i.test(line));
-  if (!claim) return null;
+  const claimLine =
+    lines.find((line) => /claim/i.test(line) && /\d{2}\.\d{2}\.\d{4}/.test(line)) ||
+    lines.find((line) => /X\s*Launch\s*Ends?/i.test(line) && /\d{2}\.\d{2}\.\d{4}/.test(line)) ||
+    null;
 
-  const m = claim.match(/(\d{2})\.(\d{2})\.(\d{4})\D+(\d{2}):(\d{2})/);
+  if (!claimLine) return null;
+
+  const m = claimLine.match(/(\d{2})\.(\d{2})\.(\d{4})\D+(\d{2}):(\d{2})/);
   if (!m) return null;
 
   const dd = Number(m[1]);
@@ -378,30 +382,31 @@ function parseClaimDateKyiv(lines) {
   const HH = Number(m[4]);
   const Min = Number(m[5]);
 
-  // робимо "наївну" дату
   const isoLike = `${yyyy}-${pad(mm)}-${pad(dd)}T${pad(HH)}:${pad(Min)}:00`;
 
-  // отримуємо offset для Europe/Kyiv на цю дату/час через Intl
-  const dt = new Date(`${isoLike}Z`); // базово як UTC точка для розрахунку
+  const dt = new Date(`${isoLike}Z`);
   const fmt = new Intl.DateTimeFormat('en-US', {
     timeZone: KYIV_TZ,
     timeZoneName: 'shortOffset',
-    year: 'numeric', month: '2-digit', day: '2-digit',
-    hour: '2-digit', minute: '2-digit', second: '2-digit',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
     hour12: false,
   });
 
   const parts = fmt.formatToParts(dt);
-  const tzPart = parts.find(p => p.type === 'timeZoneName')?.value; // типу "GMT+2"
+  const tzPart = parts.find((p) => p.type === 'timeZoneName')?.value;
   if (!tzPart) return null;
 
-  // перетворюємо "GMT+2" -> "+02:00"
   const mo = tzPart.match(/GMT([+-]\d{1,2})/);
   if (!mo) return null;
+
   const offH = Number(mo[1]);
   const offset = `${offH >= 0 ? '+' : '-'}${pad(Math.abs(offH))}:00`;
 
-  // Повертаємо ISO з офсетом Києва
   return `${isoLike}${offset}`;
 }
 
@@ -411,8 +416,10 @@ function parseClaimDateKyiv(lines) {
 // OKX
 export function parseOkxAlpha(message, channel) {
   const rawText = message.text || '';
+
   const hasLegacyTrigger = matchesTrigger(rawText, channel?.trigger);
   const hasNewOkxPattern = /\bX\s+Launch\b/i.test(normalizeTriggerText(rawText));
+
   if (!hasLegacyTrigger && !hasNewOkxPattern) return [];
 
   const raw = decodeEntities(rawText);
@@ -421,75 +428,89 @@ export function parseOkxAlpha(message, channel) {
     .map((l) => normalizeSpaces(stripEmoji(l)))
     .filter(Boolean)
     .filter((line) => !/^Go to Launch\b/i.test(line));
+
   if (!lines.length) return [];
 
   const stripListPrefix = (line) => line.replace(/^[•·\-*\s]+/, '').trim();
   const normalizedLines = lines.map(stripListPrefix);
 
-  const launchLine = normalizedLines.find((l) => /X\s+Launch/i.test(l) && !/Event/i.test(l)) || null;
-
+  const launchLine =
+    normalizedLines.find((l) => /X\s+Launch/i.test(l) && !/Event/i.test(l)) || null;
 
   const vision = launchLine
     ? normalizeSpaces(launchLine.replace(/\bX\s+Launch\b/i, '').trim())
     : null;
 
-  const title = vision ? `${vision} OKX Boost X Launch Event!` : 'OKX Boost X Launch Event!';
+  const title = vision
+    ? `${vision} OKX Boost X Launch Event!`
+    : 'OKX Boost X Launch Event!';
 
-  const rewardsLine = normalizedLines.find((l) => /^Total Rewards\s*:/i.test(l)) || null;
-  const poolLine = normalizedLines.find((l) => /^Pool\s*:/i.test(l)) || null;
+  const rewardsLine =
+    normalizedLines.find((l) => /^Total\s+Reward[s]?\s*:/i.test(l)) || null;
+  const poolLine =
+    normalizedLines.find((l) => /^Pool\s*:/i.test(l)) || null;
+  const rewardLine =
+    normalizedLines.find((l) => /^Reward\s*:/i.test(l)) || null;
 
   let poolText = null;
   let quantity = null;
   let token = null;
 
-  if (rewardsLine || poolLine) {
-    const sourceLine = poolLine || rewardsLine;
-    poolText = normalizeSpaces(sourceLine.replace(/^(Total Rewards|Pool)\s*:\s*/i, ''));
+  if (rewardsLine || poolLine || rewardLine) {
+    const sourceLine = poolLine || rewardsLine || rewardLine;
+    poolText = normalizeSpaces(
+      sourceLine.replace(/^(Total\s+Reward[s]?|Pool|Reward)\s*:\s*/i, '')
+    );
+
     const parsed = parseQuantityAndToken(poolText);
     quantity = parsed.quantity ?? null;
     token = parsed.token ?? null;
   }
 
-  // ✅ startAt = Claim Date
   const claimIso = parseClaimDateKyiv(normalizedLines);
   if (!claimIso) return [];
 
   const requirements = normalizedLines
-    .filter((line) => /Min\.\s*Boost\s*(Balance|Volume)\s*:/i.test(line))
+    .filter((line) => /Min\.?\s*Boost\s*(Balance|Volume)\s*:/i.test(line))
     .map((line) => normalizeSpaces(line.replace(/^[•\-\s]+/, '').trim()));
 
-  const claimLine = normalizedLines.find((line) => /Claim Date\s*:/i.test(line)) || null;
+  const claimLine =
+    normalizedLines.find((line) => /Claim Date\s*:/i.test(line)) || null;
+
   const claimDescription = claimLine
     ? normalizeSpaces(claimLine.replace(/^Claim Date\s*:\s*/i, '').trim())
     : null;
 
-  // ✅ Description only Pool
   const descriptionParts = [];
   if (poolText) descriptionParts.push(`Pool: ${poolText}`);
-  if (requirements.length) descriptionParts.push(`Requirements: ${requirements.join(' • ')}`);
+  if (requirements.length) {
+    descriptionParts.push(`Requirements: ${requirements.join(' • ')}`);
+  }
   if (claimDescription) descriptionParts.push(`Claim Date: ${claimDescription}`);
+
   const description = ensureDescription(descriptionParts.join('\n'));
 
   const source = 'okx_alpha';
   const sourceKey = `OKX_ALPHA|${title}|${dayjs(claimIso).tz(KYIV_TZ).format('YYYY-MM-DD HH:mm')}`;
 
-  return [{
-    title,
-    description,
-    startAt: claimIso,
-    endAt: null,   // ✅ “End Date ...” goes into endAt
-    coins: buildCoins(token, quantity),
-    coin_name: token || null,
-    coin_quantity: quantity,
-    source,
-    source_key: sourceKey,
-    type: 'OKX Alpha',
-    event_type_slug: 'okx-alpha',
-    coin_price_link: null,
-    omitLink: true,
-  }];
+  return [
+    {
+      title,
+      description,
+      startAt: claimIso,
+      endAt: null,
+      coins: buildCoins(token, quantity),
+      coin_name: token || null,
+      coin_quantity: quantity,
+      source,
+      source_key: sourceKey,
+      type: 'OKX Alpha',
+      event_type_slug: 'okx-alpha',
+      coin_price_link: null,
+      omitLink: true,
+    },
+  ];
 }
-
 
 // Binance claim helper
 function parseBinanceClaim(line) {
