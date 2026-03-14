@@ -24,12 +24,16 @@ function getTouchDistance(t1, t2) {
 
 /**
  * Mobile exchange-like interactions:
- * - Pinch (2 fingers): zoom X by changing visible candle count (recomputes axes).
+ * - Pinch (2 fingers): zoom X by changing visible candle count.
  * - 1-finger drag (when zoomed in): pan horizontally.
- * - Long-press (~250ms): start range selection (PNL) to avoid pan/selection conflict.
+ * - Long-press (~250ms): start range selection to avoid pan/selection conflict.
  *
  * Desktop:
- * - Same as before: drag = range selection.
+ * - Drag = range selection.
+ *
+ * Important:
+ * - Popup over chart is intentionally removed.
+ * - Range info is rendered by parent component under the chart.
  */
 export default function ReactionChart({
   closeSeries = [],
@@ -40,9 +44,7 @@ export default function ReactionChart({
   startAt,
   timezone: tz,
   height: heightProp = 200,
-  investment,
   isFullscreen = false,
-  direction = 'short',
 }) {
   const svgRef = useRef(null);
   const wrapRef = useRef(null);
@@ -280,43 +282,6 @@ export default function ReactionChart({
 
   const clipS = selectionOverlaps ? clamp(selS, effectiveViewStart, viewEnd) : null;
   const clipE = selectionOverlaps ? clamp(selE, effectiveViewStart, viewEnd) : null;
-
-  let pnlBox = null;
-  if (hasSelection && selS !== selE && selS >= effectiveViewStart && selE <= viewEnd) {
-    const entry = closeSeries[selS];
-    const exit = closeSeries[selE];
-
-    const pct =
-      direction === 'long'
-        ? ((exit - entry) / entry) * 100
-        : ((entry - exit) / entry) * 100;
-
-    let rangeText = `${Math.abs(selE - selS)}m`;
-    if (startTime) {
-      const t1 = startTime.add(selS - baseIndex, 'minute').format('HH:mm');
-      const t2 = startTime.add(selE - baseIndex, 'minute').format('HH:mm');
-      rangeText = `${t1} → ${t2}`;
-    }
-
-    const inv = Number(investment);
-    const pnlUsd = Number.isFinite(inv) && inv > 0 ? (inv * pct) / 100 : null;
-
-    const xs = xPositions[selS - effectiveViewStart];
-    const xe = xPositions[selE - effectiveViewStart];
-    const midX = (xs + xe) / 2;
-
-    pnlBox = {
-      entry,
-      exit,
-      pct,
-      pnlUsd,
-      rangeText,
-      side: midX < width / 2 ? 'right' : 'left',
-    };
-  }
-
-  const boxW = isFullscreen ? 285 : 225;
-  const boxH = isFullscreen ? 86 : 72;
 
   const eventVisible = baseIndex >= effectiveViewStart && baseIndex <= viewEnd;
   const eventX = eventVisible ? xPositions[baseIndex - effectiveViewStart] : null;
@@ -656,44 +621,6 @@ export default function ReactionChart({
             </g>
           );
         })}
-
-        {pnlBox &&
-          (() => {
-            const x = pnlBox.side === 'right' ? width - paddingX - boxW : paddingX;
-            const y = paddingY + 6;
-
-            const pctText = `${pnlBox.pct >= 0 ? '+' : ''}${pnlBox.pct.toFixed(2)}%`;
-            const usdText =
-              pnlBox.pnlUsd == null
-                ? null
-                : `${pnlBox.pnlUsd >= 0 ? '+' : ''}${pnlBox.pnlUsd.toFixed(4)} USDT`;
-
-            const accent = pnlBox.pct >= 0 ? '#86efac' : '#f87171';
-
-            return (
-              <g>
-                <rect
-                  x={x}
-                  y={y}
-                  width={boxW}
-                  height={boxH}
-                  rx="12"
-                  fill="rgba(15, 23, 42, 0.94)"
-                  stroke="rgba(148, 163, 184, 0.22)"
-                />
-                <text x={x + 10} y={y + 17} fill="#cbd5e1" fontSize={isFullscreen ? 11 : 10}>
-                  {pnlBox.rangeText}
-                </text>
-                <text x={x + 10} y={y + 34} fill={accent} fontSize={isFullscreen ? 12 : 11} fontWeight={700}>
-                  {pctText}
-                  {usdText ? ` • ${usdText}` : ''}
-                </text>
-                <text x={x + 10} y={y + 54} fill="#94a3b8" fontSize={isFullscreen ? 11 : 10}>
-                  Entry: {pnlBox.entry.toFixed(6)} → Exit: {pnlBox.exit.toFixed(6)}
-                </text>
-              </g>
-            );
-          })()}
       </svg>
     </div>
   );

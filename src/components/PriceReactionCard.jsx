@@ -26,6 +26,18 @@ function formatMcapPercent(value) {
   return `${n.toFixed(6).replace(/\.?0+$/, '')}%`;
 }
 
+function formatBigUsd(value) {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return null;
+
+  const abs = Math.abs(n);
+  if (abs >= 1e9) return `${(n / 1e9).toFixed(2)}B`;
+  if (abs >= 1e6) return `${(n / 1e6).toFixed(2)}M`;
+  if (abs >= 1e3) return `${(n / 1e3).toFixed(2)}K`;
+
+  return n.toFixed(2);
+}
+
 function formatDate(iso, tz) {
   if (!iso) return '';
   const base = dayjs.utc(iso);
@@ -45,6 +57,8 @@ export default function PriceReactionCard({ item }) {
     seriesHigh,
     seriesLow,
     eventPctMcap,
+    eventUsdValue,
+    mcapUsd,
   } = item;
 
   const hasSeries = Array.isArray(seriesClose) && seriesClose.length >= 31;
@@ -67,16 +81,55 @@ export default function PriceReactionCard({ item }) {
   const startOffset = range && range.endIdx != null ? range.startIdx - baseIndex : null;
   const endOffset = range && range.endIdx != null ? range.endIdx - baseIndex : null;
 
+  const snapshotPrice = useMemo(() => {
+    if (!hasSeries) return null;
+    const idx = baseIndex;
+    const val = seriesClose?.[idx];
+    return Number.isFinite(Number(val)) ? Number(val) : null;
+  }, [hasSeries, baseIndex, seriesClose]);
+
+  const selectionMeta = useMemo(() => {
+    if (!hasSeries || range?.endIdx == null) return null;
+
+    const startIdx = Math.min(range.startIdx, range.endIdx);
+    const endIdx = Math.max(range.startIdx, range.endIdx);
+
+    const entryPrice = seriesClose?.[startIdx];
+    const exitPrice = seriesClose?.[endIdx];
+
+    if (!Number.isFinite(Number(entryPrice)) || !Number.isFinite(Number(exitPrice))) {
+      return null;
+    }
+
+    let timeText = `${Math.abs(endIdx - startIdx)}m`;
+
+    if (startAt) {
+      const zone = TZ_MAP[tz] || tz || 'UTC';
+      const base = dayjs.utc(startAt).tz(zone);
+      const t1 = base.add(startIdx - baseIndex, 'minute').format('HH:mm');
+      const t2 = base.add(endIdx - baseIndex, 'minute').format('HH:mm');
+      timeText = `${t1} → ${t2}`;
+    }
+
+    return {
+      timeText,
+      entryText: `Entry: ${Number(entryPrice).toFixed(6)} → Exit: ${Number(exitPrice).toFixed(6)}`,
+    };
+  }, [hasSeries, range, seriesClose, startAt, tz, baseIndex]);
+
   const pnlSummary = useMemo(() => {
     if (!hasSeries || range?.endIdx == null) return null;
 
-    const entryPrice = seriesClose?.[range.startIdx];
-    const exitPrice = seriesClose?.[range.endIdx];
+    const startIdx = Math.min(range.startIdx, range.endIdx);
+    const endIdx = Math.max(range.startIdx, range.endIdx);
+
+    const entryPrice = seriesClose?.[startIdx];
+    const exitPrice = seriesClose?.[endIdx];
     const inv = Number(investment);
 
     if (
-      entryPrice == null ||
-      exitPrice == null ||
+      !Number.isFinite(Number(entryPrice)) ||
+      !Number.isFinite(Number(exitPrice)) ||
       !Number.isFinite(inv) ||
       inv <= 0
     ) {
@@ -186,6 +239,14 @@ export default function PriceReactionCard({ item }) {
             </span>
           )}
         </div>
+
+        {(eventUsdValue != null || snapshotPrice != null || mcapUsd != null) && (
+          <div className="mt-0.5 flex flex-wrap items-center gap-1 text-[11px] text-gray-500 dark:text-gray-400">
+            {eventUsdValue != null && <span>{formatBigUsd(eventUsdValue)}$</span>}
+            {snapshotPrice != null && <span>@ {Number(snapshotPrice).toFixed(6)}</span>}
+            {mcapUsd != null && <span>• MCAP {formatBigUsd(mcapUsd)}</span>}
+          </div>
+        )}
       </div>
 
       <div
@@ -198,7 +259,7 @@ export default function PriceReactionCard({ item }) {
           className={`relative border border-gray-100 bg-gradient-to-b from-gray-50 via-white to-white shadow-sm backdrop-blur-sm dark:border-white/5 dark:from-white/10 dark:via-white/5 dark:to-white/0 ${
             isFullscreen
               ? 'mb-0 h-full w-full max-h-[900px] max-w-[1600px] overflow-hidden rounded-2xl'
-              : 'mb-3 overflow-x-auto rounded-2xl md:overflow-x-hidden'
+              : 'mb-2 overflow-x-auto rounded-2xl md:overflow-x-hidden'
           }`}
         >
           {hasSeries && (
@@ -245,8 +306,6 @@ export default function PriceReactionCard({ item }) {
                 selectedRange={range}
                 startAt={startAt}
                 timezone={tz}
-                investment={investment}
-                direction={direction}
                 isFullscreen={isFullscreen}
               />
             ) : (
@@ -258,9 +317,18 @@ export default function PriceReactionCard({ item }) {
         </div>
       </div>
 
+      <div className="min-h-[22px] px-1 text-[11px] text-white/55 sm:text-xs">
+        {selectionMeta && (
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <span>{selectionMeta.timeText}</span>
+            <span className="text-white/45">{selectionMeta.entryText}</span>
+          </div>
+        )}
+      </div>
+
       {hasSeries && (
         <>
-          <div className="mt-1 flex items-center gap-2">
+          <div className="mt-2 flex items-center gap-2">
             <div className="inline-flex rounded-xl border border-white/10 bg-[#111931]/70 p-1 shadow-[0_8px_22px_rgba(10,16,38,0.25)]">
               <button
                 type="button"
