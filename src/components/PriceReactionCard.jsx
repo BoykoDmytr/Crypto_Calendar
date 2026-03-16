@@ -240,11 +240,23 @@ export default function PriceReactionCard({ item }) {
           )}
         </div>
 
-        {(eventUsdValue != null || snapshotPrice != null || mcapUsd != null) && (
-          <div className="mt-0.5 flex flex-wrap items-center gap-1 text-[11px] text-gray-500 dark:text-gray-400">
-            {eventUsdValue != null && <span>{formatBigUsd(eventUsdValue)}$</span>}
-            {snapshotPrice != null && <span>@ {Number(snapshotPrice).toFixed(6)}</span>}
-            {mcapUsd != null && <span>• MCAP {formatBigUsd(mcapUsd)}</span>}
+        {(snapshotPrice != null || eventUsdValue != null || eventPctMcap != null || mcapUsd != null) && (
+          <div className="mt-1 flex flex-wrap items-center gap-1.5 text-[11px]">
+            {eventUsdValue != null && (
+              <span className="rounded-full border border-emerald-200 bg-emerald-100 px-2 py-0.5 text-emerald-700 dark:border-emerald-500/30 dark:bg-emerald-500/15 dark:text-emerald-200">
+                Event $ {formatBigUsd(eventUsdValue)}
+              </span>
+            )}
+            {eventPctMcap != null && (
+              <span className="rounded-full border border-violet-200 bg-violet-100 px-2 py-0.5 text-violet-700 dark:border-violet-400/30 dark:bg-violet-500/15 dark:text-violet-200">
+                {formatMcapPercent(eventPctMcap)} of MCAP
+              </span>
+            )}
+            {mcapUsd != null && (
+              <span className="rounded-full border border-gray-200 bg-gray-100 px-2 py-0.5 text-gray-700 dark:border-white/10 dark:bg-white/5 dark:text-gray-300">
+                MCAP {formatBigUsd(mcapUsd)}
+              </span>
+            )}
           </div>
         )}
       </div>
@@ -319,7 +331,7 @@ export default function PriceReactionCard({ item }) {
 
       <div className="min-h-[22px] px-1 text-[11px] text-white/55 sm:text-xs">
         {selectionMeta && (
-          <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="flex flex-wrap items-center justify-center gap-x-6 gap-y-1 text-center">
             <span>{selectionMeta.timeText}</span>
             <span className="text-white/45">{selectionMeta.entryText}</span>
           </div>
@@ -399,12 +411,6 @@ export default function PriceReactionCard({ item }) {
             />
           )}
         </>
-      )}
-
-      {eventPctMcap != null && (
-        <div className="mb-1 mt-3 text-xs text-gray-600 dark:text-gray-400">
-          % of MCap: {formatMcapPercent(eventPctMcap)}
-        </div>
       )}
     </article>
   );

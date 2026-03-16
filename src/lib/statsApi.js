@@ -335,6 +335,8 @@ export async function fetchCompletedEvents() {
 
         // % of MCAP
         eventPctMcap: row.event_pct_mcap,
+        eventUsdValue: event.event_usd_value,
+        mcapUsd: event.mcap_usd,
       };
     });
 }
