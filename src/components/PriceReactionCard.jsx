@@ -397,12 +397,6 @@ export default function PriceReactionCard({ item }) {
           )}
         </>
       )}
-
-      {eventPctMcap != null && (
-        <div className="mb-1 mt-3 text-xs text-gray-600 dark:text-gray-400">
-          % of MCap: {formatMcapPercent(eventPctMcap)}
-        </div>
-      )}
     </article>
   );
 }
