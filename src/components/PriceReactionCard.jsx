@@ -59,8 +59,6 @@ export default function PriceReactionCard({ item }) {
     eventPctMcap,
     eventUsdValue,
     mcapUsd,
-    priceSnap,
-    mcapSnap,
   } = item;
 
   const hasSeries = Array.isArray(seriesClose) && seriesClose.length >= 31;
@@ -83,32 +81,12 @@ export default function PriceReactionCard({ item }) {
   const startOffset = range && range.endIdx != null ? range.startIdx - baseIndex : null;
   const endOffset = range && range.endIdx != null ? range.endIdx - baseIndex : null;
 
-  const resolvedEventUsd = useMemo(() => {
-    const snap = Number(priceSnap);
-    if (Number.isFinite(snap)) return snap;
-
-    const legacy = Number(eventUsdValue);
-    if (Number.isFinite(legacy)) return legacy;
-
-    return null;
-  }, [priceSnap, eventUsdValue]);
-
-  const resolvedPctMcap = useMemo(() => {
-    const snap = Number(mcapSnap);
-    if (Number.isFinite(snap)) return snap;
-
-    const legacy = Number(eventPctMcap);
-    if (Number.isFinite(legacy)) return legacy;
-
-    const evUsd = Number(eventUsdValue);
-    const rawMcap = Number(mcapUsd);
-
-    if (Number.isFinite(evUsd) && Number.isFinite(rawMcap) && rawMcap > 0) {
-      return (evUsd / rawMcap) * 100;
-    }
-
-    return null;
-  }, [mcapSnap, eventPctMcap, eventUsdValue, mcapUsd]);
+  const snapshotPrice = useMemo(() => {
+    if (!hasSeries) return null;
+    const idx = baseIndex;
+    const val = seriesClose?.[idx];
+    return Number.isFinite(Number(val)) ? Number(val) : null;
+  }, [hasSeries, baseIndex, seriesClose]);
 
   const selectionMeta = useMemo(() => {
     if (!hasSeries || range?.endIdx == null) return null;
@@ -262,25 +240,11 @@ export default function PriceReactionCard({ item }) {
           )}
         </div>
 
-        {(resolvedEventUsd != null || resolvedPctMcap != null || mcapUsd != null) && (
-          <div className="mt-1 flex flex-wrap items-center gap-1.5 text-[11px]">
-            {resolvedEventUsd != null && (
-              <span className="rounded-full border border-emerald-200 bg-emerald-100 px-2 py-0.5 text-emerald-700 dark:border-emerald-500/30 dark:bg-emerald-500/15 dark:text-emerald-200">
-                Event $ {formatBigUsd(resolvedEventUsd)}
-              </span>
-            )}
-
-            {resolvedPctMcap != null && (
-              <span className="rounded-full border border-violet-200 bg-violet-100 px-2 py-0.5 text-violet-700 dark:border-violet-400/30 dark:bg-violet-500/15 dark:text-violet-200">
-                {formatMcapPercent(resolvedPctMcap)} of MCAP
-              </span>
-            )}
-
-            {mcapUsd != null && Number(mcapUsd) > 0 && (
-              <span className="rounded-full border border-gray-200 bg-gray-100 px-2 py-0.5 text-gray-700 dark:border-white/10 dark:bg-white/5 dark:text-gray-300">
-                MCAP {formatBigUsd(mcapUsd)}
-              </span>
-            )}
+        {(eventUsdValue != null || snapshotPrice != null || mcapUsd != null) && (
+          <div className="mt-0.5 flex flex-wrap items-center gap-1 text-[11px] text-gray-500 dark:text-gray-400">
+            {eventUsdValue != null && <span>{formatBigUsd(eventUsdValue)}$</span>}
+            {snapshotPrice != null && <span>@ {Number(snapshotPrice).toFixed(6)}</span>}
+            {mcapUsd != null && <span>• MCAP {formatBigUsd(mcapUsd)}</span>}
           </div>
         )}
       </div>
@@ -355,7 +319,7 @@ export default function PriceReactionCard({ item }) {
 
       <div className="min-h-[22px] px-1 text-[11px] text-white/55 sm:text-xs">
         {selectionMeta && (
-          <div className="flex flex-wrap items-center justify-center gap-x-6 gap-y-1 text-center">
+          <div className="flex flex-wrap items-center justify-between gap-2">
             <span>{selectionMeta.timeText}</span>
             <span className="text-white/45">{selectionMeta.entryText}</span>
           </div>
@@ -435,6 +399,12 @@ export default function PriceReactionCard({ item }) {
             />
           )}
         </>
+      )}
+
+      {eventPctMcap != null && (
+        <div className="mb-1 mt-3 text-xs text-gray-600 dark:text-gray-400">
+          % of MCap: {formatMcapPercent(eventPctMcap)}
+        </div>
       )}
     </article>
   );
