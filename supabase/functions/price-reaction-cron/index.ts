@@ -302,8 +302,10 @@ serve(async (_req: Request) => {
 
   // 2) fetch events in window
   const { data: events, error: eventsErr } = await supabase
-    .from("events_approved")
-    .select("id,title,start_at,type,event_type_slug,coin_name,tge_exchanges,coin_price_link,link,event_usd_value,mcap_usd,created_at")
+  .from("events_approved")
+  .select(
+    "id,title,start_at,type,event_type_slug,coin_name,tge_exchanges,coin_price_link,link,event_usd_value,mcap_usd,created_at,coin_quantity,coin_circ_supply"
+  )
     .gte("start_at", windowStart)
     .lte("start_at", windowEnd)
     .not("start_at", "is", null);
@@ -487,6 +489,65 @@ serve(async (_req: Request) => {
 
         if (error) throw error;
         updated++;
+      }
+
+            // --------------------------------------------------------------------
+      // Take snapshot of event value and MCAP if missing on the event itself.
+      // Compute from the T0 price, coin quantity and circulating supply. If
+      // either event_usd_value or mcap_usd is NULL, calculate them and update
+      // the events_approved table. This guarantees that event_pct_mcap will
+      // be available for all events, not just those created by telegram.
+      // --------------------------------------------------------------------
+      if (ev.event_usd_value == null || ev.mcap_usd == null) {
+        // Use the fresh T0 price if captured; otherwise fallback to DB value or fetch a new price
+        let price = patch.t0_price ?? row.t0_price ?? null;
+        if (price == null) {
+          price = await fetchMexcTicker({ apiPair: market.apiPair!, market: market.market });
+        }
+        const qty = Number(ev.coin_quantity);
+        const circ = Number(ev.coin_circ_supply);
+        let eventUsd: number | null = null;
+        let mcapUsd: number | null = null;
+        if (price != null && Number.isFinite(price)) {
+          if (Number.isFinite(qty) && qty > 0) {
+            eventUsd = price * qty;
+          }
+          // If we have a circulating supply stored, compute MCAP directly.
+          if (Number.isFinite(circ) && circ > 0) {
+            mcapUsd = price * circ;
+          }
+        }
+        // If we still lack MCAP but have a coin name, call the dropstab-circ
+        // edge function to fetch circulating supply dynamically.
+        if (mcapUsd == null && price != null && ev.coin_name) {
+          try {
+            const { data: circRes, error: circErr } = await supabase.functions.invoke(
+              "dropstab-circ",
+              { body: { symbol: String(ev.coin_name).toUpperCase() } },
+            );
+            if (!circErr) {
+              const circSupply = Number(circRes?.data?.circulating_supply);
+              if (Number.isFinite(circSupply) && circSupply > 0) {
+                mcapUsd = price * circSupply;
+              }
+            }
+          } catch {}
+        }
+        // If we computed at least one of the values, persist them in events_approved.
+        if (eventUsd != null || mcapUsd != null) {
+          const updatePayload: any = {};
+          if (eventUsd != null) updatePayload.event_usd_value = eventUsd;
+          if (mcapUsd != null) updatePayload.mcap_usd = mcapUsd;
+          const { error: updEventErr } = await supabase
+            .from("events_approved")
+            .update(updatePayload)
+            .eq("id", ev.id);
+          if (!updEventErr) {
+            // Update local copy so that event_pct_mcap calculation uses these values
+            if (eventUsd != null) ev.event_usd_value = eventUsd;
+            if (mcapUsd != null) ev.mcap_usd = mcapUsd;
+          }
+        }
       }
 
       // ✅ if series already computed with at least one real value, skip heavy fetch
