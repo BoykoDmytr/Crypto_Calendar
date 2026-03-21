@@ -38,6 +38,19 @@ function formatBigUsd(value) {
   return n.toFixed(2);
 }
 
+function formatPrice(value) {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return null;
+
+  const abs = Math.abs(n);
+
+  if (abs >= 1000) return n.toFixed(2);
+  if (abs >= 1) return n.toFixed(4);
+  if (abs >= 0.01) return n.toFixed(6);
+
+  return n.toFixed(8).replace(/\.?0+$/, '');
+}
+
 function formatDate(iso, tz) {
   if (!iso) return '';
   const base = dayjs.utc(iso);
@@ -59,6 +72,8 @@ export default function PriceReactionCard({ item }) {
     eventPctMcap,
     eventUsdValue,
     mcapUsd,
+    priceSnap,
+    mcapSnap,
   } = item;
 
   const hasSeries = Array.isArray(seriesClose) && seriesClose.length >= 31;
@@ -81,12 +96,40 @@ export default function PriceReactionCard({ item }) {
   const startOffset = range && range.endIdx != null ? range.startIdx - baseIndex : null;
   const endOffset = range && range.endIdx != null ? range.endIdx - baseIndex : null;
 
-  const snapshotPrice = useMemo(() => {
+  const seriesSnapshotPrice = useMemo(() => {
     if (!hasSeries) return null;
     const idx = baseIndex;
     const val = seriesClose?.[idx];
     return Number.isFinite(Number(val)) ? Number(val) : null;
   }, [hasSeries, baseIndex, seriesClose]);
+
+  const resolvedPriceSnap = useMemo(() => {
+    const dbSnap = Number(priceSnap);
+    if (Number.isFinite(dbSnap)) return dbSnap;
+    return seriesSnapshotPrice;
+  }, [priceSnap, seriesSnapshotPrice]);
+
+  const resolvedMcapSnap = useMemo(() => {
+    const dbSnap = Number(mcapSnap);
+    if (Number.isFinite(dbSnap)) return dbSnap;
+
+    const legacyMcap = Number(mcapUsd);
+    if (Number.isFinite(legacyMcap)) return legacyMcap;
+
+    return null;
+  }, [mcapSnap, mcapUsd]);
+
+  const resolvedEventPctMcap = useMemo(() => {
+    const dbPct = Number(eventPctMcap);
+    if (Number.isFinite(dbPct)) return dbPct;
+
+    const evUsd = Number(eventUsdValue);
+    if (Number.isFinite(evUsd) && Number.isFinite(resolvedMcapSnap) && resolvedMcapSnap > 0) {
+      return (evUsd / resolvedMcapSnap) * 100;
+    }
+
+    return null;
+  }, [eventPctMcap, eventUsdValue, resolvedMcapSnap]);
 
   const selectionMeta = useMemo(() => {
     if (!hasSeries || range?.endIdx == null) return null;
@@ -240,21 +283,32 @@ export default function PriceReactionCard({ item }) {
           )}
         </div>
 
-        {(snapshotPrice != null || eventUsdValue != null || eventPctMcap != null || mcapUsd != null) && (
+        {(resolvedPriceSnap != null ||
+          eventUsdValue != null ||
+          resolvedEventPctMcap != null ||
+          resolvedMcapSnap != null) && (
           <div className="mt-1 flex flex-wrap items-center gap-1.5 text-[11px]">
             {eventUsdValue != null && (
               <span className="rounded-full border border-emerald-200 bg-emerald-100 px-2 py-0.5 text-emerald-700 dark:border-emerald-500/30 dark:bg-emerald-500/15 dark:text-emerald-200">
                 Event $ {formatBigUsd(eventUsdValue)}
               </span>
             )}
-            {eventPctMcap != null && (
+
+            {resolvedEventPctMcap != null && (
               <span className="rounded-full border border-violet-200 bg-violet-100 px-2 py-0.5 text-violet-700 dark:border-violet-400/30 dark:bg-violet-500/15 dark:text-violet-200">
-                {formatMcapPercent(eventPctMcap)} of MCAP
+                {formatMcapPercent(resolvedEventPctMcap)} of MCAP
               </span>
             )}
-            {mcapUsd != null && (
+
+            {resolvedMcapSnap != null && (
               <span className="rounded-full border border-gray-200 bg-gray-100 px-2 py-0.5 text-gray-700 dark:border-white/10 dark:bg-white/5 dark:text-gray-300">
-                MCAP {formatBigUsd(mcapUsd)}
+                MCAP {formatBigUsd(resolvedMcapSnap)}
+              </span>
+            )}
+
+            {resolvedPriceSnap != null && (
+              <span className="rounded-full border border-sky-200 bg-sky-100 px-2 py-0.5 text-sky-700 dark:border-sky-400/30 dark:bg-sky-500/15 dark:text-sky-200">
+                Price $ {formatPrice(resolvedPriceSnap)}
               </span>
             )}
           </div>

@@ -290,6 +290,8 @@ export async function fetchCompletedEvents() {
       min_price,
       min_offset,
       event_pct_mcap,
+      price_snap,
+      mcap_snap,
       events_approved!event_price_reaction_event_id_fkey(
         id,title,start_at,type,event_type_slug,coin_name,timezone,coin_price_link,link,
         event_usd_value,mcap_usd
@@ -302,43 +304,47 @@ export async function fetchCompletedEvents() {
   if (error) throw error;
 
   return (data || [])
-    .filter((row) => !excludedIds.has(row.event_id))
-    .map((row) => {
-      const event = row.events_approved || {};
-      return {
-        eventId: row.event_id,
-        title: event.title,
-        startAt: event.start_at,
-        type: event.type || event.event_type_slug,
-        eventTypeSlug: event.event_type_slug || null,
-        coinName: row.coin_name || event.coin_name,
-        timezone: event.timezone || 'UTC',
-        pair: row.pair,
-        exchange: row.exchange,
-        priceLink: event.coin_price_link || event.link || null,
+  .filter((row) => !excludedIds.has(row.event_id))
+  .map((row) => {
+    const event = row.events_approved || {};
+    return {
+      eventId: row.event_id,
+      title: event.title,
+      startAt: event.start_at,
+      type: event.type || event.event_type_slug,
+      eventTypeSlug: event.event_type_slug || null,
+      coinName: row.coin_name || event.coin_name,
+      timezone: event.timezone || 'UTC',
+      pair: row.pair,
+      exchange: row.exchange,
+      priceLink: event.coin_price_link || event.link || null,
 
-        // ±30m series
-        seriesClose: row.series_close || [],
-        seriesHigh: row.series_high || [],
-        seriesLow: row.series_low || [],
+      // ±30m series
+      seriesClose: row.series_close || [],
+      seriesHigh: row.series_high || [],
+      seriesLow: row.series_low || [],
 
-        // KPI summary
-        preReturn30m: row.pre_return_30m,
-        postReturn30m: row.post_return_30m,
-        netReturn60m: row.net_return_60m,
+      // KPI summary
+      preReturn30m: row.pre_return_30m,
+      postReturn30m: row.post_return_30m,
+      netReturn60m: row.net_return_60m,
 
-        // MAX / MIN
-        maxPrice: row.max_price,
-        maxOffset: row.max_offset,
-        minPrice: row.min_price,
-        minOffset: row.min_offset,
+      // MAX / MIN
+      maxPrice: row.max_price,
+      maxOffset: row.max_offset,
+      minPrice: row.min_price,
+      minOffset: row.min_offset,
 
-        // % of MCAP
-        eventPctMcap: row.event_pct_mcap,
-        eventUsdValue: event.event_usd_value,
-        mcapUsd: event.mcap_usd,
-      };
-    });
+      // snapshots
+      priceSnap: row.price_snap,
+      mcapSnap: row.mcap_snap,
+
+      // % of MCAP
+      eventPctMcap: row.event_pct_mcap,
+      eventUsdValue: event.event_usd_value,
+      mcapUsd: event.mcap_usd,
+    };
+  });
 }
 
 /**

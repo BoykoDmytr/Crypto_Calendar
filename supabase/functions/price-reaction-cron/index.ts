@@ -460,6 +460,10 @@ serve(async (_req: Request) => {
         if (p0 != null) {
           patch.t0_price = p0;
           patch.t0_percent = 0;
+          // встановлюємо price_snap, якщо його ще немає
+         if (row.price_snap == null) {
+           patch.price_snap = p0;
+         }
         }
       }
 
@@ -667,7 +671,7 @@ serve(async (_req: Request) => {
         eventPctMcap = (Number(ev.event_usd_value) / Number(ev.mcap_usd)) * 100;
       }
 
-      const update = {
+      const update: any = {
         series_close: closeSeries,
         series_high: highSeries,
         series_low: lowSeries,
@@ -680,6 +684,17 @@ serve(async (_req: Request) => {
         min_offset: minOffset,
         event_pct_mcap: eventPctMcap,
       };
+      // заповнюємо снапшот MCAP, якщо він ще відсутній
+      if (row.mcap_snap == null && ev.mcap_usd != null) {
+        update.mcap_snap = Number(ev.mcap_usd);
+      }
+      // якщо price_snap все ще порожній, дублюємо ціну з T0
+      if (row.price_snap == null) {
+        const basePrice = closeSeries[preDuration] ?? row.t0_price;
+        if (basePrice != null) update.price_snap = basePrice;
+      }
+
+      await supabase.from('event_price_reaction').update(update).eq('event_id', ev.id);
 
       const { error: updErr } = await supabase
         .from("event_price_reaction")
