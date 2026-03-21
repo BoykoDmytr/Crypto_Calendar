@@ -242,9 +242,6 @@ export default function PriceReactionCard({ item }) {
 
         {(eventUsdValue != null || snapshotPrice != null || mcapUsd != null) && (
           <div className="mt-0.5 flex flex-wrap items-center gap-1 text-[11px] text-gray-500 dark:text-gray-400">
-            {eventUsdValue != null && <span>{formatBigUsd(eventUsdValue)}$</span>}
-            {snapshotPrice != null && <span>@ {Number(snapshotPrice).toFixed(6)}</span>}
-            {mcapUsd != null && <span>• MCAP {formatBigUsd(mcapUsd)}</span>}
           </div>
         )}
       </div>
