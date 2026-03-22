@@ -178,8 +178,14 @@ export default function Stats() {
         return bySlug === selected || byType === selected;
       });
     }
+    const getTimestamp = (item) => {
+      const value = item.startAt ? Date.parse(item.startAt) : NaN;
+      return Number.isNaN(value) ? 0 : value;
+    };
     const sorted = [...filtered];
     sorted.sort((a, b) => {
+      const byDate = getTimestamp(b) - getTimestamp(a);
+      if (byDate !== 0) return byDate;
       const av = a.eventPctMcap ?? -Infinity;
       const bv = b.eventPctMcap ?? -Infinity;
       return bv - av;
