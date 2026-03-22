@@ -316,7 +316,7 @@ export default function PriceReactionCard({ item }) {
 
       <div className="min-h-[22px] px-1 text-[11px] text-white/55 sm:text-xs">
         {selectionMeta && (
-          <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="flex flex-wrap items-center justify-center gap-x-6 gap-y-1 text-center">
             <span>{selectionMeta.timeText}</span>
             <span className="text-white/45">{selectionMeta.entryText}</span>
           </div>
