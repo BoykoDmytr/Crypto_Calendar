@@ -5,19 +5,67 @@ import timezone from 'dayjs/plugin/timezone';
 
 import ReactionChart from './ReactionChart';
 import ProfitCalculator from './ProfitCalculator';
-import EventTokenInfo from './EventTokenInfo';
 import { extractCoinEntries } from '../utils/coins';
+import { fetchMexcTickerPrice } from '../utils/fetchMexcTicker';
 
 dayjs.extend(utc);
 dayjs.extend(timezone);
 
 const TZ_MAP = { Kyiv: 'Europe/Kyiv' };
 
+function formatMcapPercent(value) {
+  if (value == null) return null;
+  const n = Number(value);
+  if (!Number.isFinite(n)) return null;
+  const abs = Math.abs(n);
+  if (abs > 0 && abs < 0.0001) return '<0.0001%';
+  if (abs >= 1) return `${n.toFixed(2)}%`;
+  if (abs >= 0.1) return `${n.toFixed(3)}%`;
+  if (abs >= 0.01) return `${n.toFixed(4)}%`;
+  return `${n.toFixed(6).replace(/\.?0+$/, '')}%`;
+}
+
+function formatUsd(value) {
+  const n = Number(value);
+  if (!Number.isFinite(n) || n <= 0) return null;
+  return new Intl.NumberFormat('en-US', {
+    style: 'currency',
+    currency: 'USD',
+    maximumFractionDigits: n < 1 ? 6 : 2,
+  }).format(n);
+}
+
 function formatDate(iso, tz) {
   if (!iso) return '';
   const base = dayjs.utc(iso);
   const zone = TZ_MAP[tz] || tz || 'UTC';
   return base.tz(zone).format('DD MMM HH:mm');
+}
+
+// ── Parse MEXC link → symbol + market ──
+function isMexcFuturesLink(raw) {
+  if (!raw) return false;
+  return /\/futures\//i.test(raw) || /type=linear_swap/i.test(raw);
+}
+
+function extractMexcSymbol(link) {
+  if (!link || typeof link !== 'string') return null;
+  if (!/^https?:\/\//i.test(link)) return null;
+  if (!/mexc\.com/i.test(link)) return null;
+
+  const isFutures = isMexcFuturesLink(link);
+  const m =
+    link.match(/\/(futures|exchange)\/([A-Z0-9]+)_([A-Z0-9]+)/i) ||
+    link.match(/([A-Z0-9]+)_([A-Z0-9]+)/i);
+  if (!m) return null;
+
+  const base = (m[m.length - 2] || '').toUpperCase();
+  const quote = (m[m.length - 1] || '').toUpperCase();
+  if (!base || !quote) return null;
+
+  return isFutures
+    ? { symbol: `${base}_${quote}`, market: 'futures' }
+    : { symbol: `${base}${quote}`, market: 'spot' };
 }
 
 export default function PriceReactionCard({ item }) {
@@ -31,7 +79,6 @@ export default function PriceReactionCard({ item }) {
     seriesClose,
     seriesHigh,
     seriesLow,
-    // coin info from events_approved
     coins,
     coinQuantity,
     coinPriceLink,
@@ -51,8 +98,8 @@ export default function PriceReactionCard({ item }) {
   const [direction, setDirection] = useState('short');
   const [showProfit, setShowProfit] = useState(false);
 
-  // ── Only first coin (total pool), skip the rest ──
-  const firstCoinEntry = useMemo(() => {
+  // ── First coin info (static) ──
+  const firstCoin = useMemo(() => {
     const pseudoEvent = {
       coins: coins || null,
       coin_name: coinName || null,
@@ -61,9 +108,59 @@ export default function PriceReactionCard({ item }) {
       coin_pct_circ: coinPctCirc || null,
     };
     const entries = extractCoinEntries(pseudoEvent);
-    return entries.length > 0 ? [entries[0]] : [];
+    return entries[0] || null;
   }, [coins, coinName, coinQuantity, coinPriceLink, coinPctCirc]);
 
+  const qty = useMemo(() => {
+    if (!firstCoin) return null;
+    const q = Number(firstCoin.quantity);
+    return Number.isFinite(q) && q > 0 ? q : null;
+  }, [firstCoin]);
+
+  const priceLink = firstCoin?.price_link || '';
+  const mexcMeta = useMemo(() => extractMexcSymbol(priceLink), [priceLink]);
+
+  // ── Fetch MEXC price ONCE (no interval, no visibility) ──
+  const [livePrice, setLivePrice] = useState(null);
+
+  useEffect(() => {
+    if (!mexcMeta?.symbol) return;
+    let cancelled = false;
+
+    (async () => {
+      try {
+        const { price } = await fetchMexcTickerPrice(mexcMeta.symbol, { market: mexcMeta.market });
+        if (!cancelled && Number.isFinite(price)) setLivePrice(price);
+      } catch (e) {
+        console.debug('[Stats MEXC] fetch error', e);
+      }
+    })();
+
+    return () => { cancelled = true; };
+  }, [mexcMeta?.symbol, mexcMeta?.market]);
+
+  // ── USD label ──
+  const usdLabel = useMemo(() => {
+    if (qty == null || livePrice == null) return null;
+    return formatUsd(qty * livePrice);
+  }, [qty, livePrice]);
+
+  // ── %circ label ──
+  const pctLabel = useMemo(() => {
+    let rawPct = firstCoin?.pct_circ ?? null;
+    if (rawPct == null && typeof coinPctCirc === 'string' && coinPctCirc.trim()) {
+      const firstLine = coinPctCirc.split('\n')[0]?.trim();
+      if (firstLine) {
+        const n = Number(firstLine.replace('%', '').trim());
+        if (Number.isFinite(n)) rawPct = n;
+      }
+    }
+    return rawPct != null ? formatMcapPercent(Number(rawPct)) : null;
+  }, [firstCoin, coinPctCirc]);
+
+  const hasCoinBadges = usdLabel || pctLabel;
+
+  // ── Chart interactions ──
   const handleRangeSelect = ({ startIdx, endIdx }) => {
     if (endIdx == null) setRange({ startIdx, endIdx: null });
     else setRange({ startIdx, endIdx });
@@ -79,17 +176,13 @@ export default function PriceReactionCard({ item }) {
     const entryPrice = seriesClose?.[sIdx];
     const exitPrice = seriesClose?.[eIdx];
     if (!Number.isFinite(Number(entryPrice)) || !Number.isFinite(Number(exitPrice))) return null;
-
     let timeText = `${Math.abs(eIdx - sIdx)}m`;
     if (startAt) {
       const zone = TZ_MAP[tz] || tz || 'UTC';
       const base = dayjs.utc(startAt).tz(zone);
       timeText = `${base.add(sIdx - baseIndex, 'minute').format('HH:mm')} → ${base.add(eIdx - baseIndex, 'minute').format('HH:mm')}`;
     }
-    return {
-      timeText,
-      entryText: `Entry: ${Number(entryPrice).toFixed(6)} → Exit: ${Number(exitPrice).toFixed(6)}`,
-    };
+    return { timeText, entryText: `Entry: ${Number(entryPrice).toFixed(6)} → Exit: ${Number(exitPrice).toFixed(6)}` };
   }, [hasSeries, range, seriesClose, startAt, tz, baseIndex]);
 
   const pnlSummary = useMemo(() => {
@@ -100,18 +193,14 @@ export default function PriceReactionCard({ item }) {
     const exitPrice = seriesClose?.[eIdx];
     const inv = Number(investment);
     if (!Number.isFinite(Number(entryPrice)) || !Number.isFinite(Number(exitPrice)) || !Number.isFinite(inv) || inv <= 0) return null;
-
-    const qty = inv / entryPrice;
-    const pnl = direction === 'long' ? qty * (exitPrice - entryPrice) : qty * (entryPrice - exitPrice);
+    const q = inv / entryPrice;
+    const pnl = direction === 'long' ? q * (exitPrice - entryPrice) : q * (entryPrice - exitPrice);
     const pnlPct = inv ? (pnl / inv) * 100 : null;
     return { pnl, pnlPct };
   }, [hasSeries, range, seriesClose, investment, direction]);
 
   useEffect(() => {
-    const onFs = () => {
-      setIsFullscreen(!!document.fullscreenElement);
-      if (!document.fullscreenElement) setNeedRotateHint(false);
-    };
+    const onFs = () => { setIsFullscreen(!!document.fullscreenElement); if (!document.fullscreenElement) setNeedRotateHint(false); };
     document.addEventListener('fullscreenchange', onFs);
     return () => document.removeEventListener('fullscreenchange', onFs);
   }, []);
@@ -120,37 +209,20 @@ export default function PriceReactionCard({ item }) {
     try {
       const el = chartFsRef.current;
       if (!el) return;
-      if (el.requestFullscreen) {
-        await el.requestFullscreen();
-      } else { setNeedRotateHint(true); return; }
-      if (screen.orientation?.lock) {
-        try { await screen.orientation.lock('landscape'); } catch { setNeedRotateHint(true); }
-      } else { setNeedRotateHint(true); }
+      if (el.requestFullscreen) { await el.requestFullscreen(); } else { setNeedRotateHint(true); return; }
+      if (screen.orientation?.lock) { try { await screen.orientation.lock('landscape'); } catch { setNeedRotateHint(true); } } else { setNeedRotateHint(true); }
     } catch { setNeedRotateHint(true); }
   };
 
   const exitFullscreen = async () => {
-    try {
-      if (screen.orientation?.unlock) { try { screen.orientation.unlock(); } catch {} }
-      if (document.exitFullscreen) { await document.exitFullscreen(); }
-    } catch {}
+    try { if (screen.orientation?.unlock) { try { screen.orientation.unlock(); } catch {} } if (document.exitFullscreen) { await document.exitFullscreen(); } } catch {}
   };
 
-  const summaryColor =
-    pnlSummary == null
-      ? 'text-white/55'
-      : pnlSummary.pnl > 0
-      ? 'text-emerald-400'
-      : pnlSummary.pnl < 0
-      ? 'text-red-400'
-      : 'text-amber-400';
+  const summaryColor = pnlSummary == null ? 'text-white/55' : pnlSummary.pnl > 0 ? 'text-emerald-400' : pnlSummary.pnl < 0 ? 'text-red-400' : 'text-amber-400';
 
   return (
     <article className="relative overflow-hidden rounded-3xl border border-gray-200 bg-white/90 px-4 py-5 text-slate-900 shadow-xl backdrop-blur-sm dark:border-slate-800 dark:bg-gradient-to-br dark:from-[#0b0f1a] dark:via-[#0f172a] dark:to-[#0b111f] dark:text-white">
-      <div
-        className="pointer-events-none absolute inset-0 opacity-70 bg-[radial-gradient(circle_at_20%_10%,rgba(34,197,94,0.12),transparent_35%),radial-gradient(circle_at_80%_0,rgba(14,165,233,0.1),transparent_30%)]"
-        aria-hidden
-      />
+      <div className="pointer-events-none absolute inset-0 opacity-70 bg-[radial-gradient(circle_at_20%_10%,rgba(34,197,94,0.12),transparent_35%),radial-gradient(circle_at_80%_0,rgba(14,165,233,0.1),transparent_30%)]" aria-hidden />
 
       {/* ── Status badges ── */}
       <div className="relative mb-3 flex flex-wrap items-center gap-2 text-[11px] font-semibold">
@@ -168,53 +240,39 @@ export default function PriceReactionCard({ item }) {
         <div className="flex flex-wrap items-center gap-2 text-xs text-gray-500 dark:text-gray-400">
           <span className="whitespace-nowrap">{formatDate(startAt, tz)}</span>
           {(pair || coinName) && (
-            <span className="text-gray-500 dark:text-gray-300">
-              · {pair ? `${pair} MEXC` : coinName}
-            </span>
+            <span className="text-gray-500 dark:text-gray-300">· {pair ? `${pair} MEXC` : coinName}</span>
           )}
         </div>
 
-        {/* ── First coin only: real price via MEXC/Debot, fetched ONCE (no refresh) ── */}
-        {firstCoinEntry.length > 0 && (
-          <EventTokenInfo
-            coins={firstCoinEntry}
-            pctText={coinPctCirc}
-            showMcap={showMcap !== false}
-            disableRefresh
-          />
+        {/* ── USD + %circ pill badges (real MEXC price, fetched once) ── */}
+        {hasCoinBadges && (
+          <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+            {usdLabel && (
+              <span className="inline-flex items-center rounded-full border border-amber-300 bg-amber-50 px-2.5 py-1 text-[11px] font-bold text-amber-800 shadow-sm dark:border-amber-500/30 dark:bg-amber-500/15 dark:text-amber-200">
+                {usdLabel}
+              </span>
+            )}
+            {showMcap !== false && pctLabel && (
+              <span className="inline-flex items-center rounded-full border border-sky-300 bg-sky-50 px-2.5 py-1 text-[11px] font-bold text-sky-800 shadow-sm dark:border-sky-500/30 dark:bg-sky-500/15 dark:text-sky-200">
+                {pctLabel}
+              </span>
+            )}
+          </div>
         )}
       </div>
 
       {/* ── Chart ── */}
-      <div
-        ref={chartFsRef}
-        className={`relative ${isFullscreen ? 'flex h-screen w-screen items-center justify-center bg-[#020617] p-2 sm:p-4' : ''}`}
-      >
-        <div
-          className={`relative border border-gray-100 bg-gradient-to-b from-gray-50 via-white to-white shadow-sm backdrop-blur-sm dark:border-white/5 dark:from-white/10 dark:via-white/5 dark:to-white/0 ${
-            isFullscreen
-              ? 'mb-0 h-full w-full max-h-[900px] max-w-[1600px] overflow-hidden rounded-2xl'
-              : 'mb-2 overflow-x-auto rounded-2xl md:overflow-x-hidden'
-          }`}
-        >
+      <div ref={chartFsRef} className={`relative ${isFullscreen ? 'flex h-screen w-screen items-center justify-center bg-[#020617] p-2 sm:p-4' : ''}`}>
+        <div className={`relative border border-gray-100 bg-gradient-to-b from-gray-50 via-white to-white shadow-sm backdrop-blur-sm dark:border-white/5 dark:from-white/10 dark:via-white/5 dark:to-white/0 ${isFullscreen ? 'mb-0 h-full w-full max-h-[900px] max-w-[1600px] overflow-hidden rounded-2xl' : 'mb-2 overflow-x-auto rounded-2xl md:overflow-x-hidden'}`}>
           {hasSeries && (
-            <button type="button" onClick={enterFullscreen}
-              className="absolute right-3 top-3 z-10 rounded-lg border border-white/10 bg-black/40 px-2.5 py-1.5 text-xs text-white backdrop-blur hover:bg-black/55 md:hidden">
-              ⤢ Fullscreen
-            </button>
+            <button type="button" onClick={enterFullscreen} className="absolute right-3 top-3 z-10 rounded-lg border border-white/10 bg-black/40 px-2.5 py-1.5 text-xs text-white backdrop-blur hover:bg-black/55 md:hidden">⤢ Fullscreen</button>
           )}
           {isFullscreen && (
-            <button type="button" onClick={exitFullscreen}
-              className="absolute left-3 top-3 z-10 rounded-lg border border-white/10 bg-black/40 px-2.5 py-1.5 text-xs text-white backdrop-blur hover:bg-black/55 md:hidden">
-              ✕
-            </button>
+            <button type="button" onClick={exitFullscreen} className="absolute left-3 top-3 z-10 rounded-lg border border-white/10 bg-black/40 px-2.5 py-1.5 text-xs text-white backdrop-blur hover:bg-black/55 md:hidden">✕</button>
           )}
           {needRotateHint && isFullscreen && (
-            <div className="absolute bottom-3 left-1/2 z-10 -translate-x-1/2 rounded-xl border border-white/10 bg-black/50 px-3 py-1.5 text-xs text-white md:hidden">
-              Поверни телефон горизонтально ↻
-            </div>
+            <div className="absolute bottom-3 left-1/2 z-10 -translate-x-1/2 rounded-xl border border-white/10 bg-black/50 px-3 py-1.5 text-xs text-white md:hidden">Поверни телефон горизонтально ↻</div>
           )}
-
           <div className="p-4 md:flex md:justify-center">
             {hasSeries ? (
               <ReactionChart
@@ -228,9 +286,7 @@ export default function PriceReactionCard({ item }) {
                 isFullscreen={isFullscreen}
               />
             ) : (
-              <div className="text-sm text-gray-600 dark:text-gray-300">
-                Немає серії ±30m (ще не пораховано або івент занадто свіжий).
-              </div>
+              <div className="text-sm text-gray-600 dark:text-gray-300">Немає серії ±30m (ще не пораховано або івент занадто свіжий).</div>
             )}
           </div>
         </div>
@@ -249,17 +305,10 @@ export default function PriceReactionCard({ item }) {
         <>
           <div className="mt-2 flex items-center gap-2">
             <div className="inline-flex rounded-xl border border-white/10 bg-[#111931]/70 p-1 shadow-[0_8px_22px_rgba(10,16,38,0.25)]">
-              <button type="button" onClick={() => setDirection('short')}
-                className={`min-w-[76px] rounded-lg px-4 py-2 text-sm font-semibold transition ${
-                  direction === 'short' ? 'bg-red-500 text-white shadow-[0_6px_16px_rgba(239,68,68,0.35)]' : 'text-white/80 hover:bg-white/5'
-                }`}>Short</button>
-              <button type="button" onClick={() => setDirection('long')}
-                className={`min-w-[76px] rounded-lg px-4 py-2 text-sm font-semibold transition ${
-                  direction === 'long' ? 'bg-emerald-500 text-white shadow-[0_6px_16px_rgba(16,185,129,0.35)]' : 'text-white/80 hover:bg-white/5'
-                }`}>Long</button>
+              <button type="button" onClick={() => setDirection('short')} className={`min-w-[76px] rounded-lg px-4 py-2 text-sm font-semibold transition ${direction === 'short' ? 'bg-red-500 text-white shadow-[0_6px_16px_rgba(239,68,68,0.35)]' : 'text-white/80 hover:bg-white/5'}`}>Short</button>
+              <button type="button" onClick={() => setDirection('long')} className={`min-w-[76px] rounded-lg px-4 py-2 text-sm font-semibold transition ${direction === 'long' ? 'bg-emerald-500 text-white shadow-[0_6px_16px_rgba(16,185,129,0.35)]' : 'text-white/80 hover:bg-white/5'}`}>Long</button>
             </div>
-            <button type="button" onClick={() => setShowProfit((prev) => !prev)}
-              className="inline-flex items-center gap-2 rounded-xl border border-white/10 bg-[#111931]/70 px-4 py-3 text-sm font-medium text-white/85 shadow-[0_8px_22px_rgba(10,16,38,0.25)] transition hover:bg-white/10">
+            <button type="button" onClick={() => setShowProfit((prev) => !prev)} className="inline-flex items-center gap-2 rounded-xl border border-white/10 bg-[#111931]/70 px-4 py-3 text-sm font-medium text-white/85 shadow-[0_8px_22px_rgba(10,16,38,0.25)] transition hover:bg-white/10">
               <span>Profit</span>
               <span className="text-white/50">{showProfit ? '▲' : '›'}</span>
             </button>
@@ -268,33 +317,16 @@ export default function PriceReactionCard({ item }) {
           <div className="mt-3 rounded-2xl border border-white/10 bg-[#0f1730]/60 px-4 py-3 text-sm shadow-[0_8px_22px_rgba(10,16,38,0.2)]">
             {pnlSummary ? (
               <div className="flex flex-wrap items-center justify-between gap-3">
-                <div className="text-white/80">
-                  PnL{' '}
-                  <span className={`font-semibold ${summaryColor}`}>
-                    {pnlSummary.pnlPct >= 0 ? '+' : ''}{pnlSummary.pnlPct.toFixed(2)}%
-                  </span>
-                </div>
-                <div className={`font-semibold ${summaryColor}`}>
-                  {pnlSummary.pnl >= 0 ? '+' : ''}{pnlSummary.pnl.toFixed(4)} USDT
-                </div>
+                <div className="text-white/80">PnL{' '}<span className={`font-semibold ${summaryColor}`}>{pnlSummary.pnlPct >= 0 ? '+' : ''}{pnlSummary.pnlPct.toFixed(2)}%</span></div>
+                <div className={`font-semibold ${summaryColor}`}>{pnlSummary.pnl >= 0 ? '+' : ''}{pnlSummary.pnl.toFixed(4)} USDT</div>
               </div>
             ) : (
-              <div className="text-white/55">
-                Оберіть дві свічки на графіку, щоб порахувати прибуток.
-              </div>
+              <div className="text-white/55">Оберіть дві свічки на графіку, щоб порахувати прибуток.</div>
             )}
           </div>
 
           {showProfit && (
-            <ProfitCalculator
-              closeSeries={seriesClose}
-              startOffset={startOffset}
-              endOffset={endOffset}
-              baseIndex={baseIndex}
-              investment={investment}
-              onInvestmentChange={setInvestment}
-              direction={direction}
-            />
+            <ProfitCalculator closeSeries={seriesClose} startOffset={startOffset} endOffset={endOffset} baseIndex={baseIndex} investment={investment} onInvestmentChange={setInvestment} direction={direction} />
           )}
         </>
       )}
