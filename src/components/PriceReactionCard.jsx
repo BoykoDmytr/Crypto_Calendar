@@ -5,34 +5,13 @@ import timezone from 'dayjs/plugin/timezone';
 
 import ReactionChart from './ReactionChart';
 import ProfitCalculator from './ProfitCalculator';
+import EventTokenInfo from './EventTokenInfo';
 import { extractCoinEntries } from '../utils/coins';
 
 dayjs.extend(utc);
 dayjs.extend(timezone);
 
 const TZ_MAP = { Kyiv: 'Europe/Kyiv' };
-
-function formatMcapPercent(value) {
-  if (value == null) return null;
-  const n = Number(value);
-  if (!Number.isFinite(n)) return null;
-  const abs = Math.abs(n);
-  if (abs > 0 && abs < 0.0001) return '<0.0001%';
-  if (abs >= 1) return `${n.toFixed(2)}%`;
-  if (abs >= 0.1) return `${n.toFixed(3)}%`;
-  if (abs >= 0.01) return `${n.toFixed(4)}%`;
-  return `${n.toFixed(6).replace(/\.?0+$/, '')}%`;
-}
-
-function formatUsdCompact(value) {
-  const n = Number(value);
-  if (!Number.isFinite(n) || n <= 0) return null;
-  return new Intl.NumberFormat('en-US', {
-    style: 'currency',
-    currency: 'USD',
-    maximumFractionDigits: n < 1 ? 6 : 2,
-  }).format(n);
-}
 
 function formatDate(iso, tz) {
   if (!iso) return '';
@@ -52,10 +31,10 @@ export default function PriceReactionCard({ item }) {
     seriesClose,
     seriesHigh,
     seriesLow,
-    priceSnap,
     // coin info from events_approved
     coins,
     coinQuantity,
+    coinPriceLink,
     coinPctCirc,
     showMcap,
   } = item;
@@ -72,44 +51,18 @@ export default function PriceReactionCard({ item }) {
   const [direction, setDirection] = useState('short');
   const [showProfit, setShowProfit] = useState(false);
 
-  // ── First coin: USD value + %circ (static, no live fetch) ──
-  const firstCoinInfo = useMemo(() => {
+  // ── Only first coin (total pool), skip the rest ──
+  const firstCoinEntry = useMemo(() => {
     const pseudoEvent = {
       coins: coins || null,
       coin_name: coinName || null,
       coin_quantity: coinQuantity || null,
+      coin_price_link: coinPriceLink || null,
       coin_pct_circ: coinPctCirc || null,
     };
     const entries = extractCoinEntries(pseudoEvent);
-    const first = entries[0];
-    if (!first) return null;
-
-    const qty = first.quantity != null ? Number(first.quantity) : null;
-    const price = Number(priceSnap);
-
-    // USD = first coin qty × snapped T0 price
-    let usdLabel = null;
-    if (Number.isFinite(qty) && qty > 0 && Number.isFinite(price) && price > 0) {
-      usdLabel = formatUsdCompact(qty * price);
-    }
-
-    // % of circulating supply — from coin entry or first line of coinPctCirc
-    let pctLabel = null;
-    let rawPct = first.pct_circ ?? null;
-    if (rawPct == null && typeof coinPctCirc === 'string' && coinPctCirc.trim()) {
-      const firstLine = coinPctCirc.split('\n')[0]?.trim();
-      if (firstLine) {
-        const n = Number(firstLine.replace('%', '').trim());
-        if (Number.isFinite(n)) rawPct = n;
-      }
-    }
-    if (rawPct != null) {
-      pctLabel = formatMcapPercent(Number(rawPct));
-    }
-
-    if (!usdLabel && !pctLabel) return null;
-    return { usdLabel, pctLabel };
-  }, [coins, coinName, coinQuantity, coinPctCirc, priceSnap]);
+    return entries.length > 0 ? [entries[0]] : [];
+  }, [coins, coinName, coinQuantity, coinPriceLink, coinPctCirc]);
 
   const handleRangeSelect = ({ startIdx, endIdx }) => {
     if (endIdx == null) setRange({ startIdx, endIdx: null });
@@ -221,20 +174,14 @@ export default function PriceReactionCard({ item }) {
           )}
         </div>
 
-        {/* ── First coin: USD + %circ (static, snapped price) ── */}
-        {firstCoinInfo && (
-          <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
-            {firstCoinInfo.usdLabel && (
-              <span className="inline-flex items-center rounded-full border border-amber-300 bg-amber-50 px-2.5 py-1 text-[11px] font-bold text-amber-800 shadow-sm dark:border-amber-500/30 dark:bg-amber-500/15 dark:text-amber-200">
-                {firstCoinInfo.usdLabel}
-              </span>
-            )}
-            {showMcap !== false && firstCoinInfo.pctLabel && (
-              <span className="inline-flex items-center rounded-full border border-sky-300 bg-sky-50 px-2.5 py-1 text-[11px] font-bold text-sky-800 shadow-sm dark:border-sky-500/30 dark:bg-sky-500/15 dark:text-sky-200">
-                {firstCoinInfo.pctLabel}
-              </span>
-            )}
-          </div>
+        {/* ── First coin only: real price via MEXC/Debot, fetched ONCE (no refresh) ── */}
+        {firstCoinEntry.length > 0 && (
+          <EventTokenInfo
+            coins={firstCoinEntry}
+            pctText={coinPctCirc}
+            showMcap={showMcap !== false}
+            disableRefresh
+          />
         )}
       </div>
 
@@ -305,15 +252,11 @@ export default function PriceReactionCard({ item }) {
               <button type="button" onClick={() => setDirection('short')}
                 className={`min-w-[76px] rounded-lg px-4 py-2 text-sm font-semibold transition ${
                   direction === 'short' ? 'bg-red-500 text-white shadow-[0_6px_16px_rgba(239,68,68,0.35)]' : 'text-white/80 hover:bg-white/5'
-                }`}>
-                Short
-              </button>
+                }`}>Short</button>
               <button type="button" onClick={() => setDirection('long')}
                 className={`min-w-[76px] rounded-lg px-4 py-2 text-sm font-semibold transition ${
                   direction === 'long' ? 'bg-emerald-500 text-white shadow-[0_6px_16px_rgba(16,185,129,0.35)]' : 'text-white/80 hover:bg-white/5'
-                }`}>
-                Long
-              </button>
+                }`}>Long</button>
             </div>
             <button type="button" onClick={() => setShowProfit((prev) => !prev)}
               className="inline-flex items-center gap-2 rounded-xl border border-white/10 bg-[#111931]/70 px-4 py-3 text-sm font-medium text-white/85 shadow-[0_8px_22px_rgba(10,16,38,0.25)] transition hover:bg-white/10">

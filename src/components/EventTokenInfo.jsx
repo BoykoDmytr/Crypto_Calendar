@@ -16,7 +16,6 @@ function formatCurrency(value) {
   return new Intl.NumberFormat('en-US', opts).format(num);
 }
 
-// NEW: format % of circulating supply
 function formatPctCirc(p) {
   if (p === null || p === undefined) return null;
   const n = Number(p);
@@ -24,22 +23,14 @@ function formatPctCirc(p) {
 
   const abs = Math.abs(n);
 
-  // ✅ дуже малі значення — без scientific notation
-  // (можеш змінити поріг, напр. 0.001)
   if (abs > 0 && abs < 0.0001) return '<0.0001%';
-
   if (abs >= 1) return `${n.toFixed(2)}%`;
   if (abs >= 0.1) return `${n.toFixed(3)}%`;
   if (abs >= 0.01) return `${n.toFixed(4)}%`;
 
-  // ✅ малі, але не надто малі — показуємо до 6 знаків після коми (без зайвих нулів)
   return `${n.toFixed(6).replace(/\.?0+$/, '')}%`;
 }
 
-// Підтримує:
-// - https://www.mexc.com/exchange/BTC_USDT
-// - https://www.mexc.com/uk-UA/exchange/BTC_USDT#token-info
-// - https://www.mexc.com/uk-UA/futures/RIVER_USDT
 const MEXC_REFRESH_INTERVAL_MS = 600_000;
 
 function isMexcFuturesLink(raw) {
@@ -83,10 +74,10 @@ function extractMexcSymbolFromLink(link) {
   if (!base || !quote) return null;
 
   if (isFutures) {
-    return { symbol: `${base}_${quote}`, market: 'futures' }; // BTC_USDT
+    return { symbol: `${base}_${quote}`, market: 'futures' };
   }
 
-  return { symbol: `${base}${quote}`, market: 'spot' }; // BTCUSDT
+  return { symbol: `${base}${quote}`, market: 'spot' };
 }
 
 function TokenRow({ coin, idx = 0, pctText = null, showMcap = true, disableRefresh = false }) {
@@ -98,32 +89,28 @@ function TokenRow({ coin, idx = 0, pctText = null, showMcap = true, disableRefre
   const isMexc = /mexc\.com/i.test(link);
   const mexcMeta = isMexc ? extractMexcSymbolFromLink(link) : null;
 
-  // NEW: percent of circulating supply (precomputed on create/update)
-  // supports different key names just in case
   const pctCircRawFromCoin =
-  coin?.pct_circ ?? coin?.pctCirc ?? coin?.percent_of_circulating ?? coin?.pct_of_circ ?? null;
+    coin?.pct_circ ?? coin?.pctCirc ?? coin?.percent_of_circulating ?? coin?.pct_of_circ ?? null;
 
-// ✅ fallback: якщо pct не в coin, беремо з events_approved.coin_pct_circ (text, рядок на монету)
-let pctCircRaw = pctCircRawFromCoin;
+  let pctCircRaw = pctCircRawFromCoin;
 
-if (pctCircRaw == null && typeof pctText === 'string' && pctText.trim()) {
-  const lines = pctText.split('\n').map((s) => s.trim());
-  const line = lines[idx];
-  if (line) {
-    // line може бути "0.000035" або "0.000035%" — нормалізуємо
-    const cleaned = line.replace('%', '').trim();
-    const asNum = Number(cleaned);
-    if (Number.isFinite(asNum)) pctCircRaw = asNum;
+  if (pctCircRaw == null && typeof pctText === 'string' && pctText.trim()) {
+    const lines = pctText.split('\n').map((s) => s.trim());
+    const line = lines[idx];
+    if (line) {
+      const cleaned = line.replace('%', '').trim();
+      const asNum = Number(cleaned);
+      if (Number.isFinite(asNum)) pctCircRaw = asNum;
+    }
   }
-}
   const pctCircLabel = useMemo(() => formatPctCirc(pctCircRaw), [pctCircRaw]);
 
-  // 🔹 Debot — усе, що НЕ MEXC
+  // Debot — all non-MEXC
   const { price: debotPrice, loading: debotLoading, error: debotError } = useTokenPrice(
     !isMexc ? link : null
   );
 
-  // 🔹 MEXC — локальний стейт
+  // MEXC — local state
   const [mexcPrice, setMexcPrice] = useState(null);
   const [mexcLoading, setMexcLoading] = useState(false);
   const [mexcError, setMexcError] = useState(null);
@@ -170,10 +157,10 @@ if (pctCircRaw == null && typeof pctText === 'string' && pctText.trim()) {
       }
     }
 
-    // ✅ Always fetch once
+    // Always fetch once
     fetchPrice();
 
-    // ✅ Only set up interval + visibility if NOT disabled
+    // Only set up interval + visibility if NOT disabled
     if (!disableRefresh) {
       timerId = setInterval(fetchPrice, MEXC_REFRESH_INTERVAL_MS);
 
@@ -196,7 +183,6 @@ if (pctCircRaw == null && typeof pctText === 'string' && pctText.trim()) {
     };
   }, [isMexc, mexcMeta?.symbol, mexcMeta?.market, name, disableRefresh]);
 
-  // 🔹 Вибір джерела ціни
   const price = isMexc ? mexcPrice : debotPrice;
   const loading = isMexc ? mexcLoading : debotLoading;
   const error = isMexc ? mexcError : debotError;
@@ -219,24 +205,6 @@ if (pctCircRaw == null && typeof pctText === 'string' && pctText.trim()) {
   const totalLabel = useMemo(() => formatCurrency(total), [total]);
   const showPriceInfo = hasQuantity && Boolean(link);
 
-  console.debug('[EventTokenInfo:TokenRow]', {
-    name,
-    link,
-    isMexc,
-    mexcSymbol: mexcMeta?.symbol,
-    market: mexcMeta?.market,
-    hasQuantity,
-    quantityValue,
-    price,
-    total,
-    totalLabel,
-    pctCircRaw,
-    pctCircLabel,
-    loading,
-    error,
-    disableRefresh,
-  });
-
   return (
     <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-sm sm:text-base">
       <div className="inline-flex items-center gap-1 sm:gap-1.5 whitespace-nowrap">
@@ -250,7 +218,6 @@ if (pctCircRaw == null && typeof pctText === 'string' && pctText.trim()) {
         ) : totalLabel ? (
           <span className="token-panel__label">
             <span className="token-panel__value">{totalLabel}</span>
-            {/* Відображати відсоток тільки якщо showMcap = true */}
             {showMcap && pctCircLabel && (
               <span className="token-panel__muted" style={{ marginLeft: 8 }}>
                 {pctCircLabel}
