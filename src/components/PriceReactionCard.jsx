@@ -5,7 +5,6 @@ import timezone from 'dayjs/plugin/timezone';
 
 import ReactionChart from './ReactionChart';
 import ProfitCalculator from './ProfitCalculator';
-import EventTokenInfo from './EventTokenInfo';
 import { extractCoinEntries } from '../utils/coins';
 
 dayjs.extend(utc);
@@ -17,27 +16,38 @@ function formatMcapPercent(value) {
   if (value == null) return null;
   const n = Number(value);
   if (!Number.isFinite(n)) return null;
-
   const abs = Math.abs(n);
-
   if (abs > 0 && abs < 0.0001) return '<0.0001%';
   if (abs >= 1) return `${n.toFixed(2)}%`;
   if (abs >= 0.1) return `${n.toFixed(3)}%`;
   if (abs >= 0.01) return `${n.toFixed(4)}%`;
-
   return `${n.toFixed(6).replace(/\.?0+$/, '')}%`;
 }
 
 function formatBigUsd(value) {
   const n = Number(value);
   if (!Number.isFinite(n)) return null;
-
   const abs = Math.abs(n);
   if (abs >= 1e9) return `$ ${(n / 1e9).toFixed(2)}B`;
   if (abs >= 1e6) return `$ ${(n / 1e6).toFixed(2)}M`;
   if (abs >= 1e3) return `$ ${(n / 1e3).toFixed(2)}K`;
-
   return `$ ${n.toFixed(2)}`;
+}
+
+function formatUsdPrecise(value) {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return null;
+  return new Intl.NumberFormat('en-US', {
+    style: 'currency',
+    currency: 'USD',
+    maximumFractionDigits: n < 1 ? 6 : 2,
+  }).format(n);
+}
+
+function formatQuantityCompact(value) {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return null;
+  return new Intl.NumberFormat('en-US', { maximumFractionDigits: 0 }).format(n);
 }
 
 function formatDate(iso, tz) {
@@ -58,15 +68,13 @@ export default function PriceReactionCard({ item }) {
     seriesClose,
     seriesHigh,
     seriesLow,
-    // ✅ SNAPPED values (historical, fixed)
     eventPctMcap,
     eventUsdSnap,
     mcapSnap,
     priceSnap,
-    // fallback live values (only used if snap is null)
     eventUsdValue,
     mcapUsd,
-    // ✅ NEW: coin/token info
+    // coin/token info (static, from DB)
     coins,
     coinQuantity,
     coinPriceLink,
@@ -86,9 +94,8 @@ export default function PriceReactionCard({ item }) {
   const [direction, setDirection] = useState('short');
   const [showProfit, setShowProfit] = useState(false);
 
-  // ✅ NEW: extract coin entries for EventTokenInfo
+  // ── Static coin entries (NO live fetching) ──
   const tokenEntries = useMemo(() => {
-    // Build a pseudo-event object so extractCoinEntries can parse it
     const pseudoEvent = {
       coins: coins || null,
       coin_name: coinName || null,
@@ -99,6 +106,42 @@ export default function PriceReactionCard({ item }) {
     return extractCoinEntries(pseudoEvent);
   }, [coins, coinName, coinQuantity, coinPriceLink, coinPctCirc]);
 
+  // ── Snapped price for static USD calculation ──
+  const effectivePrice = useMemo(() => {
+    const snap = Number(priceSnap);
+    if (Number.isFinite(snap) && snap > 0) return snap;
+    return null;
+  }, [priceSnap]);
+
+  // ── Per-coin static badges data ──
+  const coinBadges = useMemo(() => {
+    if (!tokenEntries.length) return [];
+
+    const pctLines = typeof coinPctCirc === 'string'
+      ? coinPctCirc.split('\n').map((s) => s.trim())
+      : [];
+
+    return tokenEntries.map((coin, idx) => {
+      const name = (coin.name || '').trim();
+      const qty = coin.quantity != null ? Number(coin.quantity) : null;
+      const qtyLabel = Number.isFinite(qty) ? formatQuantityCompact(qty) : null;
+
+      let usdLabel = null;
+      if (Number.isFinite(qty) && qty > 0 && effectivePrice != null) {
+        usdLabel = formatUsdPrecise(qty * effectivePrice);
+      }
+
+      let pctLabel = null;
+      const rawPct = coin.pct_circ ?? (pctLines[idx] || null);
+      if (rawPct != null) {
+        const n = Number(String(rawPct).replace('%', '').trim());
+        if (Number.isFinite(n)) pctLabel = formatMcapPercent(n);
+      }
+
+      return { name, qtyLabel, usdLabel, pctLabel };
+    }).filter((b) => b.name || b.qtyLabel || b.usdLabel || b.pctLabel);
+  }, [tokenEntries, effectivePrice, coinPctCirc]);
+
   const handleRangeSelect = ({ startIdx, endIdx }) => {
     if (endIdx == null) setRange({ startIdx, endIdx: null });
     else setRange({ startIdx, endIdx });
@@ -107,18 +150,9 @@ export default function PriceReactionCard({ item }) {
   const startOffset = range && range.endIdx != null ? range.startIdx - baseIndex : null;
   const endOffset = range && range.endIdx != null ? range.endIdx - baseIndex : null;
 
-  const snapshotPrice = useMemo(() => {
-    if (!hasSeries) return null;
-    const idx = baseIndex;
-    const val = seriesClose?.[idx];
-    return Number.isFinite(Number(val)) ? Number(val) : null;
-  }, [hasSeries, baseIndex, seriesClose]);
-
-  // ✅ Use snapped values with fallback to live values
   const displayUsd = useMemo(() => {
     const snap = Number(eventUsdSnap);
     if (Number.isFinite(snap) && snap > 0) return formatBigUsd(snap);
-    // fallback to live value from events_approved
     const live = Number(eventUsdValue);
     if (Number.isFinite(live) && live > 0) return formatBigUsd(live);
     return null;
@@ -132,35 +166,24 @@ export default function PriceReactionCard({ item }) {
     return null;
   }, [mcapSnap, mcapUsd]);
 
-  const displayPctMcap = useMemo(() => {
-    return formatMcapPercent(eventPctMcap);
-  }, [eventPctMcap]);
+  const displayPctMcap = useMemo(() => formatMcapPercent(eventPctMcap), [eventPctMcap]);
 
   const hasAnyBadge = displayUsd || displayPctMcap || displayMcap;
 
   const selectionMeta = useMemo(() => {
     if (!hasSeries || range?.endIdx == null) return null;
+    const sIdx = Math.min(range.startIdx, range.endIdx);
+    const eIdx = Math.max(range.startIdx, range.endIdx);
+    const entryPrice = seriesClose?.[sIdx];
+    const exitPrice = seriesClose?.[eIdx];
+    if (!Number.isFinite(Number(entryPrice)) || !Number.isFinite(Number(exitPrice))) return null;
 
-    const startIdx = Math.min(range.startIdx, range.endIdx);
-    const endIdx = Math.max(range.startIdx, range.endIdx);
-
-    const entryPrice = seriesClose?.[startIdx];
-    const exitPrice = seriesClose?.[endIdx];
-
-    if (!Number.isFinite(Number(entryPrice)) || !Number.isFinite(Number(exitPrice))) {
-      return null;
-    }
-
-    let timeText = `${Math.abs(endIdx - startIdx)}m`;
-
+    let timeText = `${Math.abs(eIdx - sIdx)}m`;
     if (startAt) {
       const zone = TZ_MAP[tz] || tz || 'UTC';
       const base = dayjs.utc(startAt).tz(zone);
-      const t1 = base.add(startIdx - baseIndex, 'minute').format('HH:mm');
-      const t2 = base.add(endIdx - baseIndex, 'minute').format('HH:mm');
-      timeText = `${t1} → ${t2}`;
+      timeText = `${base.add(sIdx - baseIndex, 'minute').format('HH:mm')} → ${base.add(eIdx - baseIndex, 'minute').format('HH:mm')}`;
     }
-
     return {
       timeText,
       entryText: `Entry: ${Number(entryPrice).toFixed(6)} → Exit: ${Number(exitPrice).toFixed(6)}`,
@@ -169,41 +192,24 @@ export default function PriceReactionCard({ item }) {
 
   const pnlSummary = useMemo(() => {
     if (!hasSeries || range?.endIdx == null) return null;
-
-    const startIdx = Math.min(range.startIdx, range.endIdx);
-    const endIdx = Math.max(range.startIdx, range.endIdx);
-
-    const entryPrice = seriesClose?.[startIdx];
-    const exitPrice = seriesClose?.[endIdx];
+    const sIdx = Math.min(range.startIdx, range.endIdx);
+    const eIdx = Math.max(range.startIdx, range.endIdx);
+    const entryPrice = seriesClose?.[sIdx];
+    const exitPrice = seriesClose?.[eIdx];
     const inv = Number(investment);
-
-    if (
-      !Number.isFinite(Number(entryPrice)) ||
-      !Number.isFinite(Number(exitPrice)) ||
-      !Number.isFinite(inv) ||
-      inv <= 0
-    ) {
-      return null;
-    }
+    if (!Number.isFinite(Number(entryPrice)) || !Number.isFinite(Number(exitPrice)) || !Number.isFinite(inv) || inv <= 0) return null;
 
     const qty = inv / entryPrice;
-    const pnl =
-      direction === 'long'
-        ? qty * (exitPrice - entryPrice)
-        : qty * (entryPrice - exitPrice);
-
+    const pnl = direction === 'long' ? qty * (exitPrice - entryPrice) : qty * (entryPrice - exitPrice);
     const pnlPct = inv ? (pnl / inv) * 100 : null;
-
     return { pnl, pnlPct };
   }, [hasSeries, range, seriesClose, investment, direction]);
 
   useEffect(() => {
     const onFs = () => {
-      const active = !!document.fullscreenElement;
-      setIsFullscreen(active);
-      if (!active) setNeedRotateHint(false);
+      setIsFullscreen(!!document.fullscreenElement);
+      if (!document.fullscreenElement) setNeedRotateHint(false);
     };
-
     document.addEventListener('fullscreenchange', onFs);
     return () => document.removeEventListener('fullscreenchange', onFs);
   }, []);
@@ -212,20 +218,14 @@ export default function PriceReactionCard({ item }) {
     try {
       const el = chartFsRef.current;
       if (!el) return;
-
       if (el.requestFullscreen) {
         await el.requestFullscreen();
       } else {
         setNeedRotateHint(true);
         return;
       }
-
       if (screen.orientation?.lock) {
-        try {
-          await screen.orientation.lock('landscape');
-        } catch {
-          setNeedRotateHint(true);
-        }
+        try { await screen.orientation.lock('landscape'); } catch { setNeedRotateHint(true); }
       } else {
         setNeedRotateHint(true);
       }
@@ -236,20 +236,9 @@ export default function PriceReactionCard({ item }) {
 
   const exitFullscreen = async () => {
     try {
-      if (screen.orientation?.unlock) {
-        try {
-          screen.orientation.unlock();
-        } catch {
-          // ignore
-        }
-      }
-
-      if (document.exitFullscreen) {
-        await document.exitFullscreen();
-      }
-    } catch {
-      // ignore
-    }
+      if (screen.orientation?.unlock) { try { screen.orientation.unlock(); } catch {} }
+      if (document.exitFullscreen) { await document.exitFullscreen(); }
+    } catch {}
   };
 
   const summaryColor =
@@ -268,11 +257,11 @@ export default function PriceReactionCard({ item }) {
         aria-hidden
       />
 
+      {/* ── Status badges ── */}
       <div className="relative mb-3 flex flex-wrap items-center gap-2 text-[11px] font-semibold">
         <span className="rounded-full border border-emerald-200 bg-emerald-100 px-2.5 py-1 text-emerald-800 shadow-sm dark:border-emerald-500/30 dark:bg-emerald-500/15 dark:text-emerald-200">
           Completed
         </span>
-
         <span className="rounded-full border border-gray-200 bg-gray-100 px-2.5 py-1 text-gray-700 shadow-sm dark:border-white/10 dark:bg-white/5 dark:text-gray-200">
           {type || 'Event'}
         </span>
@@ -290,7 +279,7 @@ export default function PriceReactionCard({ item }) {
           )}
         </div>
 
-        {/* ✅ Event value badges (snapshotted / historical) */}
+        {/* ── Event value summary badges (static, snapshotted) ── */}
         {hasAnyBadge && (
           <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
             {displayUsd && (
@@ -311,21 +300,37 @@ export default function PriceReactionCard({ item }) {
           </div>
         )}
 
-        {/* ✅ NEW: Token info with live price, quantity, %MCAP per coin */}
-        {tokenEntries.length > 0 && (
-          <EventTokenInfo
-            coins={tokenEntries}
-            pctText={coinPctCirc}
-            showMcap={showMcap !== false}
-          />
+        {/* ── Per-coin static badges (NO live price fetching) ── */}
+        {coinBadges.length > 0 && (
+          <div className="mt-2 flex flex-col gap-1.5">
+            {coinBadges.map((badge, idx) => (
+              <div key={`${badge.name}-${idx}`} className="flex flex-wrap items-center gap-1.5">
+                {(badge.qtyLabel || badge.name) && (
+                  <span className="inline-flex items-center gap-1 rounded-full border border-violet-300 bg-violet-50 px-2.5 py-1 text-[11px] font-bold text-violet-800 shadow-sm dark:border-violet-500/30 dark:bg-violet-500/15 dark:text-violet-200">
+                    {badge.qtyLabel && <span>{badge.qtyLabel}</span>}
+                    {badge.name && <span>{badge.name}</span>}
+                  </span>
+                )}
+                {badge.usdLabel && (
+                  <span className="inline-flex items-center rounded-full border border-amber-300 bg-amber-50 px-2.5 py-1 text-[11px] font-bold text-amber-800 shadow-sm dark:border-amber-500/30 dark:bg-amber-500/15 dark:text-amber-200">
+                    {badge.usdLabel}
+                  </span>
+                )}
+                {showMcap !== false && badge.pctLabel && (
+                  <span className="inline-flex items-center rounded-full border border-sky-300 bg-sky-50 px-2.5 py-1 text-[11px] font-bold text-sky-800 shadow-sm dark:border-sky-500/30 dark:bg-sky-500/15 dark:text-sky-200">
+                    {badge.pctLabel}
+                  </span>
+                )}
+              </div>
+            ))}
+          </div>
         )}
       </div>
 
+      {/* ── Chart ── */}
       <div
         ref={chartFsRef}
-        className={`relative ${
-          isFullscreen ? 'flex h-screen w-screen items-center justify-center bg-[#020617] p-2 sm:p-4' : ''
-        }`}
+        className={`relative ${isFullscreen ? 'flex h-screen w-screen items-center justify-center bg-[#020617] p-2 sm:p-4' : ''}`}
       >
         <div
           className={`relative border border-gray-100 bg-gradient-to-b from-gray-50 via-white to-white shadow-sm backdrop-blur-sm dark:border-white/5 dark:from-white/10 dark:via-white/5 dark:to-white/0 ${
@@ -364,16 +369,8 @@ export default function PriceReactionCard({ item }) {
             {hasSeries ? (
               <ReactionChart
                 closeSeries={seriesClose}
-                highSeries={
-                  Array.isArray(seriesHigh) && seriesHigh.length === seriesClose.length
-                    ? seriesHigh
-                    : null
-                }
-                lowSeries={
-                  Array.isArray(seriesLow) && seriesLow.length === seriesClose.length
-                    ? seriesLow
-                    : null
-                }
+                highSeries={Array.isArray(seriesHigh) && seriesHigh.length === seriesClose.length ? seriesHigh : null}
+                lowSeries={Array.isArray(seriesLow) && seriesLow.length === seriesClose.length ? seriesLow : null}
                 onRangeSelect={handleRangeSelect}
                 selectedRange={range}
                 startAt={startAt}
@@ -413,7 +410,6 @@ export default function PriceReactionCard({ item }) {
               >
                 Short
               </button>
-
               <button
                 type="button"
                 onClick={() => setDirection('long')}
