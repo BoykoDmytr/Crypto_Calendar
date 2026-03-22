@@ -89,7 +89,7 @@ function extractMexcSymbolFromLink(link) {
   return { symbol: `${base}${quote}`, market: 'spot' }; // BTCUSDT
 }
 
-function TokenRow({ coin, idx = 0, pctText = null, showMcap = true }) {
+function TokenRow({ coin, idx = 0, pctText = null, showMcap = true, disableRefresh = false }) {
   const name = (coin?.name || '').trim();
   const hasQuantity = Object.prototype.hasOwnProperty.call(coin || {}, 'quantity');
   const quantityValue = hasQuantity ? coin.quantity : null;
@@ -170,16 +170,21 @@ if (pctCircRaw == null && typeof pctText === 'string' && pctText.trim()) {
       }
     }
 
+    // ✅ Always fetch once
     fetchPrice();
-    timerId = setInterval(fetchPrice, MEXC_REFRESH_INTERVAL_MS);
 
-    if (typeof document !== 'undefined') {
-      visibilityHandler = () => {
-        if (document.visibilityState === 'visible') {
-          fetchPrice();
-        }
-      };
-      document.addEventListener('visibilitychange', visibilityHandler);
+    // ✅ Only set up interval + visibility if NOT disabled
+    if (!disableRefresh) {
+      timerId = setInterval(fetchPrice, MEXC_REFRESH_INTERVAL_MS);
+
+      if (typeof document !== 'undefined') {
+        visibilityHandler = () => {
+          if (document.visibilityState === 'visible') {
+            fetchPrice();
+          }
+        };
+        document.addEventListener('visibilitychange', visibilityHandler);
+      }
     }
 
     return () => {
@@ -189,7 +194,7 @@ if (pctCircRaw == null && typeof pctText === 'string' && pctText.trim()) {
         document.removeEventListener('visibilitychange', visibilityHandler);
       }
     };
-  }, [isMexc, mexcMeta?.symbol, mexcMeta?.market, name]);
+  }, [isMexc, mexcMeta?.symbol, mexcMeta?.market, name, disableRefresh]);
 
   // 🔹 Вибір джерела ціни
   const price = isMexc ? mexcPrice : debotPrice;
@@ -229,6 +234,7 @@ if (pctCircRaw == null && typeof pctText === 'string' && pctText.trim()) {
     pctCircLabel,
     loading,
     error,
+    disableRefresh,
   });
 
   return (
@@ -261,7 +267,7 @@ if (pctCircRaw == null && typeof pctText === 'string' && pctText.trim()) {
   );
 }
 
-export default function EventTokenInfo({ coins = [], pctText = null, showMcap = true }) {
+export default function EventTokenInfo({ coins = [], pctText = null, showMcap = true, disableRefresh = false }) {
   const entries = Array.isArray(coins)
     ? coins.filter(
         (coin) =>
@@ -282,6 +288,7 @@ export default function EventTokenInfo({ coins = [], pctText = null, showMcap = 
           idx={index}
           pctText={pctText}
           showMcap={showMcap}
+          disableRefresh={disableRefresh}
         />
       ))}
     </div>
