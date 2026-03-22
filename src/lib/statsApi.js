@@ -245,12 +245,7 @@ async function buildStatsFilter() {
 
 /**
  * ✅ CHANGED: Completed events for UI — uses SNAPPED values (not live)
- *
- * Snapped fields from event_price_reaction:
- *   - price_snap      → token price at T0
- *   - mcap_snap       → MCAP at T0
- *   - event_usd_snap  → coin_quantity × price_snap (fixed USD value)
- *   - event_pct_mcap  → event_usd_snap / mcap_snap × 100
+ * ✅ NOW INCLUDES: coins, coin_quantity, coin_pct_circ, show_mcap for token info display
  */
 export async function fetchCompletedEvents() {
   const now = new Date().toISOString();
@@ -282,7 +277,8 @@ export async function fetchCompletedEvents() {
       mcap_snap,
       events_approved!event_price_reaction_event_id_fkey(
         id,title,start_at,type,event_type_slug,coin_name,timezone,coin_price_link,link,
-        event_usd_value,mcap_usd
+        event_usd_value,mcap_usd,
+        coins,coin_quantity,coin_pct_circ,show_mcap
       )`
     )
     .lte('t0_time', now)
@@ -332,6 +328,13 @@ export async function fetchCompletedEvents() {
       // ✅ Keep live values as fallback only
       eventUsdValue: event.event_usd_value,
       mcapUsd: event.mcap_usd,
+
+      // ✅ NEW: coin/token info for EventTokenInfo display
+      coins: event.coins || null,
+      coinQuantity: event.coin_quantity || null,
+      coinPriceLink: event.coin_price_link || null,
+      coinPctCirc: event.coin_pct_circ || null,
+      showMcap: event.show_mcap !== false,
     };
   });
 }

@@ -5,6 +5,8 @@ import timezone from 'dayjs/plugin/timezone';
 
 import ReactionChart from './ReactionChart';
 import ProfitCalculator from './ProfitCalculator';
+import EventTokenInfo from './EventTokenInfo';
+import { extractCoinEntries } from '../utils/coins';
 
 dayjs.extend(utc);
 dayjs.extend(timezone);
@@ -64,6 +66,12 @@ export default function PriceReactionCard({ item }) {
     // fallback live values (only used if snap is null)
     eventUsdValue,
     mcapUsd,
+    // ✅ NEW: coin/token info
+    coins,
+    coinQuantity,
+    coinPriceLink,
+    coinPctCirc,
+    showMcap,
   } = item;
 
   const hasSeries = Array.isArray(seriesClose) && seriesClose.length >= 31;
@@ -77,6 +85,19 @@ export default function PriceReactionCard({ item }) {
   const [investment, setInvestment] = useState(100);
   const [direction, setDirection] = useState('short');
   const [showProfit, setShowProfit] = useState(false);
+
+  // ✅ NEW: extract coin entries for EventTokenInfo
+  const tokenEntries = useMemo(() => {
+    // Build a pseudo-event object so extractCoinEntries can parse it
+    const pseudoEvent = {
+      coins: coins || null,
+      coin_name: coinName || null,
+      coin_quantity: coinQuantity || null,
+      coin_price_link: coinPriceLink || null,
+      coin_pct_circ: coinPctCirc || null,
+    };
+    return extractCoinEntries(pseudoEvent);
+  }, [coins, coinName, coinQuantity, coinPriceLink, coinPctCirc]);
 
   const handleRangeSelect = ({ startIdx, endIdx }) => {
     if (endIdx == null) setRange({ startIdx, endIdx: null });
@@ -288,6 +309,15 @@ export default function PriceReactionCard({ item }) {
               </span>
             )}
           </div>
+        )}
+
+        {/* ✅ NEW: Token info with live price, quantity, %MCAP per coin */}
+        {tokenEntries.length > 0 && (
+          <EventTokenInfo
+            coins={tokenEntries}
+            pctText={coinPctCirc}
+            showMcap={showMcap !== false}
+          />
         )}
       </div>
 

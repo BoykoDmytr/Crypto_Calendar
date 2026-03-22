@@ -246,20 +246,36 @@ function pickListingMinute(ev: any): dayjs.Dayjs | null {
   return mexc || earliest;
 }
 
-// ✅ Helper: compute event_usd_snap from price and quantity
-function computeEventUsdSnap(price: number | null, qty: number | null): number | null {
-  if (price == null) return null;
-  const q = Number(qty);
-  if (!Number.isFinite(q) || q <= 0) return null;
-  return price * q;
-}
+/**
+ * ✅ Simply copy event_usd_value and mcap_usd from events_approved
+ *    into event_price_reaction as one-time snapshots.
+ *    No recomputation — just duplicate what the event card already shows.
+ */
+function trySnapshotFromEvent(row: any, ev: any, patch: any): void {
+  // event_usd_snap: copy event_usd_value from events_approved (once)
+  if (row.event_usd_snap == null) {
+    const v = Number(ev.event_usd_value);
+    if (Number.isFinite(v) && v > 0) {
+      patch.event_usd_snap = v;
+    }
+  }
 
-// ✅ Helper: compute event_pct_mcap from usd and mcap
-function computeEventPctMcap(eventUsd: number | null, mcap: number | null): number | null {
-  if (eventUsd == null || mcap == null) return null;
-  const m = Number(mcap);
-  if (!Number.isFinite(m) || m <= 0) return null;
-  return (Number(eventUsd) / m) * 100;
+  // mcap_snap: copy mcap_usd from events_approved (once)
+  if (row.mcap_snap == null) {
+    const v = Number(ev.mcap_usd);
+    if (Number.isFinite(v) && v > 0) {
+      patch.mcap_snap = v;
+    }
+  }
+
+  // event_pct_mcap: compute from the snapped/copied values (once)
+  if (row.event_pct_mcap == null) {
+    const usd = patch.event_usd_snap ?? row.event_usd_snap;
+    const mcap = patch.mcap_snap ?? row.mcap_snap;
+    if (usd != null && mcap != null && Number(mcap) > 0) {
+      patch.event_pct_mcap = (Number(usd) / Number(mcap)) * 100;
+    }
+  }
 }
 
 serve(async (_req: Request) => {
@@ -399,10 +415,9 @@ serve(async (_req: Request) => {
             min_price: null,
             min_offset: null,
             event_pct_mcap: null,
-            // ✅ reset snapshots too
-            price_snap: null,
-            mcap_snap: null,
+            // ✅ reset snapshots — will be re-copied from events_approved
             event_usd_snap: null,
+            mcap_snap: null,
           };
 
           const { error: resetErr } = await supabase
@@ -452,11 +467,20 @@ serve(async (_req: Request) => {
           min_price: null,
           min_offset: null,
           event_pct_mcap: null,
-          // ✅ snapshot fields
-          price_snap: null,
-          mcap_snap: null,
           event_usd_snap: null,
+          mcap_snap: null,
         };
+
+        // ✅ Immediately copy event_usd_value & mcap_usd from events_approved
+        const usd = Number(ev.event_usd_value);
+        if (Number.isFinite(usd) && usd > 0) payload.event_usd_snap = usd;
+
+        const mcap = Number(ev.mcap_usd);
+        if (Number.isFinite(mcap) && mcap > 0) payload.mcap_snap = mcap;
+
+        if (payload.event_usd_snap != null && payload.mcap_snap != null && payload.mcap_snap > 0) {
+          payload.event_pct_mcap = (payload.event_usd_snap / payload.mcap_snap) * 100;
+        }
 
         const { error } = await supabase.from("event_price_reaction").insert(payload);
         if (error) throw error;
@@ -474,34 +498,15 @@ serve(async (_req: Request) => {
         if (p0 != null) {
           patch.t0_price = p0;
           patch.t0_percent = 0;
-
-          // ✅ Snapshot price at T0
+          // встановлюємо price_snap, якщо його ще немає
           if (row.price_snap == null) {
             patch.price_snap = p0;
           }
-
-          // ✅ Snapshot event_usd_snap = quantity × price
-          const snapPrice = patch.price_snap ?? row.price_snap ?? p0;
-          if (row.event_usd_snap == null) {
-            const usdSnap = computeEventUsdSnap(snapPrice, ev.coin_quantity);
-            if (usdSnap != null) patch.event_usd_snap = usdSnap;
-          }
-
-          // ✅ Snapshot mcap
-          const mcapVal = Number(ev.mcap_usd);
-          if (row.mcap_snap == null && Number.isFinite(mcapVal) && mcapVal > 0) {
-            patch.mcap_snap = mcapVal;
-          }
-
-          // ✅ Compute event_pct_mcap from snapped values
-          const finalUsd = patch.event_usd_snap ?? row.event_usd_snap;
-          const finalMcap = patch.mcap_snap ?? row.mcap_snap;
-          const pctMcap = computeEventPctMcap(finalUsd, finalMcap);
-          if (pctMcap != null) {
-            patch.event_pct_mcap = pctMcap;
-          }
         }
       }
+
+      // ✅ Copy snapshots from events_approved (once, if still null)
+      trySnapshotFromEvent(row, ev, patch);
 
       const base = patch.t0_price ?? row.t0_price;
 
@@ -690,12 +695,6 @@ serve(async (_req: Request) => {
       const maxOffset = maxIdx - baseIndex;
       const minOffset = minIdx - baseIndex;
 
-      // ✅ Build snapshot values at series time
-      const snapPrice = row.price_snap ?? seriesBasePrice ?? row.t0_price ?? null;
-      const snapMcap = row.mcap_snap ?? (Number.isFinite(Number(ev.mcap_usd)) ? Number(ev.mcap_usd) : null);
-      const snapUsd = row.event_usd_snap ?? computeEventUsdSnap(snapPrice, ev.coin_quantity);
-      const snapPctMcap = computeEventPctMcap(snapUsd, snapMcap);
-
       const update: any = {
         series_close: closeSeries,
         series_high: highSeries,
@@ -707,18 +706,27 @@ serve(async (_req: Request) => {
         max_offset: maxOffset,
         min_price: minPrice,
         min_offset: minOffset,
-        event_pct_mcap: snapPctMcap,
       };
 
-      // ✅ Store snapshots if not yet set
-      if (row.mcap_snap == null && snapMcap != null) {
-        update.mcap_snap = snapMcap;
+      // ✅ Copy snapshots from events_approved if still null
+      if (row.mcap_snap == null) {
+        const mcapVal = Number(ev.mcap_usd);
+        if (Number.isFinite(mcapVal) && mcapVal > 0) update.mcap_snap = mcapVal;
       }
-      if (row.price_snap == null && snapPrice != null) {
-        update.price_snap = snapPrice;
+      if (row.price_snap == null) {
+        const bp = seriesBasePrice ?? row.t0_price;
+        if (bp != null) update.price_snap = bp;
       }
-      if (row.event_usd_snap == null && snapUsd != null) {
-        update.event_usd_snap = snapUsd;
+      if (row.event_usd_snap == null) {
+        const usdVal = Number(ev.event_usd_value);
+        if (Number.isFinite(usdVal) && usdVal > 0) update.event_usd_snap = usdVal;
+      }
+
+      // ✅ Compute event_pct_mcap from copied values
+      const finalUsd = update.event_usd_snap ?? row.event_usd_snap;
+      const finalMcap = update.mcap_snap ?? row.mcap_snap;
+      if (finalUsd != null && finalMcap != null && Number(finalMcap) > 0) {
+        update.event_pct_mcap = (Number(finalUsd) / Number(finalMcap)) * 100;
       }
 
       const { error: updErr } = await supabase
