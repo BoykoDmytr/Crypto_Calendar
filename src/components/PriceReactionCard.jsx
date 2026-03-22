@@ -31,11 +31,11 @@ function formatBigUsd(value) {
   if (!Number.isFinite(n)) return null;
 
   const abs = Math.abs(n);
-  if (abs >= 1e9) return `${(n / 1e9).toFixed(2)}B`;
-  if (abs >= 1e6) return `${(n / 1e6).toFixed(2)}M`;
-  if (abs >= 1e3) return `${(n / 1e3).toFixed(2)}K`;
+  if (abs >= 1e9) return `$ ${(n / 1e9).toFixed(2)}B`;
+  if (abs >= 1e6) return `$ ${(n / 1e6).toFixed(2)}M`;
+  if (abs >= 1e3) return `$ ${(n / 1e3).toFixed(2)}K`;
 
-  return n.toFixed(2);
+  return `$ ${n.toFixed(2)}`;
 }
 
 function formatDate(iso, tz) {
@@ -56,7 +56,12 @@ export default function PriceReactionCard({ item }) {
     seriesClose,
     seriesHigh,
     seriesLow,
+    // ✅ SNAPPED values (historical, fixed)
     eventPctMcap,
+    eventUsdSnap,
+    mcapSnap,
+    priceSnap,
+    // fallback live values (only used if snap is null)
     eventUsdValue,
     mcapUsd,
   } = item;
@@ -87,6 +92,30 @@ export default function PriceReactionCard({ item }) {
     const val = seriesClose?.[idx];
     return Number.isFinite(Number(val)) ? Number(val) : null;
   }, [hasSeries, baseIndex, seriesClose]);
+
+  // ✅ Use snapped values with fallback to live values
+  const displayUsd = useMemo(() => {
+    const snap = Number(eventUsdSnap);
+    if (Number.isFinite(snap) && snap > 0) return formatBigUsd(snap);
+    // fallback to live value from events_approved
+    const live = Number(eventUsdValue);
+    if (Number.isFinite(live) && live > 0) return formatBigUsd(live);
+    return null;
+  }, [eventUsdSnap, eventUsdValue]);
+
+  const displayMcap = useMemo(() => {
+    const snap = Number(mcapSnap);
+    if (Number.isFinite(snap) && snap > 0) return formatBigUsd(snap);
+    const live = Number(mcapUsd);
+    if (Number.isFinite(live) && live > 0) return formatBigUsd(live);
+    return null;
+  }, [mcapSnap, mcapUsd]);
+
+  const displayPctMcap = useMemo(() => {
+    return formatMcapPercent(eventPctMcap);
+  }, [eventPctMcap]);
+
+  const hasAnyBadge = displayUsd || displayPctMcap || displayMcap;
 
   const selectionMeta = useMemo(() => {
     if (!hasSeries || range?.endIdx == null) return null;
@@ -240,8 +269,24 @@ export default function PriceReactionCard({ item }) {
           )}
         </div>
 
-        {(eventUsdValue != null || snapshotPrice != null || mcapUsd != null) && (
-          <div className="mt-0.5 flex flex-wrap items-center gap-1 text-[11px] text-gray-500 dark:text-gray-400">
+        {/* ✅ Event value badges (snapshotted / historical) */}
+        {hasAnyBadge && (
+          <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+            {displayUsd && (
+              <span className="inline-flex items-center rounded-full border border-amber-300 bg-amber-50 px-2.5 py-1 text-[11px] font-bold text-amber-800 shadow-sm dark:border-amber-500/30 dark:bg-amber-500/15 dark:text-amber-200">
+                Event {displayUsd}
+              </span>
+            )}
+            {displayPctMcap && (
+              <span className="inline-flex items-center rounded-full border border-sky-300 bg-sky-50 px-2.5 py-1 text-[11px] font-bold text-sky-800 shadow-sm dark:border-sky-500/30 dark:bg-sky-500/15 dark:text-sky-200">
+                {displayPctMcap} of MCAP
+              </span>
+            )}
+            {displayMcap && (
+              <span className="inline-flex items-center rounded-full border border-gray-300 bg-gray-50 px-2.5 py-1 text-[11px] font-bold text-gray-700 shadow-sm dark:border-white/10 dark:bg-white/5 dark:text-gray-300">
+                MCAP {displayMcap}
+              </span>
+            )}
           </div>
         )}
       </div>

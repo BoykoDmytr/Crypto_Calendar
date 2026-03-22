@@ -48,11 +48,6 @@ function normalizeMexcFuturesSymbol(raw) {
   return cleaned;
 }
 
-/**
- * Витягує пару з MEXC URL:
- *  - .../futures/BTC_USDT?...  -> BTC_USDT, market=futures
- *  - .../exchange/BTC_USDT     -> BTC_USDT, market=spot
- */
 function isMexcFuturesLink(link) {
   if (!link || typeof link !== 'string') return false;
   try {
@@ -62,7 +57,8 @@ function isMexcFuturesLink(link) {
     if (host.includes('futures') || host.includes('contract')) return true;
 
     const path = url.pathname.toLowerCase();
-    if (path.includes('/futures/') || path.includes('/contract/') || path.includes('/swap/')) return true;
+    if (path.includes('/futures/') || path.includes('/contract/') || path.includes('/swap/'))
+      return true;
 
     const type = url.searchParams.get('type');
     if (type && type.toLowerCase() === 'linear_swap') return true;
@@ -90,7 +86,6 @@ function parseMexcLink(link) {
 
   return {
     pair, // "BTC_USDT"
-    // ✅ ключова зміна: futures -> symbol з "_", spot -> без "_"
     apiPair: market === 'futures'
       ? normalizeMexcFuturesSymbol(pair)   // BTC_USDT
       : normalizeMexcSpotSymbol(pair),     // BTCUSDT
@@ -98,14 +93,7 @@ function parseMexcLink(link) {
   };
 }
 
-/**
- * ✅ ЄДИНЕ ДЖЕРЕЛО — MEXC
- * Спершу беремо пару з coin_price_link,
- * якщо немає — з coin_name (BTC -> BTC_USDT),
- * якщо немає — пробуємо tge_exchanges.pair як fallback.
- */
 function pickMexcMarket(event) {
-  // 1) З лінка MEXC
   const fromLink = parseMexcLink(event.coin_price_link);
   if (fromLink) {
     return {
@@ -116,22 +104,19 @@ function pickMexcMarket(event) {
     };
   }
 
-  // 2) З coin_name (BTC -> BTC_USDT)
   if (event.coin_name) {
     const sym = String(event.coin_name).trim().toUpperCase().replace(/[^A-Z0-9]/g, '');
     if (sym) {
       const pair = `${sym}_USDT`;
-      // якщо ми не знаємо ринок — вважаємо spot
       return {
         pair,
-        apiPair: normalizeMexcSpotSymbol(pair), // BTCUSDT
+        apiPair: normalizeMexcSpotSymbol(pair),
         exchange: 'MEXC',
         market: 'spot',
       };
     }
   }
 
-  // 3) Fallback зі списку бірж
   const exchanges = Array.isArray(event.tge_exchanges) ? event.tge_exchanges : [];
   const entry =
     exchanges.find((x) => x?.pair && String(x.pair).toUpperCase().includes('USDT')) || exchanges[0];
@@ -144,8 +129,8 @@ function pickMexcMarket(event) {
     return {
       pair,
       apiPair: market === 'futures'
-        ? normalizeMexcFuturesSymbol(pair) // BTC_USDT
-        : normalizeMexcSpotSymbol(pair),   // BTCUSDT
+        ? normalizeMexcFuturesSymbol(pair)
+        : normalizeMexcSpotSymbol(pair),
       exchange: 'MEXC',
       market,
     };
@@ -158,9 +143,6 @@ async function fetchMexcPrice(market) {
   if (!market?.apiPair) return null;
 
   try {
-    // ✅ symbol тепер правильний:
-    // spot: BTCUSDT
-    // futures: BTC_USDT
     const { price } = await fetchMexcTickerPriceShared(market.apiPair, {
       timeoutMs: 8_000,
       market: market.market || 'spot',
@@ -262,8 +244,13 @@ async function buildStatsFilter() {
 }
 
 /**
- * ✅ NEW: Completed events for UI (±30m series + summary + %mcap)
- * Використовуй це у /stats замість fetchCompletedTournaments()
+ * ✅ CHANGED: Completed events for UI — uses SNAPPED values (not live)
+ *
+ * Snapped fields from event_price_reaction:
+ *   - price_snap      → token price at T0
+ *   - mcap_snap       → MCAP at T0
+ *   - event_usd_snap  → coin_quantity × price_snap (fixed USD value)
+ *   - event_pct_mcap  → event_usd_snap / mcap_snap × 100
  */
 export async function fetchCompletedEvents() {
   const now = new Date().toISOString();
@@ -290,6 +277,7 @@ export async function fetchCompletedEvents() {
       min_price,
       min_offset,
       event_pct_mcap,
+      event_usd_snap,
       price_snap,
       mcap_snap,
       events_approved!event_price_reaction_event_id_fkey(
@@ -335,12 +323,13 @@ export async function fetchCompletedEvents() {
       minPrice: row.min_price,
       minOffset: row.min_offset,
 
-      // snapshots
+      // ✅ SNAPPED values (historical, fixed)
       priceSnap: row.price_snap,
       mcapSnap: row.mcap_snap,
-
-      // % of MCAP
+      eventUsdSnap: row.event_usd_snap,
       eventPctMcap: row.event_pct_mcap,
+
+      // ✅ Keep live values as fallback only
       eventUsdValue: event.event_usd_value,
       mcapUsd: event.mcap_usd,
     };
@@ -348,8 +337,7 @@ export async function fetchCompletedEvents() {
 }
 
 /**
- * ✅ Backward-compatible: стара функція (T0/T+5/T+15)
- * Можеш залишити, якщо десь ще використовується.
+ * Backward-compatible: стара функція (T0/T+5/T+15)
  */
 export async function fetchCompletedTournaments() {
   const now = new Date().toISOString();
@@ -414,11 +402,9 @@ export async function triggerPriceReactionJob() {
 
   const orFilter = await buildStatsFilter();
 
-  // ✅ беремо івенти НАПЕРЕД (для заготовлених постів)
-  // ⬇️ ДОДАЛИ event_usd_value, mcap_usd для %mcap
   const { data: events, error: eventsError } = await supabase
     .from('events_approved')
-    .select('id,title,start_at,type,event_type_slug,coin_name,timezone,tge_exchanges,coin_price_link,link,event_usd_value,mcap_usd')
+    .select('id,title,start_at,type,event_type_slug,coin_name,timezone,tge_exchanges,coin_price_link,link,event_usd_value,mcap_usd,coin_quantity')
     .lte('start_at', nowUtc.add(LOOKAHEAD_DAYS, 'day').toISOString())
     .not('start_at', 'is', null)
     .or(orFilter);
@@ -448,7 +434,6 @@ export async function triggerPriceReactionJob() {
       continue;
     }
 
-    // ✅ завжди MEXC
     const market = pickMexcMarket(event);
     if (!market?.apiPair) {
       summary.skipped += 1;
@@ -483,7 +468,6 @@ export async function triggerPriceReactionJob() {
           t_plus_15_price: null,
           t_plus_15_percent: null,
 
-          // ✅ нові поля (NULL на старті)
           series_close: null,
           series_high: null,
           series_low: null,
@@ -495,6 +479,7 @@ export async function triggerPriceReactionJob() {
           min_price: null,
           min_offset: null,
           event_pct_mcap: null,
+          event_usd_snap: null,
         };
 
         const { error } = await supabase.from('event_price_reaction').insert(payload);
@@ -518,6 +503,30 @@ export async function triggerPriceReactionJob() {
         if (p0 != null) {
           patch.t0_price = p0;
           patch.t0_percent = 0;
+
+          // ✅ Snapshot price at T0
+          if (existing.price_snap == null) {
+            patch.price_snap = p0;
+          }
+
+          // ✅ Snapshot event_usd_snap = quantity × price
+          const qty = Number(event.coin_quantity);
+          if (Number.isFinite(qty) && qty > 0 && existing.event_usd_snap == null) {
+            patch.event_usd_snap = qty * p0;
+          }
+
+          // ✅ Snapshot mcap
+          const mcap = Number(event.mcap_usd);
+          if (Number.isFinite(mcap) && mcap > 0 && existing.mcap_snap == null) {
+            patch.mcap_snap = mcap;
+          }
+
+          // ✅ Compute event_pct_mcap from snapped values
+          const usdSnap = patch.event_usd_snap ?? existing.event_usd_snap;
+          const mcapSnap = patch.mcap_snap ?? existing.mcap_snap;
+          if (usdSnap != null && mcapSnap != null && mcapSnap > 0) {
+            patch.event_pct_mcap = (usdSnap / mcapSnap) * 100;
+          }
         }
       }
 
@@ -557,27 +566,23 @@ export async function triggerPriceReactionJob() {
       continue;
     }
 
-    // 3) ✅ Якщо ±30m series вже є — пропускаємо важкий fetch
+    // 3) Якщо ±30m series вже є — пропускаємо важкий fetch
     if (Array.isArray(existing.series_close) && existing.series_close.length === SERIES_TOTAL_POINTS) {
       summary.skipped += 1;
       continue;
     }
 
-    // 4) ✅ Серію рахуємо тільки коли now >= T0 + 35m
+    // 4) Серію рахуємо тільки коли now >= T0 + 35m
     if (nowUtc.isBefore(t0Time.add(SERIES_CUTOFF_MINUTES, 'minute'))) {
       summary.skipped += 1;
       continue;
     }
 
-    // 5) ✅ Один запит до MEXC за 1m klines (±30m)
-    // 5) ✅ Один запит до MEXC за 1m klines (±30m)
+    // 5) Один запит до MEXC за 1m klines (±30m)
     try {
-      // ✅ фіксуємо правило "T0 minute" = floor до хвилини
       const t0Minute = t0Time.startOf('minute');
 
       const startTs = t0Minute.subtract(30, 'minute').valueOf();
-
-      // ✅ ВАЖЛИВО: +31m, щоб гарантовано включити свічку +30
       const endTs = t0Minute.add(31, 'minute').valueOf();
 
       const url = new URL('https://api.mexc.com/api/v3/klines');
@@ -589,7 +594,7 @@ export async function triggerPriceReactionJob() {
 
       const resp = await fetch(url.toString());
       if (!resp.ok) throw new Error(`MEXC klines failed: ${resp.status}`);
-      const candles = await resp.json(); // [[ts, open, high, low, close, ...], ...]
+      const candles = await resp.json();
 
       const closeSeries = new Array(SERIES_TOTAL_POINTS).fill(null);
       const highSeries = new Array(SERIES_TOTAL_POINTS).fill(null);
@@ -597,8 +602,6 @@ export async function triggerPriceReactionJob() {
 
       for (const c of candles || []) {
         const [ts, _open, high, low, close] = c;
-
-        // ✅ floor замість round, щоб не ловити зсуви на межі мс/сек
         const off = Math.floor((Number(ts) - startTs) / 60_000);
 
         if (off >= 0 && off < SERIES_TOTAL_POINTS) {
@@ -628,13 +631,17 @@ export async function triggerPriceReactionJob() {
       const maxOffset = maxIdx - SERIES_CENTER_INDEX;
       const minOffset = minIdx - SERIES_CENTER_INDEX;
 
-      let eventPctMcap = null;
-      if (event.event_usd_value != null && event.mcap_usd != null) {
-        const evUsd = Number(event.event_usd_value);
-        const mcap = Number(event.mcap_usd);
-        if (Number.isFinite(evUsd) && Number.isFinite(mcap) && mcap > 0) {
-          eventPctMcap = (evUsd / mcap) * 100;
-        }
+      // ✅ Snapshot at series build time if not yet set
+      const priceSnapVal = existing.price_snap ?? priceT0;
+      const qty = Number(event.coin_quantity);
+      const eventUsdSnapVal = existing.event_usd_snap ??
+        (Number.isFinite(qty) && qty > 0 && priceSnapVal != null ? qty * priceSnapVal : null);
+      const mcapSnapVal = existing.mcap_snap ??
+        (Number.isFinite(Number(event.mcap_usd)) ? Number(event.mcap_usd) : null);
+
+      let eventPctMcap = existing.event_pct_mcap;
+      if (eventPctMcap == null && eventUsdSnapVal != null && mcapSnapVal != null && mcapSnapVal > 0) {
+        eventPctMcap = (eventUsdSnapVal / mcapSnapVal) * 100;
       }
 
       const update = {
@@ -649,6 +656,10 @@ export async function triggerPriceReactionJob() {
         min_price: minPrice,
         min_offset: minOffset,
         event_pct_mcap: eventPctMcap,
+        // ✅ Store snapshots
+        ...(existing.price_snap == null && priceSnapVal != null ? { price_snap: priceSnapVal } : {}),
+        ...(existing.mcap_snap == null && mcapSnapVal != null ? { mcap_snap: mcapSnapVal } : {}),
+        ...(existing.event_usd_snap == null && eventUsdSnapVal != null ? { event_usd_snap: eventUsdSnapVal } : {}),
       };
 
       const { error } = await supabase

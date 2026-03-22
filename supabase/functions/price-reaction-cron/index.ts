@@ -141,7 +141,6 @@ function calcPercent(basePrice: number | null, nextPrice: number | null) {
 async function fetchMexcTicker(market: { apiPair: string; market: "spot" | "futures" }): Promise<number | null> {
   try {
     if (market.market === "futures") {
-      // Contract ticker: https://contract.mexc.com/api/v1/contract/ticker?symbol=BTC_USDT :contentReference[oaicite:2]{index=2}
       const url = new URL("https://contract.mexc.com/api/v1/contract/ticker");
       url.searchParams.set("symbol", market.apiPair);
       const res = await fetch(url.toString());
@@ -151,7 +150,7 @@ async function fetchMexcTicker(market: { apiPair: string; market: "spot" | "futu
       return Number.isFinite(p) ? p : null;
     }
 
-    // Spot ticker: https://api.mexc.com/api/v3/ticker/price?symbol=BTCUSDT
+    // Spot ticker
     const url = new URL("https://api.mexc.com/api/v3/ticker/price");
     url.searchParams.set("symbol", market.apiPair);
     const res = await fetch(url.toString());
@@ -172,7 +171,6 @@ async function fetchMexcSeries(
 ): Promise<any[]> {
   try {
     if (market.market === "futures") {
-      // Contract kline endpoint uses SECONDS and returns object arrays :contentReference[oaicite:3]{index=3}
       const startSec = Math.floor(startTsMs / 1000);
       const endSec = Math.floor(endTsMs / 1000);
 
@@ -202,7 +200,7 @@ async function fetchMexcSeries(
       ]);
     }
 
-    // Spot klines uses MILLISECONDS and returns array-of-arrays :contentReference[oaicite:4]{index=4}
+    // Spot klines
     const url = new URL("https://api.mexc.com/api/v3/klines");
     url.searchParams.set("symbol", market.apiPair);
     url.searchParams.set("interval", "1m");
@@ -214,7 +212,6 @@ async function fetchMexcSeries(
     const candles = await res.json();
     if (!Array.isArray(candles)) return [];
 
-    // Normalize to [tsMs, open, high, low, close]
     return candles.map((c: any) => [Number(c[0]), c[1], c[2], c[3], c[4]]);
   } catch {
     return [];
@@ -226,9 +223,7 @@ function hasAnySeriesValue(series: any): boolean {
   return Array.isArray(series) && series.some((v) => v != null);
 }
 
-// ✅ pick listing time:
-// 1) prefer MEXC listing from tge_exchanges (if entry contains "mexc")
-// 2) else earliest listing time among all entries
+// ✅ pick listing time
 function pickListingMinute(ev: any): dayjs.Dayjs | null {
   const exchanges = Array.isArray(ev.tge_exchanges) ? ev.tge_exchanges : [];
   let mexc: dayjs.Dayjs | null = null;
@@ -240,7 +235,6 @@ function pickListingMinute(ev: any): dayjs.Dayjs | null {
 
     const dt = dayjs.utc(t).startOf("minute");
 
-    // earliest among all
     if (!earliest || dt.isBefore(earliest)) earliest = dt;
 
     const label = String(ex?.exchange ?? ex?.name ?? ex?.title ?? ex?.platform ?? "").toLowerCase();
@@ -250,6 +244,22 @@ function pickListingMinute(ev: any): dayjs.Dayjs | null {
   }
 
   return mexc || earliest;
+}
+
+// ✅ Helper: compute event_usd_snap from price and quantity
+function computeEventUsdSnap(price: number | null, qty: number | null): number | null {
+  if (price == null) return null;
+  const q = Number(qty);
+  if (!Number.isFinite(q) || q <= 0) return null;
+  return price * q;
+}
+
+// ✅ Helper: compute event_pct_mcap from usd and mcap
+function computeEventPctMcap(eventUsd: number | null, mcap: number | null): number | null {
+  if (eventUsd == null || mcap == null) return null;
+  const m = Number(mcap);
+  if (!Number.isFinite(m) || m <= 0) return null;
+  return (Number(eventUsd) / m) * 100;
 }
 
 serve(async (_req: Request) => {
@@ -302,10 +312,10 @@ serve(async (_req: Request) => {
 
   // 2) fetch events in window
   const { data: events, error: eventsErr } = await supabase
-  .from("events_approved")
-  .select(
-    "id,title,start_at,type,event_type_slug,coin_name,tge_exchanges,coin_price_link,link,event_usd_value,mcap_usd,created_at,coin_quantity,coin_circ_supply"
-  )
+    .from("events_approved")
+    .select(
+      "id,title,start_at,type,event_type_slug,coin_name,tge_exchanges,coin_price_link,link,event_usd_value,mcap_usd,created_at,coin_quantity,coin_circ_supply"
+    )
     .gte("start_at", windowStart)
     .lte("start_at", windowEnd)
     .not("start_at", "is", null);
@@ -363,17 +373,14 @@ serve(async (_req: Request) => {
 
         if (dbT0 !== evT0 && !hasSeries) {
           const resetPatch: any = {
-            // update times
             t0_time: t0.toISOString(),
             t_plus_5_time: t5.toISOString(),
             t_plus_15_time: t15.toISOString(),
 
-            // (optional but good) keep meta in sync
             coin_name: ev.coin_name ?? null,
             pair: market.pair,
             exchange: "MEXC",
 
-            // reset prices
             t0_price: null,
             t0_percent: 0,
             t_plus_5_price: null,
@@ -381,7 +388,6 @@ serve(async (_req: Request) => {
             t_plus_15_price: null,
             t_plus_15_percent: null,
 
-            // reset series + KPIs
             series_close: null,
             series_high: null,
             series_low: null,
@@ -393,6 +399,10 @@ serve(async (_req: Request) => {
             min_price: null,
             min_offset: null,
             event_pct_mcap: null,
+            // ✅ reset snapshots too
+            price_snap: null,
+            mcap_snap: null,
+            event_usd_snap: null,
           };
 
           const { error: resetErr } = await supabase
@@ -442,6 +452,10 @@ serve(async (_req: Request) => {
           min_price: null,
           min_offset: null,
           event_pct_mcap: null,
+          // ✅ snapshot fields
+          price_snap: null,
+          mcap_snap: null,
+          event_usd_snap: null,
         };
 
         const { error } = await supabase.from("event_price_reaction").insert(payload);
@@ -460,10 +474,32 @@ serve(async (_req: Request) => {
         if (p0 != null) {
           patch.t0_price = p0;
           patch.t0_percent = 0;
-          // встановлюємо price_snap, якщо його ще немає
-         if (row.price_snap == null) {
-           patch.price_snap = p0;
-         }
+
+          // ✅ Snapshot price at T0
+          if (row.price_snap == null) {
+            patch.price_snap = p0;
+          }
+
+          // ✅ Snapshot event_usd_snap = quantity × price
+          const snapPrice = patch.price_snap ?? row.price_snap ?? p0;
+          if (row.event_usd_snap == null) {
+            const usdSnap = computeEventUsdSnap(snapPrice, ev.coin_quantity);
+            if (usdSnap != null) patch.event_usd_snap = usdSnap;
+          }
+
+          // ✅ Snapshot mcap
+          const mcapVal = Number(ev.mcap_usd);
+          if (row.mcap_snap == null && Number.isFinite(mcapVal) && mcapVal > 0) {
+            patch.mcap_snap = mcapVal;
+          }
+
+          // ✅ Compute event_pct_mcap from snapped values
+          const finalUsd = patch.event_usd_snap ?? row.event_usd_snap;
+          const finalMcap = patch.mcap_snap ?? row.mcap_snap;
+          const pctMcap = computeEventPctMcap(finalUsd, finalMcap);
+          if (pctMcap != null) {
+            patch.event_pct_mcap = pctMcap;
+          }
         }
       }
 
@@ -495,15 +531,10 @@ serve(async (_req: Request) => {
         updated++;
       }
 
-            // --------------------------------------------------------------------
+      // --------------------------------------------------------------------
       // Take snapshot of event value and MCAP if missing on the event itself.
-      // Compute from the T0 price, coin quantity and circulating supply. If
-      // either event_usd_value or mcap_usd is NULL, calculate them and update
-      // the events_approved table. This guarantees that event_pct_mcap will
-      // be available for all events, not just those created by telegram.
       // --------------------------------------------------------------------
       if (ev.event_usd_value == null || ev.mcap_usd == null) {
-        // Use the fresh T0 price if captured; otherwise fallback to DB value or fetch a new price
         let price = patch.t0_price ?? row.t0_price ?? null;
         if (price == null) {
           price = await fetchMexcTicker({ apiPair: market.apiPair!, market: market.market });
@@ -516,13 +547,10 @@ serve(async (_req: Request) => {
           if (Number.isFinite(qty) && qty > 0) {
             eventUsd = price * qty;
           }
-          // If we have a circulating supply stored, compute MCAP directly.
           if (Number.isFinite(circ) && circ > 0) {
             mcapUsd = price * circ;
           }
         }
-        // If we still lack MCAP but have a coin name, call the dropstab-circ
-        // edge function to fetch circulating supply dynamically.
         if (mcapUsd == null && price != null && ev.coin_name) {
           try {
             const { data: circRes, error: circErr } = await supabase.functions.invoke(
@@ -537,7 +565,6 @@ serve(async (_req: Request) => {
             }
           } catch {}
         }
-        // If we computed at least one of the values, persist them in events_approved.
         if (eventUsd != null || mcapUsd != null) {
           const updatePayload: any = {};
           if (eventUsd != null) updatePayload.event_usd_value = eventUsd;
@@ -547,7 +574,6 @@ serve(async (_req: Request) => {
             .update(updatePayload)
             .eq("id", ev.id);
           if (!updEventErr) {
-            // Update local copy so that event_pct_mcap calculation uses these values
             if (eventUsd != null) ev.event_usd_value = eventUsd;
             if (mcapUsd != null) ev.mcap_usd = mcapUsd;
           }
@@ -611,7 +637,6 @@ serve(async (_req: Request) => {
       const lowSeries: Array<number | null> = new Array(totalPoints).fill(null);
 
       for (const c of candles || []) {
-        // normalized: [tsMs, open, high, low, close]
         const [tsMs, _open, high, low, close] = c;
 
         const off = Math.floor((Number(tsMs) - startTs) / 60000);
@@ -623,18 +648,18 @@ serve(async (_req: Request) => {
       }
 
       const baseIndex = preDuration;
-      const basePrice = closeSeries[baseIndex];
+      const seriesBasePrice = closeSeries[baseIndex];
       const prePrice = closeSeries[0];
       const postPrice = closeSeries[totalPoints - 1];
 
       const preReturn =
-        prePrice != null && basePrice != null && Number(prePrice) > 0
-          ? ((basePrice - prePrice) / prePrice) * 100
+        prePrice != null && seriesBasePrice != null && Number(prePrice) > 0
+          ? ((seriesBasePrice - prePrice) / prePrice) * 100
           : null;
 
       const postReturn =
-        basePrice != null && postPrice != null && Number(basePrice) > 0
-          ? ((postPrice - basePrice) / basePrice) * 100
+        seriesBasePrice != null && postPrice != null && Number(seriesBasePrice) > 0
+          ? ((postPrice - seriesBasePrice) / seriesBasePrice) * 100
           : null;
 
       const netReturn =
@@ -665,11 +690,11 @@ serve(async (_req: Request) => {
       const maxOffset = maxIdx - baseIndex;
       const minOffset = minIdx - baseIndex;
 
-      // compute event_pct_mcap
-      let eventPctMcap: number | null = null;
-      if (ev.event_usd_value != null && ev.mcap_usd != null && Number(ev.mcap_usd) > 0) {
-        eventPctMcap = (Number(ev.event_usd_value) / Number(ev.mcap_usd)) * 100;
-      }
+      // ✅ Build snapshot values at series time
+      const snapPrice = row.price_snap ?? seriesBasePrice ?? row.t0_price ?? null;
+      const snapMcap = row.mcap_snap ?? (Number.isFinite(Number(ev.mcap_usd)) ? Number(ev.mcap_usd) : null);
+      const snapUsd = row.event_usd_snap ?? computeEventUsdSnap(snapPrice, ev.coin_quantity);
+      const snapPctMcap = computeEventPctMcap(snapUsd, snapMcap);
 
       const update: any = {
         series_close: closeSeries,
@@ -682,19 +707,19 @@ serve(async (_req: Request) => {
         max_offset: maxOffset,
         min_price: minPrice,
         min_offset: minOffset,
-        event_pct_mcap: eventPctMcap,
+        event_pct_mcap: snapPctMcap,
       };
-      // заповнюємо снапшот MCAP, якщо він ще відсутній
-      if (row.mcap_snap == null && ev.mcap_usd != null) {
-        update.mcap_snap = Number(ev.mcap_usd);
-      }
-      // якщо price_snap все ще порожній, дублюємо ціну з T0
-      if (row.price_snap == null) {
-        const basePrice = closeSeries[preDuration] ?? row.t0_price;
-        if (basePrice != null) update.price_snap = basePrice;
-      }
 
-      await supabase.from('event_price_reaction').update(update).eq('event_id', ev.id);
+      // ✅ Store snapshots if not yet set
+      if (row.mcap_snap == null && snapMcap != null) {
+        update.mcap_snap = snapMcap;
+      }
+      if (row.price_snap == null && snapPrice != null) {
+        update.price_snap = snapPrice;
+      }
+      if (row.event_usd_snap == null && snapUsd != null) {
+        update.event_usd_snap = snapUsd;
+      }
 
       const { error: updErr } = await supabase
         .from("event_price_reaction")

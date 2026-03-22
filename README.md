@@ -51,6 +51,6 @@ Use a `.env.local` file for optional features and integrations.
 
 ## ✅ Contributing
 
-PRs are welcome. Keep changes focused and include screenshots for UI updates when possible.
+PRs are welcome. Keep changes focused and include screenshots for UI updates when possible
 
 ---
