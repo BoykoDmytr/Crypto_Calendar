@@ -10,6 +10,7 @@ import EventForm from '../components/EventForm';
 import { formatQuantity as formatTokenQuantity } from '../hooks/useTokenPrice';
 import Toast from '../components/Toast';
 import { extractCoinEntries, coinEntriesEqual, parseCoinQuantity as parseQuantity } from '../utils/coins';
+import { fetchMexcTickerPrice } from '../utils/fetchMexcTicker';
 
 
 dayjs.extend(utc);
@@ -470,57 +471,124 @@ const fetchCircSupplyViaFn = async (coinName) => {
   if (error) return null;
   return typeof data?.circulatingSupply === 'number' ? data.circulatingSupply : null;
 };
-
+// Витягує MEXC-символ з price_link або з назви монети
+const extractMexcSymbolForAdmin = (coinName, priceLink) => {
+  // 1) З price_link: /futures/TOKEN_USDT або /exchange/TOKEN_USDT
+  if (priceLink && typeof priceLink === 'string') {
+    const m = priceLink.match(/\/(futures|exchange)\/([A-Z0-9]+)_([A-Z0-9]+)/i);
+    if (m) {
+      const base = (m[2] || '').toUpperCase();
+      const isFutures = (m[1] || '').toLowerCase() === 'futures';
+      return {
+        symbol: isFutures ? `${base}_USDT` : `${base}USDT`,
+        market: isFutures ? 'futures' : 'spot',
+      };
+    }
+    // fallback: TOKEN_USDT десь у рядку
+    const m2 = priceLink.match(/([A-Z0-9]{2,})_USDT/i);
+    if (m2) {
+      const base = (m2[1] || '').toUpperCase();
+      const isFutures = /\/futures\//i.test(priceLink);
+      return {
+        symbol: isFutures ? `${base}_USDT` : `${base}USDT`,
+        market: isFutures ? 'futures' : 'spot',
+      };
+    }
+  }
+ 
+  // 2) З назви монети: GWEI -> GWEIUSDT (spot)
+  if (coinName) {
+    const tok = String(coinName).trim().toUpperCase().replace(/[^A-Z0-9]/g, '');
+    if (tok) {
+      return { symbol: `${tok}USDT`, market: 'spot' };
+    }
+  }
+ 
+  return null;
+};
 // ✅ головний хелпер: рахує pct і ПИШЕ В БД КОРЕКТНО (coins = TEXT)
 const enrichPayloadWithCircPct = async (payload) => {
   const entries = extractCoinEntries(payload);
   if (!entries.length) return payload;
  
-  // ✅ Якщо є кастомний mcap_usd — зберігаємо його, не перераховуємо
+  // ✅ Перевіряємо чи є кастомний MCAP
   const hasCustomMcap = payload.mcap_usd != null
     && Number.isFinite(Number(payload.mcap_usd))
     && Number(payload.mcap_usd) > 0;
-
+  const customMcap = hasCustomMcap ? Number(payload.mcap_usd) : null;
+ 
   const circList = [];
   const pctList = [];
   const enrichedCoins = [];
-
+ 
   for (const entry of entries) {
     const name = (entry?.name || '').trim();
     const qty = parseQuantity(entry?.quantity);
-
+ 
     let circ = null;
     let pct = null;
-
+ 
     if (name && qty != null && qty > 0) {
-      circ = await fetchCircSupplyViaFn(name);
-      if (circ != null && circ > 0) pct = (qty / circ) * 100;
+      if (hasCustomMcap) {
+        // ✅ КАСТОМНИЙ MCAP: отримуємо ціну з MEXC → рахуємо pct через mcap
+        const priceLink = entry?.price_link || payload.coin_price_link || '';
+        const mexcMeta = extractMexcSymbolForAdmin(name, priceLink);
+ 
+        let price = null;
+        if (mexcMeta?.symbol) {
+          try {
+            const result = await fetchMexcTickerPrice(mexcMeta.symbol, {
+              market: mexcMeta.market || 'spot',
+            });
+            price = result?.price ?? null;
+          } catch (e) {
+            console.warn('[enrichPayloadWithCircPct] MEXC price fetch failed:', name, e?.message);
+          }
+        }
+ 
+        if (price != null && Number.isFinite(price) && price > 0) {
+          const eventUsd = qty * price;
+          // pct = (вартість_івенту / кастомний_mcap) × 100
+          pct = (eventUsd / customMcap) * 100;
+          // Для довідки: ефективний circ_supply
+          circ = customMcap / price;
+          // Також зберігаємо event_usd_value
+          payload.event_usd_value = eventUsd;
+        } else {
+          // Не вдалось отримати ціну — фолбек на Dropstab circ_supply
+          console.warn('[enrichPayloadWithCircPct] Price not available, fallback to circ_supply for', name);
+          circ = await fetchCircSupplyViaFn(name);
+          if (circ != null && circ > 0) pct = (qty / circ) * 100;
+        }
+      } else {
+        // ✅ АВТО MCAP: стандартний розрахунок через Dropstab API
+        circ = await fetchCircSupplyViaFn(name);
+        if (circ != null && circ > 0) pct = (qty / circ) * 100;
+      }
     }
-
+ 
     enrichedCoins.push({
       ...entry,
       circ_supply: circ,
       pct_circ: pct,
     });
-
+ 
     circList.push(circ != null ? String(circ) : '');
     pctList.push(pct != null ? formatPct(pct) : '');
   }
-
-  // ⚠️ У ТЕБЕ coins = TEXT → тільки JSON.stringify
+ 
+  // ⚠️ coins у events_approved = TEXT → тільки JSON.stringify
   payload.coins = JSON.stringify(enrichedCoins);
-
-  // (опційно) твої колонки text
+ 
+  // текстові колонки
   payload.coin_circ_supply = circList.join('\n');
   payload.coin_pct_circ = pctList.join('\n');
  
-  // ✅ Якщо кастомний MCAP — перераховуємо mcap_usd і event_usd_value на його основі
-  if (hasCustomMcap) {
-    // mcap_usd вже встановлений користувачем — не чіпаємо
-    // Але перераховуємо coin_pct_circ відносно кастомного mcap, якщо є ціна
-    // (опційно — можна залишити pct з circ_supply як є)
+  // Для першої монети — числова колонка circulating_supply
+  const firstCoin = enrichedCoins[0];
+  if (firstCoin?.circ_supply != null) {
+    payload.coin_circulating_supply = firstCoin.circ_supply;
   }
-  // Якщо НЕ кастомний — залишаємо mcap_usd як порахував enrichment (або null)
  
   return payload;
 };
