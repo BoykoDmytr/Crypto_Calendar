@@ -119,6 +119,7 @@ export default function SuggestEdit() {
       'coin_name',
       'coin_quantity',
       'coin_price_link',
+      'mcap_usd',
     ];
     const clean = Object.fromEntries(
       Object.entries(payload).filter(([k]) => allowed.includes(k))
