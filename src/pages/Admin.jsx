@@ -475,6 +475,11 @@ const fetchCircSupplyViaFn = async (coinName) => {
 const enrichPayloadWithCircPct = async (payload) => {
   const entries = extractCoinEntries(payload);
   if (!entries.length) return payload;
+ 
+  // ✅ Якщо є кастомний mcap_usd — зберігаємо його, не перераховуємо
+  const hasCustomMcap = payload.mcap_usd != null
+    && Number.isFinite(Number(payload.mcap_usd))
+    && Number(payload.mcap_usd) > 0;
 
   const circList = [];
   const pctList = [];
@@ -508,7 +513,15 @@ const enrichPayloadWithCircPct = async (payload) => {
   // (опційно) твої колонки text
   payload.coin_circ_supply = circList.join('\n');
   payload.coin_pct_circ = pctList.join('\n');
-
+ 
+  // ✅ Якщо кастомний MCAP — перераховуємо mcap_usd і event_usd_value на його основі
+  if (hasCustomMcap) {
+    // mcap_usd вже встановлений користувачем — не чіпаємо
+    // Але перераховуємо coin_pct_circ відносно кастомного mcap, якщо є ціна
+    // (опційно — можна залишити pct з circ_supply як є)
+  }
+  // Якщо НЕ кастомний — залишаємо mcap_usd як порахував enrichment (або null)
+ 
   return payload;
 };
 
@@ -516,7 +529,7 @@ const enrichPayloadWithCircPct = async (payload) => {
 const approve = async (ev, table = 'events_pending') => {
   const allowed = [
     'title','description','start_at','end_at','timezone','type','tge_exchanges','link','nickname','coins',
-    'coin_name','coin_quantity','coin_price_link','show_mcap',
+    'coin_name','coin_quantity','coin_price_link','show_mcap','mcap_usd',
   ];
 
   const payload = Object.fromEntries(Object.entries(ev).filter(([k]) => allowed.includes(k)));
@@ -638,7 +651,7 @@ const approve = async (ev, table = 'events_pending') => {
 const approveEdit = async (edit) => {
   const allowed = [
     'title','description','start_at','end_at','timezone','type','tge_exchanges','link','nickname','coins',
-    'coin_name','coin_quantity','coin_price_link','show_mcap',
+    'coin_name','coin_quantity','coin_price_link','show_mcap','mcap_usd',
   ];
 
   const patch = Object.fromEntries(

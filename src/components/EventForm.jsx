@@ -84,13 +84,16 @@ export default function EventForm({ onSubmit, loading, initial = {} }) {
     const isEditing = initial && Object.keys(initial).length > 0;
     const defaultTimezone = isEditing ? (initial.timezone || 'UTC') : 'Kyiv';
 
+    // Визначаємо, чи є кастомний mcap в initial
+    const hasCustomMcap = initial?.mcap_usd != null
+      && Number.isFinite(Number(initial.mcap_usd))
+      && Number(initial.mcap_usd) > 0;
+
     const base = {
       title: '',
       description: '',
-      // важливо: тепер зберігаємо slug типу
       event_type_slug: initial?.event_type_slug || 'listing-tge',
-      type: initial?.type || 'Listing (TGE)', // лишаємо для відображення у картках/легасі
-      // 👇 ключова правка: узгоджуємо з тим, чим гідратимемо поля
+      type: initial?.type || 'Listing (TGE)',
       timezone: defaultTimezone,
       start_at: '',
       end_at: '',
@@ -100,6 +103,9 @@ export default function EventForm({ onSubmit, loading, initial = {} }) {
       coins: [],
       tge_exchanges: [],
       show_mcap: initial?.show_mcap !== undefined ? initial.show_mcap : true,
+      // ── Custom MCAP ──
+      use_custom_mcap: hasCustomMcap,
+      mcap_usd: hasCustomMcap ? String(initial.mcap_usd) : '',
     };
 
     const merged = { ...base, ...(initial || {}) };
@@ -110,6 +116,10 @@ export default function EventForm({ onSubmit, loading, initial = {} }) {
     delete merged.coin_price_link;
     merged.nickname = merged.nickname || '';
     merged.link = normalizeLinkValue(merged.link);
+    // Переконуємось, що custom mcap поля правильно ініціалізовані
+    merged.use_custom_mcap = hasCustomMcap;
+    merged.mcap_usd = hasCustomMcap ? String(initial.mcap_usd) : '';
+    merged.show_mcap = initial?.show_mcap !== undefined ? initial.show_mcap : true;
     return merged;
   });
   const isEditing = useMemo(() => {
@@ -125,15 +135,12 @@ export default function EventForm({ onSubmit, loading, initial = {} }) {
   useEffect(() => {
     (async () => {
       try {
-        const list = await fetchEventTypes(); // твоя функція -> [{label/name, slug, active, is_tge, ...}]
+        const list = await fetchEventTypes();
         setTypes(list || []);
 
-        // Якщо вже є тип у initial — нічого не авто-ставимо
         const hasInitialType = !!(initial?.event_type_slug || initial?.type);
         if (hasInitialType) return;
 
-        // Для нової події перевіряємо, що slug у формі дійсний.
-        // Якщо дефолтний/старий slug не існує у довіднику — підставляємо перший активний.
         setForm((s) => {
           if (!list?.length) return s;
           const selected = list.find((t) => t.slug === s.event_type_slug);
@@ -156,7 +163,7 @@ export default function EventForm({ onSubmit, loading, initial = {} }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [initial?.event_type_slug, initial?.type]);
 
-  /** 2) Одноразова гідрація форми з initial (щоб не “злітав” час, тип і біржі) */
+  /** 2) Одноразова гідрація форми з initial */
   useEffect(() => {
     const hasTypes = Array.isArray(types) && types.length > 0;
     if (!initial || Object.keys(initial).length === 0) return;
@@ -167,7 +174,6 @@ export default function EventForm({ onSubmit, loading, initial = {} }) {
     setForm((prev) => {
       let next = { ...prev, ...initial };
 
-      // Підтягнемо slug за назвою, якщо прийшла тільки назва типу
       let matchedType = null;
       if (types?.length) {
         matchedType =
@@ -194,12 +200,10 @@ export default function EventForm({ onSubmit, loading, initial = {} }) {
           ) || null;
       }
 
-      // Зберігаємо біржі як є (якщо це TGE і масив присутній)
       if (Array.isArray(initial.tge_exchanges)) {
         next.tge_exchanges = [...initial.tge_exchanges];
       }
 
-      // Конвертації дат/часів під інпути (це лише для ПРЕФІЛУ UI; у submit ти вже конвертуєш назад у UTC)
       const tz = initial.timezone || 'UTC';
       const typeName = next.type;
       const isTge = matchedType?.is_tge || typeName === 'Listing (TGE)';
@@ -207,7 +211,7 @@ export default function EventForm({ onSubmit, loading, initial = {} }) {
 
       if (isTge) {
         if (initial.start_at) {
-          next.start_at = toLocalInput(initial.start_at, tz, 'date'); // YYYY-MM-DD
+          next.start_at = toLocalInput(initial.start_at, tz, 'date');
           const hasTime = /(\d{2}:\d{2})/.test(String(initial.start_at));
           let timeLocal = '';
           if (hasTime) {
@@ -222,11 +226,10 @@ export default function EventForm({ onSubmit, loading, initial = {} }) {
           const cleaned = extractTimeSegment(initial.start_time);
           next.start_time = cleaned === '00:00' ? '' : cleaned;
         }
-        // end_at для TGE ігноруємо
       } else if (isTimeOptional) {
         if (initial.start_at) {
-          next.start_date = toLocalInput(initial.start_at, tz, 'date');   // YYYY-MM-DD
-          let optionalTime = toLocalInput(initial.start_at, tz, 'time');   // HH:mm (або '')
+          next.start_date = toLocalInput(initial.start_at, tz, 'date');
+          let optionalTime = toLocalInput(initial.start_at, tz, 'time');
           if (!optionalTime && initial.start_time) {
             optionalTime = extractTimeSegment(initial.start_time);
           } else if (!optionalTime && prev.start_time) {
@@ -235,10 +238,9 @@ export default function EventForm({ onSubmit, loading, initial = {} }) {
           next.start_time = optionalTime === '00:00' ? '' : optionalTime;
         }
         if (initial.end_at) {
-          next.end_at = toLocalInput(initial.end_at, tz, 'datetime');     // YYYY-MM-DDTHH:mm
+          next.end_at = toLocalInput(initial.end_at, tz, 'datetime');
         }
       } else {
-        // інші типи — звичайний datetime-local
         if (initial.start_at) {
           next.start_at = toLocalInput(initial.start_at, tz, 'datetime');
         }
@@ -247,7 +249,6 @@ export default function EventForm({ onSubmit, loading, initial = {} }) {
         }
       }
 
-      // 👇 ключова правка: зафіксувати у формі ту саму TZ, якою гідратнули поля
       next.timezone = tz;
       
       const derivedCoins = deriveCoinsForState(initial);
@@ -261,6 +262,14 @@ export default function EventForm({ onSubmit, loading, initial = {} }) {
       delete next.coin_price_link;
       next.link = normalizeLinkValue(next.link);
       next.show_mcap = initial?.show_mcap !== undefined ? initial.show_mcap : prev.show_mcap;
+
+      // ── Custom MCAP hydration ──
+      const hasCustomMcap = initial?.mcap_usd != null
+        && Number.isFinite(Number(initial.mcap_usd))
+        && Number(initial.mcap_usd) > 0;
+      next.use_custom_mcap = hasCustomMcap;
+      next.mcap_usd = hasCustomMcap ? String(initial.mcap_usd) : (prev.mcap_usd || '');
+
       return next;
     });
 
@@ -323,6 +332,27 @@ export default function EventForm({ onSubmit, loading, initial = {} }) {
       setForm((s) => ({
         ...s,
         coins: [],
+        // Скидаємо custom mcap разом з токен-полями
+        use_custom_mcap: false,
+        mcap_usd: '',
+      }));
+    }
+  };
+
+  // ── Перемикач: авто MCAP ↔ кастомний MCAP ──
+  const handleMcapModeChange = (mode) => {
+    // mode: 'auto' або 'custom'
+    if (mode === 'custom') {
+      setForm((s) => ({
+        ...s,
+        show_mcap: true,          // показуємо % MCAP
+        use_custom_mcap: true,    // кастомний режим
+      }));
+    } else {
+      setForm((s) => ({
+        ...s,
+        use_custom_mcap: false,   // авто режим
+        mcap_usd: '',             // очищаємо кастомне значення
       }));
     }
   };
@@ -407,7 +437,6 @@ export default function EventForm({ onSubmit, loading, initial = {} }) {
     payload.type = currentType.name;
 
     if (currentType.is_tge) {
-      // дата + (опційний) час + біржі
       const rawDate = (form.start_at || '').trim();
       const date = rawDate.includes('T') ? rawDate.split('T')[0] : rawDate;
       const manualTime = (form.start_time || '').trim();
@@ -423,11 +452,10 @@ export default function EventForm({ onSubmit, loading, initial = {} }) {
       delete payload.start_date;
       delete payload.start_time;
     } else if (currentType.time_optional) {
-      // дата + опційний час
       const date = (form.start_date && String(form.start_date).trim())
                 || (form.start_at && String(form.start_at).slice(0,10))
                 || '';
-      const time = (form.start_time || '').trim(); // може бути порожнім
+      const time = (form.start_time || '').trim();
       const local = time ? `${date}T${time}` : `${date}T00:00`;
       payload.start_at = toISOorNull(local, form.timezone);
       payload.end_at   = toISOorNull(form.end_at, form.timezone);
@@ -436,7 +464,6 @@ export default function EventForm({ onSubmit, loading, initial = {} }) {
       delete payload.start_time;
       delete payload.tge_exchanges;
     } else {
-      // повний datetime-local
       payload.start_at = toISOorNull(form.start_at, form.timezone);
       payload.end_at   = toISOorNull(form.end_at,   form.timezone);
       if (!payload.end_at) delete payload.end_at;
@@ -486,6 +513,21 @@ export default function EventForm({ onSubmit, loading, initial = {} }) {
       delete payload.coin_quantity;
       delete payload.coin_price_link;
     }
+
+    // ── Custom MCAP: якщо ввімкнено кастомний режим і є значення ──
+    if (form.use_custom_mcap && form.mcap_usd !== '' && form.mcap_usd != null) {
+      const mcapNum = Number(form.mcap_usd);
+      if (Number.isFinite(mcapNum) && mcapNum > 0) {
+        payload.mcap_usd = mcapNum;
+      }
+    } else if (!form.use_custom_mcap) {
+      // Авто-режим: видаляємо mcap_usd щоб enrichment порахував сам
+      delete payload.mcap_usd;
+    }
+
+    // Прибираємо внутрішні поля форми, які не потрібні бекенду
+    delete payload.use_custom_mcap;
+
     onSubmit?.(payload);
   };
   const coinsList = Array.isArray(form.coins) ? form.coins : [];
@@ -581,7 +623,7 @@ export default function EventForm({ onSubmit, loading, initial = {} }) {
             </div>
           </div>
           <div>
-            <label className="label">Кінець (необов’язково)</label>
+            <label className="label">Кінець (необов'язково)</label>
             <input type="datetime-local" className="input"
               value={form.end_at || ''}
               onChange={e=>change('end_at', e.target.value)} />
@@ -596,7 +638,7 @@ export default function EventForm({ onSubmit, loading, initial = {} }) {
               onChange={e=>change('start_at', e.target.value)} />
           </div>
           <div>
-            <label className="label">Кінець (необов’язково)</label>
+            <label className="label">Кінець (необов'язково)</label>
             <input type="datetime-local" className="input"
               value={form.end_at || ''}
               onChange={e=>change('end_at', e.target.value)} />
@@ -722,17 +764,63 @@ export default function EventForm({ onSubmit, loading, initial = {} }) {
         </div>
       )}
 
-      {/* NEW: MCAP toggle */}
-      <div>
-        <label className="label inline-flex items-center gap-2">
+      {/* ════════════════════════════════════════════════════════════
+          MCAP: дві взаємовиключні галочки
+          ════════════════════════════════════════════════════════════ */}
+      <div className="space-y-2 rounded-xl border border-gray-200 dark:border-gray-700 p-3">
+        <div className="label mb-1">Показувати % MCAP</div>
+
+        {/* Галочка 1: Авто MCAP (через Dropstab API) */}
+        <label className="inline-flex items-center gap-2 cursor-pointer">
+          <input
+            type="radio"
+            name="mcap_mode"
+            checked={!form.use_custom_mcap}
+            onChange={() => handleMcapModeChange('auto')}
+          />
+          <span className="text-sm">Авто MCAP (через Dropstab API)</span>
+        </label>
+
+        {/* Галочка 2: Кастомний MCAP */}
+        <label className="inline-flex items-center gap-2 cursor-pointer">
+          <input
+            type="radio"
+            name="mcap_mode"
+            checked={!!form.use_custom_mcap}
+            onChange={() => handleMcapModeChange('custom')}
+          />
+          <span className="text-sm">Кастомний MCAP</span>
+        </label>
+
+        {/* Поле вводу — з'являється лише при кастомному режимі */}
+        {form.use_custom_mcap && (
+          <div className="mt-2">
+            <label className="label">MCAP (USD)</label>
+            <input
+              className="input"
+              type="number"
+              min="0"
+              step="any"
+              value={form.mcap_usd}
+              onChange={(e) => change('mcap_usd', e.target.value)}
+              placeholder="Напр., 50000000"
+            />
+            <p className="text-xs text-gray-500 mt-1">
+              Впишіть ринкову капіталізацію вручну. Це значення перекриє автоматичний розрахунок через API.
+            </p>
+          </div>
+        )}
+
+        {/* Загальна галочка видимості */}
+        <label className="inline-flex items-center gap-2 cursor-pointer mt-2">
           <input
             type="checkbox"
             checked={!!form.show_mcap}
             onChange={(e) => change('show_mcap', e.target.checked)}
           />
-          <span>Показувати % MCAP</span>
+          <span className="text-sm">Показувати % MCAP на картці</span>
         </label>
-        <p className="text-xs text-gray-500 mt-1">
+        <p className="text-xs text-gray-500">
           Відключи, щоб приховати відсоток циркулюючої пропозиції для кожної монети.
         </p>
       </div>
