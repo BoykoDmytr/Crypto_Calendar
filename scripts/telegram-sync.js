@@ -215,6 +215,7 @@ const ALL_PARSERS = [
   { name: 'Token Splash', trigger: 'New token splash:', fn: parseTsBybit },
   { name: 'Launchpool', trigger: 'Stake', fn: parseLaunchpoolAlerts },
   { name: 'Launchpool (New)', trigger: 'New Launchpool', fn: parseLaunchpoolNew },
+  { name: 'Flash Earn', trigger: 'New Flash Earn', fn: parseLaunchpoolNew },
 ];
 
 /**
@@ -812,6 +813,7 @@ export function parsePoolAlerts(message) {
   return [
     ...parseLaunchpoolAlerts(message, { trigger: 'Stake' }),
     ...parseLaunchpoolNew(message, { trigger: 'New Launchpool' }),
+    ...parseLaunchpoolNew(message, { trigger: 'New Flash Earn' }),
   ];
 }
 
