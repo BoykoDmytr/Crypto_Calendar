@@ -282,7 +282,11 @@ export default function Stats() {
       )}
       <div className="grid gap-4">
         {visibleItems.map((item) => (
-          <PriceReactionCard key={item.eventId} item={item} />
+          <PriceReactionCard
+            key={item.eventId}
+            item={item}
+            allItems={items}
+          />
         ))}
       </div>
     </div>

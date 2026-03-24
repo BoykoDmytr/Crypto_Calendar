@@ -5,6 +5,7 @@ import timezone from 'dayjs/plugin/timezone';
 
 import ReactionChart from './ReactionChart';
 import ProfitCalculator from './ProfitCalculator';
+import StatsPanel from './StatsPanel';
 import { extractCoinEntries } from '../utils/coins';
 import { fetchMexcTickerPrice } from '../utils/fetchMexcTicker';
 
@@ -68,11 +69,13 @@ function extractMexcSymbol(link) {
     : { symbol: `${base}${quote}`, market: 'spot' };
 }
 
-export default function PriceReactionCard({ item }) {
+export default function PriceReactionCard({ item, allItems = [] }) {
   const {
+    eventId,
     title,
     startAt,
     type,
+    eventTypeSlug,
     coinName,
     timezone: tz,
     pair,
@@ -97,6 +100,7 @@ export default function PriceReactionCard({ item }) {
   const [investment, setInvestment] = useState(100);
   const [direction, setDirection] = useState('short');
   const [showProfit, setShowProfit] = useState(false);
+  const [showStats, setShowStats] = useState(false);
 
   // ── First coin info (static) ──
   const firstCoin = useMemo(() => {
@@ -168,6 +172,13 @@ export default function PriceReactionCard({ item }) {
 
   const startOffset = range && range.endIdx != null ? range.startIdx - baseIndex : null;
   const endOffset = range && range.endIdx != null ? range.endIdx - baseIndex : null;
+
+  // ── Determine if 2 candles are selected (for Stats button) ──
+  const hasTwoCandlesSelected = range != null && range.startIdx != null && range.endIdx != null && range.startIdx !== range.endIdx;
+
+  // ── Entry/Exit offsets for Stats (always entry < exit) ──
+  const entryOffsetMin = hasTwoCandlesSelected ? Math.min(startOffset, endOffset) : null;
+  const exitOffsetMin = hasTwoCandlesSelected ? Math.max(startOffset, endOffset) : null;
 
   const selectionMeta = useMemo(() => {
     if (!hasSeries || range?.endIdx == null) return null;
@@ -244,7 +255,7 @@ export default function PriceReactionCard({ item }) {
           )}
         </div>
 
-        {/* ── USD + %circ pill badges (real MEXC price, fetched once) ── */}
+        {/* ── USD + %circ pill badges ── */}
         {hasCoinBadges && (
           <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
             {usdLabel && (
@@ -303,30 +314,112 @@ export default function PriceReactionCard({ item }) {
 
       {hasSeries && (
         <>
-          <div className="mt-2 flex items-center gap-2">
+          {/* ── Buttons row: Short | Long | Profit | Stats ── */}
+          <div className="mt-2 flex flex-wrap items-center gap-2">
+            {/* Short / Long toggle */}
             <div className="inline-flex rounded-xl border border-white/10 bg-[#111931]/70 p-1 shadow-[0_8px_22px_rgba(10,16,38,0.25)]">
-              <button type="button" onClick={() => setDirection('short')} className={`min-w-[76px] rounded-lg px-4 py-2 text-sm font-semibold transition ${direction === 'short' ? 'bg-red-500 text-white shadow-[0_6px_16px_rgba(239,68,68,0.35)]' : 'text-white/80 hover:bg-white/5'}`}>Short</button>
-              <button type="button" onClick={() => setDirection('long')} className={`min-w-[76px] rounded-lg px-4 py-2 text-sm font-semibold transition ${direction === 'long' ? 'bg-emerald-500 text-white shadow-[0_6px_16px_rgba(16,185,129,0.35)]' : 'text-white/80 hover:bg-white/5'}`}>Long</button>
+              <button
+                type="button"
+                onClick={() => setDirection('short')}
+                className={`min-w-[76px] rounded-lg px-4 py-2 text-sm font-semibold transition ${
+                  direction === 'short'
+                    ? 'bg-red-500 text-white shadow-[0_6px_16px_rgba(239,68,68,0.35)]'
+                    : 'text-white/80 hover:bg-white/5'
+                }`}
+              >
+                Short
+              </button>
+              <button
+                type="button"
+                onClick={() => setDirection('long')}
+                className={`min-w-[76px] rounded-lg px-4 py-2 text-sm font-semibold transition ${
+                  direction === 'long'
+                    ? 'bg-emerald-500 text-white shadow-[0_6px_16px_rgba(16,185,129,0.35)]'
+                    : 'text-white/80 hover:bg-white/5'
+                }`}
+              >
+                Long
+              </button>
             </div>
-            <button type="button" onClick={() => setShowProfit((prev) => !prev)} className="inline-flex items-center gap-2 rounded-xl border border-white/10 bg-[#111931]/70 px-4 py-3 text-sm font-medium text-white/85 shadow-[0_8px_22px_rgba(10,16,38,0.25)] transition hover:bg-white/10">
+
+            {/* Profit button */}
+            <button
+              type="button"
+              onClick={() => setShowProfit((prev) => !prev)}
+              className={`inline-flex items-center gap-2 rounded-xl border border-white/10 px-4 py-3 text-sm font-medium shadow-[0_8px_22px_rgba(10,16,38,0.25)] transition ${
+                showProfit
+                  ? 'bg-indigo-500/25 border-indigo-400/40 text-indigo-100'
+                  : 'bg-[#111931]/70 text-white/85 hover:bg-white/10'
+              }`}
+            >
               <span>Profit</span>
               <span className="text-white/50">{showProfit ? '▲' : '›'}</span>
             </button>
+
+            {/* Stats button — disabled until 2 candles selected */}
+            <button
+              type="button"
+              onClick={() => hasTwoCandlesSelected && setShowStats((prev) => !prev)}
+              disabled={!hasTwoCandlesSelected}
+              className={`inline-flex items-center gap-2 rounded-xl border px-4 py-3 text-sm font-medium shadow-[0_8px_22px_rgba(10,16,38,0.25)] transition ${
+                !hasTwoCandlesSelected
+                  ? 'border-white/5 bg-[#111931]/40 text-white/30 cursor-not-allowed'
+                  : showStats
+                    ? 'border-cyan-400/40 bg-cyan-500/20 text-cyan-100'
+                    : 'border-white/10 bg-[#111931]/70 text-white/85 hover:bg-white/10'
+              }`}
+              title={!hasTwoCandlesSelected ? 'Оберіть 2 свічки на графіку' : ''}
+            >
+              <span>Stats</span>
+              <span className="text-white/50">
+                {!hasTwoCandlesSelected ? '○' : showStats ? '▲' : '›'}
+              </span>
+            </button>
           </div>
 
+          {/* ── PnL summary ── */}
           <div className="mt-3 rounded-2xl border border-white/10 bg-[#0f1730]/60 px-4 py-3 text-sm shadow-[0_8px_22px_rgba(10,16,38,0.2)]">
             {pnlSummary ? (
               <div className="flex flex-wrap items-center justify-between gap-3">
-                <div className="text-white/80">PnL{' '}<span className={`font-semibold ${summaryColor}`}>{pnlSummary.pnlPct >= 0 ? '+' : ''}{pnlSummary.pnlPct.toFixed(2)}%</span></div>
-                <div className={`font-semibold ${summaryColor}`}>{pnlSummary.pnl >= 0 ? '+' : ''}{pnlSummary.pnl.toFixed(4)} USDT</div>
+                <div className="text-white/80">
+                  PnL{' '}
+                  <span className={`font-semibold ${summaryColor}`}>
+                    {pnlSummary.pnlPct >= 0 ? '+' : ''}{pnlSummary.pnlPct.toFixed(2)}%
+                  </span>
+                </div>
+                <div className={`font-semibold ${summaryColor}`}>
+                  {pnlSummary.pnl >= 0 ? '+' : ''}{pnlSummary.pnl.toFixed(4)} USDT
+                </div>
               </div>
             ) : (
               <div className="text-white/55">Оберіть дві свічки на графіку, щоб порахувати прибуток.</div>
             )}
           </div>
 
+          {/* ── Profit Calculator panel ── */}
           {showProfit && (
-            <ProfitCalculator closeSeries={seriesClose} startOffset={startOffset} endOffset={endOffset} baseIndex={baseIndex} investment={investment} onInvestmentChange={setInvestment} direction={direction} />
+            <ProfitCalculator
+              closeSeries={seriesClose}
+              startOffset={startOffset}
+              endOffset={endOffset}
+              baseIndex={baseIndex}
+              investment={investment}
+              onInvestmentChange={setInvestment}
+              direction={direction}
+            />
+          )}
+
+          {/* ── Stats panel (V1 + V2) ── */}
+          {showStats && hasTwoCandlesSelected && (
+            <StatsPanel
+              allItems={allItems}
+              currentEventId={eventId}
+              eventType={type}
+              eventTypeSlug={eventTypeSlug}
+              side={direction}
+              entryOffsetMin={entryOffsetMin}
+              exitOffsetMin={exitOffsetMin}
+            />
           )}
         </>
       )}
