@@ -7,7 +7,6 @@ import ReactionChart from './ReactionChart';
 import ProfitCalculator from './ProfitCalculator';
 import StatsPanel from './StatsPanel';
 import { extractCoinEntries } from '../utils/coins';
-import { fetchMexcTickerPrice } from '../utils/fetchMexcTicker';
 
 dayjs.extend(utc);
 dayjs.extend(timezone);
@@ -43,32 +42,6 @@ function formatDate(iso, tz) {
   return base.tz(zone).format('DD MMM HH:mm');
 }
 
-// ── Parse MEXC link → symbol + market ──
-function isMexcFuturesLink(raw) {
-  if (!raw) return false;
-  return /\/futures\//i.test(raw) || /type=linear_swap/i.test(raw);
-}
-
-function extractMexcSymbol(link) {
-  if (!link || typeof link !== 'string') return null;
-  if (!/^https?:\/\//i.test(link)) return null;
-  if (!/mexc\.com/i.test(link)) return null;
-
-  const isFutures = isMexcFuturesLink(link);
-  const m =
-    link.match(/\/(futures|exchange)\/([A-Z0-9]+)_([A-Z0-9]+)/i) ||
-    link.match(/([A-Z0-9]+)_([A-Z0-9]+)/i);
-  if (!m) return null;
-
-  const base = (m[m.length - 2] || '').toUpperCase();
-  const quote = (m[m.length - 1] || '').toUpperCase();
-  if (!base || !quote) return null;
-
-  return isFutures
-    ? { symbol: `${base}_${quote}`, market: 'futures' }
-    : { symbol: `${base}${quote}`, market: 'spot' };
-}
-
 export default function PriceReactionCard({ item, allItems = [] }) {
   const {
     eventId,
@@ -102,7 +75,7 @@ export default function PriceReactionCard({ item, allItems = [] }) {
   const [showProfit, setShowProfit] = useState(false);
   const [showStats, setShowStats] = useState(false);
 
-  // ── First coin info (static) ──
+  // ── Token info for frozen display ──
   const firstCoin = useMemo(() => {
     const pseudoEvent = {
       coins: coins || null,
@@ -121,35 +94,20 @@ export default function PriceReactionCard({ item, allItems = [] }) {
     return Number.isFinite(q) && q > 0 ? q : null;
   }, [firstCoin]);
 
-  const priceLink = firstCoin?.price_link || '';
-  const mexcMeta = useMemo(() => extractMexcSymbol(priceLink), [priceLink]);
+  // ✅ T0 price from seriesClose — frozen in DB forever, never changes
+  const t0Price = useMemo(() => {
+    if (!hasSeries) return null;
+    const p = seriesClose[baseIndex];
+    return Number.isFinite(Number(p)) && Number(p) > 0 ? Number(p) : null;
+  }, [hasSeries, seriesClose, baseIndex]);
 
-  // ── Fetch MEXC price ONCE (no interval, no visibility) ──
-  const [livePrice, setLivePrice] = useState(null);
-
-  useEffect(() => {
-    if (!mexcMeta?.symbol) return;
-    let cancelled = false;
-
-    (async () => {
-      try {
-        const { price } = await fetchMexcTickerPrice(mexcMeta.symbol, { market: mexcMeta.market });
-        if (!cancelled && Number.isFinite(price)) setLivePrice(price);
-      } catch (e) {
-        console.debug('[Stats MEXC] fetch error', e);
-      }
-    })();
-
-    return () => { cancelled = true; };
-  }, [mexcMeta?.symbol, mexcMeta?.market]);
-
-  // ── USD label ──
+  // ✅ USD = qty × T0 price (both from DB, never changes)
   const usdLabel = useMemo(() => {
-    if (qty == null || livePrice == null) return null;
-    return formatUsd(qty * livePrice);
-  }, [qty, livePrice]);
+    if (qty == null || t0Price == null) return null;
+    return formatUsd(qty * t0Price);
+  }, [qty, t0Price]);
 
-  // ── %circ label ──
+  // ✅ %circ from coin_pct_circ (written at approve time, never changes)
   const pctLabel = useMemo(() => {
     let rawPct = firstCoin?.pct_circ ?? null;
     if (rawPct == null && typeof coinPctCirc === 'string' && coinPctCirc.trim()) {
@@ -173,10 +131,8 @@ export default function PriceReactionCard({ item, allItems = [] }) {
   const startOffset = range && range.endIdx != null ? range.startIdx - baseIndex : null;
   const endOffset = range && range.endIdx != null ? range.endIdx - baseIndex : null;
 
-  // ── Determine if 2 candles are selected (for Stats button) ──
   const hasTwoCandlesSelected = range != null && range.startIdx != null && range.endIdx != null && range.startIdx !== range.endIdx;
 
-  // ── Entry/Exit offsets for Stats (always entry < exit) ──
   const entryOffsetMin = hasTwoCandlesSelected ? Math.min(startOffset, endOffset) : null;
   const exitOffsetMin = hasTwoCandlesSelected ? Math.max(startOffset, endOffset) : null;
 
@@ -255,7 +211,7 @@ export default function PriceReactionCard({ item, allItems = [] }) {
           )}
         </div>
 
-        {/* ── USD + %circ pill badges ── */}
+        {/* ✅ Frozen USD + %circ — from DB data only, zero network requests */}
         {hasCoinBadges && (
           <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
             {usdLabel && (
@@ -314,9 +270,7 @@ export default function PriceReactionCard({ item, allItems = [] }) {
 
       {hasSeries && (
         <>
-          {/* ── Buttons row: Short | Long | Profit | Stats ── */}
           <div className="mt-2 flex flex-wrap items-center gap-2">
-            {/* Short / Long toggle */}
             <div className="inline-flex rounded-xl border border-white/10 bg-[#111931]/70 p-1 shadow-[0_8px_22px_rgba(10,16,38,0.25)]">
               <button
                 type="button"
@@ -342,7 +296,6 @@ export default function PriceReactionCard({ item, allItems = [] }) {
               </button>
             </div>
 
-            {/* Profit button */}
             <button
               type="button"
               onClick={() => setShowProfit((prev) => !prev)}
@@ -356,7 +309,6 @@ export default function PriceReactionCard({ item, allItems = [] }) {
               <span className="text-white/50">{showProfit ? '▲' : '›'}</span>
             </button>
 
-            {/* Stats button — disabled until 2 candles selected */}
             <button
               type="button"
               onClick={() => hasTwoCandlesSelected && setShowStats((prev) => !prev)}
@@ -377,7 +329,6 @@ export default function PriceReactionCard({ item, allItems = [] }) {
             </button>
           </div>
 
-          {/* ── PnL summary ── */}
           <div className="mt-3 rounded-2xl border border-white/10 bg-[#0f1730]/60 px-4 py-3 text-sm shadow-[0_8px_22px_rgba(10,16,38,0.2)]">
             {pnlSummary ? (
               <div className="flex flex-wrap items-center justify-between gap-3">
@@ -396,7 +347,6 @@ export default function PriceReactionCard({ item, allItems = [] }) {
             )}
           </div>
 
-          {/* ── Profit Calculator panel ── */}
           {showProfit && (
             <ProfitCalculator
               closeSeries={seriesClose}
@@ -409,7 +359,6 @@ export default function PriceReactionCard({ item, allItems = [] }) {
             />
           )}
 
-          {/* ── Stats panel (V1 + V2) ── */}
           {showStats && hasTwoCandlesSelected && (
             <StatsPanel
               allItems={allItems}
