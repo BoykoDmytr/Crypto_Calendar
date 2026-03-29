@@ -1,6 +1,7 @@
 // src/components/EventCard.jsx
 import { useMemo, useState } from 'react';
 import dayjs from 'dayjs';
+import { toEventLocal, eventHasTime, eventDay, eventWeekday } from '../utils/eventTime';
 import { timeStringToMinutes } from '../utils/time';
 import EventTokenInfo from './EventTokenInfo';
 import { extractCoinEntries } from '../utils/coins';
@@ -29,6 +30,7 @@ function formatMcapPercent(value) {
 
 export default function EventCard({ ev, isPast = false }) {
   const isTGE = ev?.type === 'Listing (TGE)';
+  const tz = ev?.timezone || 'UTC';
 
   // Стейт для відкривання/закривання меню календаря
   const [calendarOpen, setCalendarOpen] = useState(false);
@@ -36,9 +38,9 @@ export default function EventCard({ ev, isPast = false }) {
   // Лайки / дизлайки
   const { counts, userReaction, updateReaction } = useEventReaction(ev?.id);
 
-  // Дати
-  const start = ev?.start_at ? dayjs(ev.start_at) : null;
-  const end = ev?.end_at ? dayjs(ev.end_at) : null;
+  // ✅ FIX: Конвертуємо в TZ ІВЕНТУ, а не в браузерний час
+  const start = useMemo(() => toEventLocal(ev?.start_at, tz), [ev?.start_at, tz]);
+  const end = useMemo(() => toEventLocal(ev?.end_at, tz), [ev?.end_at, tz]);
 
   const tokenEntries = useMemo(() => extractCoinEntries(ev), [ev]);
 
@@ -101,15 +103,15 @@ export default function EventCard({ ev, isPast = false }) {
   }, [icsContent]);
 
   /* ------------- Формування відображення дати/часу ------------- */
-
+  // ✅ FIX: Перевіряємо час у TZ ІВЕНТУ, а не браузера
   let whenLabel = '';
   if (start) {
     if (isTGE) {
-      const hasTime = start.hour() !== 0 || start.minute() !== 0;
+      const hasTime = eventHasTime(ev?.start_at, tz);
       whenLabel = start.format(hasTime ? 'DD MMM HH:mm' : 'DD MMM');
     } else {
-      const hasStartTime = start.hour() !== 0 || start.minute() !== 0;
-      const hasEndTime = end && (end.hour() !== 0 || end.minute() !== 0);
+      const hasStartTime = eventHasTime(ev?.start_at, tz);
+      const hasEndTime = ev?.end_at ? eventHasTime(ev.end_at, tz) : false;
       if (end && !start.isSame(end, 'day')) {
         const left = start.format(hasStartTime ? 'DD MMM HH:mm' : 'DD MMM');
         const right = end.format(hasEndTime ? 'DD MMM HH:mm' : 'DD MMM');
@@ -123,8 +125,9 @@ export default function EventCard({ ev, isPast = false }) {
     }
   }
 
-  const dayNum = start ? start.format('DD') : '';
-  const weekday3 = start ? start.format('ddd') : '';
+  // ✅ FIX: День і день тижня — в TZ івенту
+  const dayNum = eventDay(ev?.start_at, tz);
+  const weekday3 = eventWeekday(ev?.start_at, tz);
 
   return (
     <article
@@ -226,7 +229,6 @@ export default function EventCard({ ev, isPast = false }) {
           )}
 
           {tokenEntries.length > 0 && (
-            // Передаємо showMcap, щоб EventTokenInfo міг ховати відсоток
             <EventTokenInfo
               coins={tokenEntries}
               pctText={ev?.coin_pct_circ}

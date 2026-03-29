@@ -6,6 +6,7 @@ import EventCard from '../components/EventCard';
 import dayjs from 'dayjs';
 import TelegramCTA from '../components/TelegramCTA';
 import { compareMinutes, timeStringToMinutes } from '../utils/time';
+import { toEventLocal, eventDateKey } from '../utils/eventTime';
 
 // ───────────────────────────────── Filter scroller (стрілки) ─────────────────────────────────
 function FilterScroller({ children }) {
@@ -21,7 +22,6 @@ function FilterScroller({ children }) {
         {children}
       </div>
 
-      {/* Ліва / права кнопки — лише на ПК */}
       <button
         type="button"
         onClick={() => by(-240)}
@@ -70,8 +70,7 @@ export default function Calendar() {
     }
   }, [location, navigate]);
 
-  // типи з БД (довідник подій)
-  const [eventTypes, setEventTypes] = useState([]); // [{label, slug, is_tge, order_index?, sort_order?}]
+  const [eventTypes, setEventTypes] = useState([]);
   const [type, setType] = useState('All');
 
   useEffect(() => {
@@ -82,7 +81,6 @@ export default function Calendar() {
           .from('events_approved')
           .select('*')
           .order('start_at', { ascending: true }),
-        // тягнемо обидва поля сортування
         supabase
           .from('event_types')
           .select('label, slug, is_tge, active, order_index, sort_order')
@@ -93,8 +91,6 @@ export default function Calendar() {
 
       if (!et.error) {
         const rows = (et.data || []).slice();
-
-        // сортуємо за sort_order ?? order_index, далі — за назвою
         rows.sort((a, b) => {
           const ao = (a.sort_order ?? a.order_index ?? 0);
           const bo = (b.sort_order ?? b.order_index ?? 0);
@@ -120,33 +116,37 @@ export default function Calendar() {
     return () => clearInterval(timer);
   }, []);
 
-  // застосовуємо фільтр за типом (у подіях поле ev.type містить людську назву типу)
   const filtered = useMemo(
     () => (type === 'All' ? allEvents : allEvents.filter((ev) => ev.type === type)),
     [allEvents, type]
   );
 
-  // групування за датою + день тижня
+  // ✅ FIX: Групуємо по даті в TZ ІВЕНТУ, а не браузера
   const groups = useMemo(() => {
     const map = new Map();
     for (const ev of filtered) {
-      const d = dayjs(ev.start_at);
-      const key = d.format('YYYY-MM-DD');
+      const tz = ev.timezone || 'UTC';
+      const key = eventDateKey(ev.start_at, tz); // ← використовуємо TZ івенту
+      if (!key) continue;
+
+      const local = toEventLocal(ev.start_at, tz);
       const item =
         map.get(key) ??
         {
           key,
-          label: d.format('DD MMM (ddd)'),
+          label: local ? local.format('DD MMM (ddd)') : key,
           items: [],
         };
       item.items.push(ev);
       map.set(key, item);
     }
+
     const getStartMinutes = (event) => {
-      const start = event?.start_at ? dayjs(event.start_at) : null;
-      if (!start) return Number.POSITIVE_INFINITY;
-      const hours = start.hour();
-      const minutes = start.minute();
+      const tz = event?.timezone || 'UTC';
+      const local = toEventLocal(event?.start_at, tz);
+      if (!local) return Number.POSITIVE_INFINITY;
+      const hours = local.hour();
+      const minutes = local.minute();
       if (hours === 0 && minutes === 0) return Number.POSITIVE_INFINITY;
       return hours * 60 + minutes;
     };
@@ -263,13 +263,11 @@ export default function Calendar() {
     const panel = pastPanelRef.current;
     if (!panel) return;
 
-    // тимчасово скидаємо max-height, щоб отримати повну висоту
     const prev = panel.style.maxHeight;
     panel.style.maxHeight = 'none';
     const measured = panel.scrollHeight;
     panel.style.maxHeight = prev;
 
-    // додаємо запас (наприклад, 48px)
     const nextHeight = measured + 48;
 
     if (nextHeight > 0) {
@@ -335,7 +333,6 @@ export default function Calendar() {
         return false;
       }
       const prefersCoarsePointer = window.matchMedia('(pointer: coarse)').matches;
-      // Disable the swipe gesture on phone-sized, coarse-pointer devices per product request.
       return !prefersCoarsePointer;
     })();
 
@@ -419,7 +416,6 @@ export default function Calendar() {
       {/* --- РЯД ФІЛЬТРІВ + КНОПКА (sticky) --- */}
       <div className="sticky sticky-filters top-14 z-[5] -mx-3 sm:-mx-4 px-3 sm:px-4 pt-0 pb-0">
         <FilterScroller>
-          {/* All */}
           <button
             onClick={() => setType('All')}
             className={`chip ${type === 'All' ? 'chip--active' : ''}`}
@@ -427,7 +423,6 @@ export default function Calendar() {
             All
           </button>
 
-          {/* Динамічні типи з БД (лише активні) */}
           {eventTypes.map((t) => (
             <button
               key={t.slug}
@@ -527,7 +522,6 @@ export default function Calendar() {
         </div>
       )}
 
-      {/* ── КНОПКА TELEGRAM ВНИЗУ ─────────────────────────────────────────────── */}
       <div className="px-3 sm:px-4 pb-2 flex justify-center">
         <TelegramCTA communityHref={import.meta.env.VITE_TG_CHANNEL_URL || 'https://t.me/cryptohornettg'} />
       </div>
