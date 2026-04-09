@@ -511,29 +511,34 @@ const enrichPayloadWithCircPct = async (payload) => {
   const entries = extractCoinEntries(payload);
   if (!entries.length) return payload;
  
-  // ✅ Перевіряємо чи є кастомний MCAP
-  const hasCustomMcap = payload.mcap_usd != null
-    && Number.isFinite(Number(payload.mcap_usd))
-    && Number(payload.mcap_usd) > 0;
-  const customMcap = hasCustomMcap ? Number(payload.mcap_usd) : null;
- 
+  // ✅ Перевіряємо чи є кастомний circulating supply (кількість монет)
+  const hasCustomCoins = payload.mcap_coins != null
+    && Number.isFinite(Number(payload.mcap_coins))
+    && Number(payload.mcap_coins) > 0;
+  const customCoins = hasCustomCoins ? Number(payload.mcap_coins) : null;
+
   const circList = [];
   const pctList = [];
   const enrichedCoins = [];
- 
+  let mcapUsdWritten = false; // щоб записати mcap_usd лише один раз
+
   for (const entry of entries) {
     const name = (entry?.name || '').trim();
     const qty = parseQuantity(entry?.quantity);
- 
+
     let circ = null;
     let pct = null;
- 
+
     if (name && qty != null && qty > 0) {
-      if (hasCustomMcap) {
-        // ✅ КАСТОМНИЙ MCAP: отримуємо ціну з MEXC → рахуємо pct через mcap
+      if (hasCustomCoins) {
+        // ✅ КАСТОМНИЙ CIRCULATING SUPPLY: pct = qty / customCoins * 100
+        pct = (qty / customCoins) * 100;
+        circ = customCoins;
+
+        // Тягнемо ціну з MEXC для розрахунку USD-значень
         const priceLink = entry?.price_link || payload.coin_price_link || '';
         const mexcMeta = extractMexcSymbolForAdmin(name, priceLink);
- 
+
         let price = null;
         if (mexcMeta?.symbol) {
           try {
@@ -545,20 +550,16 @@ const enrichPayloadWithCircPct = async (payload) => {
             console.warn('[enrichPayloadWithCircPct] MEXC price fetch failed:', name, e?.message);
           }
         }
- 
+
         if (price != null && Number.isFinite(price) && price > 0) {
-          const eventUsd = qty * price;
-          // pct = (вартість_івенту / кастомний_mcap) × 100
-          pct = (eventUsd / customMcap) * 100;
-          // Для довідки: ефективний circ_supply
-          circ = customMcap / price;
-          // Також зберігаємо event_usd_value
-          payload.event_usd_value = eventUsd;
+          payload.event_usd_value = qty * price;
+          // Записуємо mcap_usd = customCoins × price лише один раз (перша монета з валідною ціною)
+          if (!mcapUsdWritten) {
+            payload.mcap_usd = customCoins * price;
+            mcapUsdWritten = true;
+          }
         } else {
-          // Не вдалось отримати ціну — фолбек на Dropstab circ_supply
-          console.warn('[enrichPayloadWithCircPct] Price not available, fallback to circ_supply for', name);
-          circ = await fetchCircSupplyViaFn(name);
-          if (circ != null && circ > 0) pct = (qty / circ) * 100;
+          console.warn('[enrichPayloadWithCircPct] Price not available for', name, '— pct still calculated via coins');
         }
       } else {
         // ✅ АВТО MCAP: стандартний розрахунок через Dropstab API
@@ -566,13 +567,13 @@ const enrichPayloadWithCircPct = async (payload) => {
         if (circ != null && circ > 0) pct = (qty / circ) * 100;
       }
     }
- 
+
     enrichedCoins.push({
       ...entry,
       circ_supply: circ,
       pct_circ: pct,
     });
- 
+
     circList.push(circ != null ? String(circ) : '');
     pctList.push(pct != null ? formatPct(pct) : '');
   }
@@ -597,7 +598,7 @@ const enrichPayloadWithCircPct = async (payload) => {
 const approve = async (ev, table = 'events_pending') => {
   const allowed = [
     'title','description','start_at','end_at','timezone','type','tge_exchanges','link','nickname','coins',
-    'coin_name','coin_quantity','coin_price_link','show_mcap','mcap_usd',
+    'coin_name','coin_quantity','coin_price_link','show_mcap','mcap_usd','mcap_coins',
   ];
 
   const payload = Object.fromEntries(Object.entries(ev).filter(([k]) => allowed.includes(k)));
@@ -719,7 +720,7 @@ const approve = async (ev, table = 'events_pending') => {
 const approveEdit = async (edit) => {
   const allowed = [
     'title','description','start_at','end_at','timezone','type','tge_exchanges','link','nickname','coins',
-    'coin_name','coin_quantity','coin_price_link','show_mcap','mcap_usd',
+    'coin_name','coin_quantity','coin_price_link','show_mcap','mcap_usd','mcap_coins',
   ];
 
   const patch = Object.fromEntries(
