@@ -84,10 +84,10 @@ export default function EventForm({ onSubmit, loading, initial = {} }) {
     const isEditing = initial && Object.keys(initial).length > 0;
     const defaultTimezone = isEditing ? (initial.timezone || 'UTC') : 'Kyiv';
 
-    // Визначаємо, чи є кастомний mcap в initial
-    const hasCustomMcap = initial?.mcap_usd != null
-      && Number.isFinite(Number(initial.mcap_usd))
-      && Number(initial.mcap_usd) > 0;
+    // Визначаємо, чи є кастомний circulating supply в initial
+    const hasCustomMcap = initial?.mcap_coins != null
+      && Number.isFinite(Number(initial.mcap_coins))
+      && Number(initial.mcap_coins) > 0;
 
     const base = {
       title: '',
@@ -103,9 +103,9 @@ export default function EventForm({ onSubmit, loading, initial = {} }) {
       coins: [],
       tge_exchanges: [],
       show_mcap: initial?.show_mcap !== undefined ? initial.show_mcap : true,
-      // ── Custom MCAP ──
+      // ── Custom Circulating Supply ──
       use_custom_mcap: hasCustomMcap,
-      mcap_usd: hasCustomMcap ? String(initial.mcap_usd) : '',
+      mcap_coins: hasCustomMcap ? String(initial.mcap_coins) : '',
     };
 
     const merged = { ...base, ...(initial || {}) };
@@ -116,9 +116,9 @@ export default function EventForm({ onSubmit, loading, initial = {} }) {
     delete merged.coin_price_link;
     merged.nickname = merged.nickname || '';
     merged.link = normalizeLinkValue(merged.link);
-    // Переконуємось, що custom mcap поля правильно ініціалізовані
+    // Переконуємось, що custom circulating supply поля правильно ініціалізовані
     merged.use_custom_mcap = hasCustomMcap;
-    merged.mcap_usd = hasCustomMcap ? String(initial.mcap_usd) : '';
+    merged.mcap_coins = hasCustomMcap ? String(initial.mcap_coins) : '';
     merged.show_mcap = initial?.show_mcap !== undefined ? initial.show_mcap : true;
     return merged;
   });
@@ -263,12 +263,12 @@ export default function EventForm({ onSubmit, loading, initial = {} }) {
       next.link = normalizeLinkValue(next.link);
       next.show_mcap = initial?.show_mcap !== undefined ? initial.show_mcap : prev.show_mcap;
 
-      // ── Custom MCAP hydration ──
-      const hasCustomMcap = initial?.mcap_usd != null
-        && Number.isFinite(Number(initial.mcap_usd))
-        && Number(initial.mcap_usd) > 0;
+      // ── Custom Circulating Supply hydration ──
+      const hasCustomMcap = initial?.mcap_coins != null
+        && Number.isFinite(Number(initial.mcap_coins))
+        && Number(initial.mcap_coins) > 0;
       next.use_custom_mcap = hasCustomMcap;
-      next.mcap_usd = hasCustomMcap ? String(initial.mcap_usd) : (prev.mcap_usd || '');
+      next.mcap_coins = hasCustomMcap ? String(initial.mcap_coins) : (prev.mcap_coins || '');
 
       return next;
     });
@@ -332,9 +332,9 @@ export default function EventForm({ onSubmit, loading, initial = {} }) {
       setForm((s) => ({
         ...s,
         coins: [],
-        // Скидаємо custom mcap разом з токен-полями
+        // Скидаємо custom circulating supply разом з токен-полями
         use_custom_mcap: false,
-        mcap_usd: '',
+        mcap_coins: '',
       }));
     }
   };
@@ -352,7 +352,7 @@ export default function EventForm({ onSubmit, loading, initial = {} }) {
       setForm((s) => ({
         ...s,
         use_custom_mcap: false,   // авто режим
-        mcap_usd: '',             // очищаємо кастомне значення
+        mcap_coins: '',            // очищаємо кастомне значення
       }));
     }
   };
@@ -514,14 +514,15 @@ export default function EventForm({ onSubmit, loading, initial = {} }) {
       delete payload.coin_price_link;
     }
 
-    // ── Custom MCAP: якщо ввімкнено кастомний режим і є значення ──
-    if (form.use_custom_mcap && form.mcap_usd !== '' && form.mcap_usd != null) {
-      const mcapNum = Number(form.mcap_usd);
-      if (Number.isFinite(mcapNum) && mcapNum > 0) {
-        payload.mcap_usd = mcapNum;
+    // ── Custom Circulating Supply: якщо ввімкнено кастомний режим і є значення ──
+    if (form.use_custom_mcap && form.mcap_coins !== '' && form.mcap_coins != null) {
+      const coinsNum = Number(form.mcap_coins);
+      if (Number.isFinite(coinsNum) && coinsNum > 0) {
+        payload.mcap_coins = coinsNum;
       }
     } else if (!form.use_custom_mcap) {
-      // Авто-режим: видаляємо mcap_usd щоб enrichment порахував сам
+      // Авто-режим: видаляємо mcap_coins і mcap_usd щоб enrichment порахував сам
+      delete payload.mcap_coins;
       delete payload.mcap_usd;
     }
 
@@ -795,18 +796,18 @@ export default function EventForm({ onSubmit, loading, initial = {} }) {
         {/* Поле вводу — з'являється лише при кастомному режимі */}
         {form.use_custom_mcap && (
           <div className="mt-2">
-            <label className="label">MCAP (USD)</label>
+            <label className="label">Кількість монет (circulating supply)</label>
             <input
               className="input"
               type="number"
               min="0"
               step="any"
-              value={form.mcap_usd}
-              onChange={(e) => change('mcap_usd', e.target.value)}
-              placeholder="Напр., 50000000"
+              value={form.mcap_coins}
+              onChange={(e) => change('mcap_coins', e.target.value)}
+              placeholder="235000000"
             />
             <p className="text-xs text-gray-500 mt-1">
-              Впишіть ринкову капіталізацію вручну. Це значення перекриє автоматичний розрахунок через API.
+              Впишіть кількість монет у циркуляції. На цій основі ми автоматично порахуємо MCAP та % MCAP за поточною ціною монети з MEXC.
             </p>
           </div>
         )}
