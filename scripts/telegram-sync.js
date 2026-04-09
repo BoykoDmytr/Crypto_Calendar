@@ -60,7 +60,7 @@ async function fetchMexcSpotPriceUSDT(symbol) {
 
 // виклик edge function dropstab-circ напряму (SERVICE_ROLE_KEY у тебе є)
 async function fetchCircSupplyDropstabFn({ supabaseUrl, serviceRoleKey, coinSymbol }) {
-  if (!supabaseUrl || !serviceRoleKey || !coinSymbol) return null;
+  if (!supabaseUrl || !serviceRoleKey || !coinSymbol) return { circulatingSupply: null, slug: null };
 
   const url = `${supabaseUrl.replace(/\/+$/, '')}/functions/v1/dropstab-circ`;
 
@@ -79,9 +79,14 @@ async function fetchCircSupplyDropstabFn({ supabaseUrl, serviceRoleKey, coinSymb
     const j = await r.json().catch(() => null);
 
     const circ = Number(j?.circulatingSupply);
-    return Number.isFinite(circ) ? circ : null;
+    const circulatingSupply = Number.isFinite(circ) ? circ : null;
+    // Only trust the slug when the coin was actually found (circulatingSupply is valid)
+    const slug = circulatingSupply != null && typeof j?.slug === 'string' && j.slug
+      ? j.slug
+      : null;
+    return { circulatingSupply, slug };
   } catch {
-    return null;
+    return { circulatingSupply: null, slug: null };
   }
 }
 
@@ -141,12 +146,14 @@ async function enrichApprovedWithMcap(env, payload) {
   // 1) ціна (USD) — через MEXC spot
   const price = await fetchMexcSpotPriceUSDT(symbol);
 
-  // 2) circulating supply — через dropstab-circ edge function
-  const circ = await fetchCircSupplyDropstabFn({
+  // 2) circulating supply + slug — через dropstab-circ edge function
+  const dropstabData = await fetchCircSupplyDropstabFn({
     supabaseUrl: env.SUPABASE_URL,
     serviceRoleKey: env.SUPABASE_SERVICE_ROLE_KEY,
     coinSymbol: symbol || name,
   });
+  const circ = dropstabData?.circulatingSupply ?? null;
+  const dropstabSlug = dropstabData?.slug ?? null;
 
   // 3) pct of circ
   const pct = circ && circ > 0 ? (qty / circ) * 100 : null;
@@ -158,7 +165,7 @@ async function enrichApprovedWithMcap(env, payload) {
   // 5) записуємо back у coins + текстові списки (як у адмінці)
   const enrichedCoins = coinsArr.map((c, idx) => {
     if (idx !== 0) return c;
-    return { ...c, circ_supply: circ, pct_circ: pct };
+    return { ...c, circ_supply: circ, pct_circ: pct, dropstab_slug: dropstabSlug || null };
   });
 
   const circList = enrichedCoins.map((c) => (c?.circ_supply != null ? String(c.circ_supply) : ''));

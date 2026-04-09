@@ -110,6 +110,9 @@ function normalizeCoinEntry(coin, defaults = {}) {
   if (pctCirc !== null) normalized.pct_circ = pctCirc;
   if (circSupply !== null) normalized.circ_supply = circSupply;
 
+  const rawDropstabSlug = coin.dropstab_slug ?? coin.dropstabSlug ?? null;
+  if (rawDropstabSlug) normalized.dropstab_slug = String(rawDropstabSlug).trim();
+
   return normalized;
 }
 

@@ -7,6 +7,7 @@ import ReactionChart from './ReactionChart';
 import ProfitCalculator from './ProfitCalculator';
 import StatsPanel from './StatsPanel';
 import { extractCoinEntries } from '../utils/coins';
+import { buildDropstabUrl } from '../utils/dropstab';
 
 dayjs.extend(utc);
 dayjs.extend(timezone);
@@ -219,11 +220,17 @@ export default function PriceReactionCard({ item, allItems = [] }) {
                 {usdLabel}
               </span>
             )}
-            {showMcap !== false && pctLabel && (
-              <span className="inline-flex items-center rounded-full border border-sky-300 bg-sky-50 px-2.5 py-1 text-[11px] font-bold text-sky-800 shadow-sm dark:border-sky-500/30 dark:bg-sky-500/15 dark:text-sky-200">
-                {pctLabel}
-              </span>
-            )}
+            {showMcap !== false && pctLabel && (() => {
+              const dropstabUrl = buildDropstabUrl(firstCoin);
+              const cls = "inline-flex items-center rounded-full border border-sky-300 bg-sky-50 px-2.5 py-1 text-[11px] font-bold text-sky-800 shadow-sm dark:border-sky-500/30 dark:bg-sky-500/15 dark:text-sky-200 hover:opacity-80 transition";
+              return dropstabUrl ? (
+                <a href={dropstabUrl} target="_blank" rel="noreferrer" className={cls} title="Відкрити на Dropstab">
+                  {pctLabel}
+                </a>
+              ) : (
+                <span className={cls}>{pctLabel}</span>
+              );
+            })()}
           </div>
         )}
       </div>
