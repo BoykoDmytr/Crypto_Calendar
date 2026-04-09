@@ -1,10 +1,26 @@
 // src/utils/dropstab.js
 
-// Build Dropstab URL only from verified slug stored in DB.
-// No local slugify fallback — if slug is missing, return null
-// so the frontend renders a plain <span> instead of a broken link.
+// Slugify that matches Dropstab's URL format (same logic as edge function slugifyLite)
+function slugifyCoinName(name) {
+  if (!name) return null;
+  const slug = String(name)
+    .trim()
+    .toLowerCase()
+    .replace(/['"]/g, '')
+    .replace(/&/g, 'and')
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+  return slug || null;
+}
+
 export function buildDropstabUrl(coin) {
-  const slug = coin?.dropstab_slug;
-  if (!slug || typeof slug !== 'string' || !slug.trim()) return null;
-  return `https://dropstab.com/coins/${slug.trim()}`;
+  // 1. Prefer stored slug from DB (most reliable, from Dropstab API)
+  const storedSlug = coin?.dropstab_slug;
+  if (storedSlug && typeof storedSlug === 'string' && storedSlug.trim()) {
+    return `https://dropstab.com/coins/${storedSlug.trim()}`;
+  }
+  // 2. Fallback: slugify the coin name
+  const slug = slugifyCoinName(coin?.name);
+  if (!slug) return null;
+  return `https://dropstab.com/coins/${slug}`;
 }
