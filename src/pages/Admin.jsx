@@ -459,17 +459,21 @@ export default function Admin() {
   return p.toExponential(2);
 };
 
-// ✅ беремо circulatingSupply через Edge Function (без CORS і без витоку ключа)
+// ✅ беремо circulatingSupply та slug через Edge Function (без CORS і без витоку ключа)
 const fetchCircSupplyViaFn = async (coinName) => {
   const { data, error } = await supabase.functions.invoke('dropstab-circ', {
     body: { coinName },
   });
 
-  // 🔎 тимчасово для дебагу (можеш залишити на час тесту)
   console.log('[dropstab-circ] response:', { coinName, data, error });
 
-  if (error) return null;
-  return typeof data?.circulatingSupply === 'number' ? data.circulatingSupply : null;
+  if (error) return { circulatingSupply: null, slug: null };
+  const circulatingSupply = typeof data?.circulatingSupply === 'number' ? data.circulatingSupply : null;
+  // Only trust the slug when the coin was actually found (circulatingSupply is valid)
+  const slug = circulatingSupply != null && typeof data?.slug === 'string' && data.slug
+    ? data.slug
+    : null;
+  return { circulatingSupply, slug };
 };
 // Витягує MEXC-символ з price_link або з назви монети
 const extractMexcSymbolForAdmin = (coinName, priceLink) => {
@@ -528,6 +532,7 @@ const enrichPayloadWithCircPct = async (payload) => {
 
     let circ = null;
     let pct = null;
+    let dropstabSlug = null;
 
     if (name && qty != null && qty > 0) {
       if (hasCustomCoins) {
@@ -561,9 +566,15 @@ const enrichPayloadWithCircPct = async (payload) => {
         } else {
           console.warn('[enrichPayloadWithCircPct] Price not available for', name, '— pct still calculated via coins');
         }
+
+        // Fetch Dropstab slug separately for custom MCAP mode
+        const dropstabData = await fetchCircSupplyViaFn(name);
+        dropstabSlug = dropstabData?.slug ?? null;
       } else {
         // ✅ АВТО MCAP: стандартний розрахунок через Dropstab API
-        circ = await fetchCircSupplyViaFn(name);
+        const dropstabData = await fetchCircSupplyViaFn(name);
+        circ = dropstabData?.circulatingSupply ?? null;
+        dropstabSlug = dropstabData?.slug ?? null;
         if (circ != null && circ > 0) pct = (qty / circ) * 100;
       }
     }
@@ -572,6 +583,7 @@ const enrichPayloadWithCircPct = async (payload) => {
       ...entry,
       circ_supply: circ,
       pct_circ: pct,
+      dropstab_slug: dropstabSlug || null,
     });
 
     circList.push(circ != null ? String(circ) : '');

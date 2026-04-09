@@ -2,6 +2,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useTokenPrice, formatQuantity } from '../hooks/useTokenPrice';
 import { fetchMexcTickerPrice, buildMexcTickerUrl } from '../utils/fetchMexcTicker';
+import { buildDropstabUrl } from '../utils/dropstab';
 
 function formatCurrency(value) {
   if (value === null || value === undefined) return null;
@@ -218,11 +219,26 @@ function TokenRow({ coin, idx = 0, pctText = null, showMcap = true, disableRefre
         ) : totalLabel ? (
           <span className="token-panel__label">
             <span className="token-panel__value">{totalLabel}</span>
-            {showMcap && pctCircLabel && (
-              <span className="token-panel__muted" style={{ marginLeft: 8 }}>
-                {pctCircLabel}
-              </span>
-            )}
+            {showMcap && pctCircLabel && (() => {
+              const dropstabUrl = buildDropstabUrl(coin);
+              return dropstabUrl ? (
+                <a
+                  href={dropstabUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="token-panel__muted hover:underline"
+                  style={{ marginLeft: 8 }}
+                  title="Відкрити на Dropstab"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  {pctCircLabel}
+                </a>
+              ) : (
+                <span className="token-panel__muted" style={{ marginLeft: 8 }}>
+                  {pctCircLabel}
+                </span>
+              );
+            })()}
           </span>
         ) : error ? (
           <span className="token-panel__error">Очікуємо ціну</span>
