@@ -236,6 +236,7 @@ serve(async (req) => {
         via: found.matches.length > 1 ? "coins_symbol_best_of_many_paged" : "coins_symbol_match_paged",
         symbol: sym,
         slug: chosenSlug,
+        name: found.best?.name ?? null,
         matchesCount: found.matches.length,
         matched: {
           symbol: found.best?.symbol ?? null,
@@ -258,7 +259,7 @@ serve(async (req) => {
       circulatingSupply: null,
       via: "not_found",
       symbol: sym,
-      slug,
+      slug: null,
       version: VERSION,
       debug: { pagingMeta: found.meta },
     }), {
