@@ -244,8 +244,10 @@ async function buildStatsFilter() {
 }
 
 /**
- * ✅ CHANGED: Completed events for UI — uses SNAPPED values (not live)
- * ✅ NOW INCLUDES: coins, coin_quantity, coin_pct_circ, show_mcap for token info display
+ * ✅ CHANGED: Completed events for UI — uses SNAPPED values (not live).
+ * ✅ NOW INCLUDES: coins, coin_quantity, coin_pct_circ, show_mcap for token info.
+ * ⚠️ The huge JSON arrays `series_close/high/low` are NOT returned here.
+ *    Cards lazy-load them via {@link fetchEventSeries} when scrolled into view.
  */
 export async function fetchCompletedEvents() {
   const now = new Date().toISOString();
@@ -260,10 +262,7 @@ export async function fetchCompletedEvents() {
   const { data, error } = await supabase
     .from('event_price_reaction')
     .select(
-      `*,
-      series_close,
-      series_high,
-      series_low,
+      `id,event_id,coin_name,pair,exchange,t0_time,
       pre_return_30m,
       post_return_30m,
       net_return_60m,
@@ -303,10 +302,10 @@ export async function fetchCompletedEvents() {
       exchange: row.exchange,
       priceLink: event.coin_price_link || event.link || null,
 
-      // ±30m series
-      seriesClose: row.series_close || [],
-      seriesHigh: row.series_high || [],
-      seriesLow: row.series_low || [],
+      // ±30m series — lazy-loaded by PriceReactionCard via fetchEventSeries
+      seriesClose: null,
+      seriesHigh: null,
+      seriesLow: null,
 
       // KPI summary
       preReturn30m: row.pre_return_30m,
@@ -337,6 +336,27 @@ export async function fetchCompletedEvents() {
       showMcap: event.show_mcap !== false,
     };
   });
+}
+
+/**
+ * Fetches the heavy ±30m series (seriesClose/High/Low) for ONE event.
+ * Called on demand by PriceReactionCard once it scrolls into view.
+ * Returns { seriesClose, seriesHigh, seriesLow } — any of which may be null.
+ */
+export async function fetchEventSeries(eventId) {
+  if (!eventId) return null;
+  const { data, error } = await supabase
+    .from('event_price_reaction')
+    .select('series_close,series_high,series_low')
+    .eq('event_id', eventId)
+    .maybeSingle();
+  if (error) throw error;
+  if (!data) return null;
+  return {
+    seriesClose: data.series_close || null,
+    seriesHigh: data.series_high || null,
+    seriesLow: data.series_low || null,
+  };
 }
 
 /**
@@ -395,6 +415,19 @@ export async function fetchCompletedTournaments() {
 
 // ───────────────────────────── main job ─────────────────────────────
 
+/**
+ * ⚠️ EXPENSIVE — DO NOT PUT ON A TIMER.
+ *
+ * Runs the full price-reaction scan from the browser: fetches every tracked
+ * upcoming/just-passed event, hits MEXC for prices/klines, and writes a
+ * stub or update row per event into `event_price_reaction`. Each open
+ * `/stats` tab repeating this multiplies Disk IO on Supabase linearly.
+ *
+ * The canonical cron is `supabase/functions/price-reaction-cron/index.ts`.
+ * From the client this should ONLY be invoked from the manual "Оновити
+ * статистику" button — never from setInterval, realtime handlers, or
+ * useEffect re-renders.
+ */
 export async function triggerPriceReactionJob() {
   const nowUtc = dayjs.utc();
 

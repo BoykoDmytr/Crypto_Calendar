@@ -11,12 +11,21 @@ import { formatQuantity as formatTokenQuantity } from '../hooks/useTokenPrice';
 import Toast from '../components/Toast';
 import { extractCoinEntries, coinEntriesEqual, parseCoinQuantity as parseQuantity } from '../utils/coins';
 import { fetchMexcTickerPrice } from '../utils/fetchMexcTicker';
+import { getDropstabCircCached } from '../utils/dropstabCache';
 
 
 dayjs.extend(utc);
 dayjs.extend(timezone);
 
 const KYIV_TZ = 'Europe/Kyiv';
+
+// Explicit column lists. Avoids select('*') (smaller responses, fewer dead
+// bytes scanned by Postgres). Keep in sync with EventForm fields.
+const ADMIN_EVENT_COLUMNS_BASE =
+  'id,title,description,start_at,end_at,timezone,type,event_type_slug,link,tge_exchanges,created_at,coin_name,coin_quantity,coin_price_link,coins,coin_pct_circ,coin_circ_supply,coin_circulating_supply,mcap_usd,mcap_coins,event_usd_value,show_mcap,nickname';
+const ADMIN_EVENT_COLUMNS_PENDING = `${ADMIN_EVENT_COLUMNS_BASE},status`;
+const ADMIN_APPROVED_INITIAL_LIMIT = 50;
+const ADMIN_STATS_INITIAL_LIMIT = 50;
 
 function RowActions({ children }) {
   return <div className="mt-3 grid grid-cols-1 sm:grid-cols-3 gap-2">{children}</div>;
@@ -332,6 +341,9 @@ export default function Admin() {
   const [showAllApproved, setShowAllApproved] = useState(false);
   const [showAllStats, setShowAllStats] = useState(false);
   const [approvedQuery, setApprovedQuery] = useState('');
+  const [approvedFetchLimit, setApprovedFetchLimit] = useState(ADMIN_APPROVED_INITIAL_LIMIT);
+  const [approvedHasMore, setApprovedHasMore] = useState(false);
+  const [approvedLoadingMore, setApprovedLoadingMore] = useState(false);
 
   const approvedLimit = 5;
   const statsLimit = 5;
@@ -358,6 +370,7 @@ export default function Admin() {
 
   useEffect(() => {
     if (ok) refresh();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ok]);
 
   useEffect(() => {
@@ -379,16 +392,25 @@ export default function Admin() {
     return () => {
       channel.unsubscribe();
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ok]);
 
   const refresh = async () => {
+    const approvedLimitForFetch = approvedFetchLimit;
     const [auto, p, a, e, x, t, s, excluded] = await Promise.all([
       supabase
         .from('auto_events_pending')
-        .select('*')
+        .select(ADMIN_EVENT_COLUMNS_PENDING)
         .order('created_at', { ascending: true }),
-      supabase.from('events_pending').select('*').order('created_at', { ascending: true }),
-      supabase.from('events_approved').select('*').order('created_at', { ascending: false }),
+      supabase
+        .from('events_pending')
+        .select(ADMIN_EVENT_COLUMNS_PENDING)
+        .order('created_at', { ascending: true }),
+      supabase
+        .from('events_approved')
+        .select(ADMIN_EVENT_COLUMNS_BASE)
+        .order('created_at', { ascending: false })
+        .limit(approvedLimitForFetch),
       supabase
         .from('event_edits_pending')
         .select(
@@ -397,12 +419,12 @@ export default function Admin() {
         .order('created_at', { ascending: true }),
       supabase
         .from('exchanges')
-        .select('*')
+        .select('id,name,segment,active,created_at')
         .order('segment', { ascending: true })
         .order('name', { ascending: true }),
       supabase
         .from('event_types')
-        .select('*')
+        .select('id,name,slug,label,active,is_tge,order_index,sort_order,track_in_stats,form_mode,time_optional,created_at')
         .order('order_index', { ascending: true })
         .order('label', { ascending: true }),
       supabase
@@ -410,19 +432,46 @@ export default function Admin() {
         .select(
           'id,event_id,pair,exchange,t0_time,events_approved(id,title,start_at,timezone,type)'
         )
-        .order('t0_time', { ascending: false }),
+        .order('t0_time', { ascending: false })
+        .limit(ADMIN_STATS_INITIAL_LIMIT),
       supabase.from('event_price_reaction_exclusions').select('event_id'),
     ]);
 
     if (!auto.error) setAutoPending(auto.data || []);
     if (!p.error) setPending(p.data || []);
-    if (!a.error) setApproved(a.data || []);
+    if (!a.error) {
+      const rows = a.data || [];
+      setApproved(rows);
+      setApprovedHasMore(rows.length >= approvedLimitForFetch);
+    }
     if (!e.error) setEdits(e.data || []);
     if (!x.error) setExchanges(x.data || []);
     if (!t.error) setTypes(t.data || []);
     if (!s.error) {
       const excludedIds = new Set((excluded?.data || []).map((row) => row.event_id));
       setStats((s.data || []).filter((row) => !excludedIds.has(row.event_id)));
+    }
+  };
+
+  const loadMoreApproved = async () => {
+    if (approvedLoadingMore) return;
+    setApprovedLoadingMore(true);
+    const nextLimit = approvedFetchLimit + ADMIN_APPROVED_INITIAL_LIMIT;
+    try {
+      const { data, error } = await supabase
+        .from('events_approved')
+        .select(ADMIN_EVENT_COLUMNS_BASE)
+        .order('created_at', { ascending: false })
+        .limit(nextLimit);
+      if (error) throw error;
+      const rows = data || [];
+      setApproved(rows);
+      setApprovedFetchLimit(nextLimit);
+      setApprovedHasMore(rows.length >= nextLimit);
+    } catch (err) {
+      console.error('[admin] loadMoreApproved failed', err);
+    } finally {
+      setApprovedLoadingMore(false);
     }
   };
 
@@ -459,21 +508,26 @@ export default function Admin() {
   return p.toExponential(2);
 };
 
-// ✅ беремо circulatingSupply та slug через Edge Function (без CORS і без витоку ключа)
+// ✅ беремо circulatingSupply та slug через Edge Function (без CORS і без витоку ключа).
+//    Перед викликом перевіряємо public.dropstab_cache (TTL 6h) — таким чином
+//    повторні апрували тієї самої монети не б'ють по Edge Function.
 const fetchCircSupplyViaFn = async (coinName) => {
-  const { data, error } = await supabase.functions.invoke('dropstab-circ', {
-    body: { coinName },
+  return getDropstabCircCached({
+    supabase,
+    symbol: coinName,
+    fetcher: async () => {
+      const { data, error } = await supabase.functions.invoke('dropstab-circ', {
+        body: { coinName },
+      });
+      console.log('[dropstab-circ] response:', { coinName, data, error });
+      if (error) return { circulatingSupply: null, slug: null };
+      const circulatingSupply = typeof data?.circulatingSupply === 'number' ? data.circulatingSupply : null;
+      const slug = circulatingSupply != null && typeof data?.slug === 'string' && data.slug
+        ? data.slug
+        : null;
+      return { circulatingSupply, slug };
+    },
   });
-
-  console.log('[dropstab-circ] response:', { coinName, data, error });
-
-  if (error) return { circulatingSupply: null, slug: null };
-  const circulatingSupply = typeof data?.circulatingSupply === 'number' ? data.circulatingSupply : null;
-  // Only trust the slug when the coin was actually found (circulatingSupply is valid)
-  const slug = circulatingSupply != null && typeof data?.slug === 'string' && data.slug
-    ? data.slug
-    : null;
-  return { circulatingSupply, slug };
 };
 // Витягує MEXC-символ з price_link або з назви монети
 const extractMexcSymbolForAdmin = (coinName, priceLink) => {
@@ -1325,13 +1379,22 @@ const payload = {
           })}
         </div>
         {!normalizedApprovedQuery && approved.length > approvedLimit && (
-          <div className="mt-3 flex justify-start">
+          <div className="mt-3 flex flex-wrap justify-start gap-2">
             <button
               className="btn-secondary"
               onClick={() => setShowAllApproved((prev) => !prev)}
             >
               {showAllApproved ? 'Згорнути' : 'Показати всі'}
             </button>
+            {approvedHasMore && (
+              <button
+                className="btn-secondary"
+                onClick={loadMoreApproved}
+                disabled={approvedLoadingMore}
+              >
+                {approvedLoadingMore ? 'Завантаження…' : 'Завантажити більше'}
+              </button>
+            )}
           </div>
         )}
       </section>

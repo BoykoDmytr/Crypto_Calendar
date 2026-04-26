@@ -6,6 +6,7 @@ import { createClient } from '@supabase/supabase-js';
 import dayjs from 'dayjs';
 import utc from 'dayjs/plugin/utc.js';
 import timezone from 'dayjs/plugin/timezone.js';
+import { getDropstabCircCached } from '../src/utils/dropstabCache.js';
 
 dayjs.extend(utc);
 dayjs.extend(timezone);
@@ -146,11 +147,20 @@ async function enrichApprovedWithMcap(env, payload) {
   // 1) ціна (USD) — через MEXC spot
   const price = await fetchMexcSpotPriceUSDT(symbol);
 
-  // 2) circulating supply + slug — через dropstab-circ edge function
-  const dropstabData = await fetchCircSupplyDropstabFn({
-    supabaseUrl: env.SUPABASE_URL,
-    serviceRoleKey: env.SUPABASE_SERVICE_ROLE_KEY,
-    coinSymbol: symbol || name,
+  // 2) circulating supply + slug — кешований шар поверх dropstab-circ Edge Function.
+  //    Перевіряємо public.dropstab_cache (TTL 6h); тільки промахи стукають Edge Function.
+  const cacheClient = createClient(env.SUPABASE_URL, env.SUPABASE_SERVICE_ROLE_KEY, {
+    auth: { persistSession: false },
+  });
+  const dropstabData = await getDropstabCircCached({
+    supabase: cacheClient,
+    symbol: symbol || name,
+    fetcher: () =>
+      fetchCircSupplyDropstabFn({
+        supabaseUrl: env.SUPABASE_URL,
+        serviceRoleKey: env.SUPABASE_SERVICE_ROLE_KEY,
+        coinSymbol: symbol || name,
+      }),
   });
   const circ = dropstabData?.circulatingSupply ?? null;
   const dropstabSlug = dropstabData?.slug ?? null;

@@ -8,6 +8,7 @@ import ProfitCalculator from './ProfitCalculator';
 import StatsPanel from './StatsPanel';
 import { extractCoinEntries } from '../utils/coins';
 import { buildDropstabUrl } from '../utils/dropstab';
+import { fetchEventSeries } from '../lib/statsApi';
 
 dayjs.extend(utc);
 dayjs.extend(timezone);
@@ -53,9 +54,9 @@ export default function PriceReactionCard({ item, allItems = [] }) {
     coinName,
     timezone: tz,
     pair,
-    seriesClose,
-    seriesHigh,
-    seriesLow,
+    seriesClose: seriesCloseProp,
+    seriesHigh: seriesHighProp,
+    seriesLow: seriesLowProp,
     coins,
     coinQuantity,
     coinPriceLink,
@@ -63,6 +64,71 @@ export default function PriceReactionCard({ item, allItems = [] }) {
     showMcap,
   } = item;
 
+  // Lazy-loaded series. The list query no longer ships these heavy arrays;
+  // we fetch them only when the card scrolls into view.
+  const [lazySeries, setLazySeries] = useState(() => ({
+    close: Array.isArray(seriesCloseProp) ? seriesCloseProp : null,
+    high: Array.isArray(seriesHighProp) ? seriesHighProp : null,
+    low: Array.isArray(seriesLowProp) ? seriesLowProp : null,
+  }));
+  const [seriesLoading, setSeriesLoading] = useState(false);
+  const [seriesRequested, setSeriesRequested] = useState(
+    Array.isArray(seriesCloseProp) && seriesCloseProp.length > 0
+  );
+  const cardRef = useRef(null);
+
+  useEffect(() => {
+    if (seriesRequested) return;
+    if (typeof window === 'undefined' || typeof IntersectionObserver === 'undefined') {
+      // No observer available — fetch immediately as a safe fallback.
+      setSeriesRequested(true);
+      return;
+    }
+    const node = cardRef.current;
+    if (!node) return;
+    const obs = new IntersectionObserver(
+      (entries) => {
+        for (const entry of entries) {
+          if (entry.isIntersecting) {
+            setSeriesRequested(true);
+            obs.disconnect();
+            break;
+          }
+        }
+      },
+      { rootMargin: '200px 0px' },
+    );
+    obs.observe(node);
+    return () => obs.disconnect();
+  }, [seriesRequested]);
+
+  useEffect(() => {
+    if (!seriesRequested) return;
+    if (lazySeries.close && lazySeries.close.length) return;
+    if (!eventId) return;
+    let cancelled = false;
+    setSeriesLoading(true);
+    fetchEventSeries(eventId)
+      .then((res) => {
+        if (cancelled || !res) return;
+        setLazySeries({
+          close: res.seriesClose || null,
+          high: res.seriesHigh || null,
+          low: res.seriesLow || null,
+        });
+      })
+      .catch((err) => console.error('[PriceReactionCard] fetchEventSeries failed', err))
+      .finally(() => {
+        if (!cancelled) setSeriesLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [seriesRequested, eventId, lazySeries.close]);
+
+  const seriesClose = lazySeries.close;
+  const seriesHigh = lazySeries.high;
+  const seriesLow = lazySeries.low;
   const hasSeries = Array.isArray(seriesClose) && seriesClose.length >= 31;
   const baseIndex = hasSeries ? seriesClose.length - 31 : 0;
 
@@ -189,7 +255,10 @@ export default function PriceReactionCard({ item, allItems = [] }) {
   const summaryColor = pnlSummary == null ? 'text-white/55' : pnlSummary.pnl > 0 ? 'text-emerald-400' : pnlSummary.pnl < 0 ? 'text-red-400' : 'text-amber-400';
 
   return (
-    <article className="relative overflow-hidden rounded-3xl border border-gray-200 bg-white/90 px-4 py-5 text-slate-900 shadow-xl backdrop-blur-sm dark:border-slate-800 dark:bg-gradient-to-br dark:from-[#0b0f1a] dark:via-[#0f172a] dark:to-[#0b111f] dark:text-white">
+    <article
+      ref={cardRef}
+      className="relative overflow-hidden rounded-3xl border border-gray-200 bg-white/90 px-4 py-5 text-slate-900 shadow-xl backdrop-blur-sm dark:border-slate-800 dark:bg-gradient-to-br dark:from-[#0b0f1a] dark:via-[#0f172a] dark:to-[#0b111f] dark:text-white"
+    >
       <div className="pointer-events-none absolute inset-0 opacity-70 bg-[radial-gradient(circle_at_20%_10%,rgba(34,197,94,0.12),transparent_35%),radial-gradient(circle_at_80%_0,rgba(14,165,233,0.1),transparent_30%)]" aria-hidden />
 
       {/* ── Status badges ── */}
@@ -259,6 +328,10 @@ export default function PriceReactionCard({ item, allItems = [] }) {
                 timezone={tz}
                 isFullscreen={isFullscreen}
               />
+            ) : seriesLoading || !seriesRequested ? (
+              <div className="flex h-40 w-full animate-pulse items-center justify-center rounded-xl bg-gray-100 text-sm text-gray-500 dark:bg-white/5 dark:text-gray-400">
+                Завантаження серії ±30m…
+              </div>
             ) : (
               <div className="text-sm text-gray-600 dark:text-gray-300">Немає серії ±30m (ще не пораховано або івент занадто свіжий).</div>
             )}

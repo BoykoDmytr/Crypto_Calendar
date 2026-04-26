@@ -103,7 +103,9 @@ export default function Stats() {
     }
   };
 
-  // Initialise list and set up periodic refresh and realtime listener
+  // Initialise list and set up periodic read-only refresh and realtime listener.
+  // The price-reaction cron Edge Function is the single writer; the client
+  // only reads here. Manual refresh button below still triggers the job once.
   useEffect(() => {
     let mounted = true;
     (async () => {
@@ -123,22 +125,26 @@ export default function Stats() {
         if (mounted) setLoading(false);
       }
     })();
-    // periodic job run every 60 seconds
+
+    // read-only refresh every 5 minutes, only when tab is visible
     const intervalId = setInterval(async () => {
+      if (typeof document !== 'undefined' && document.visibilityState !== 'visible') return;
+      if (!mounted) return;
       try {
-        await triggerPriceReactionJob();
         await loadItems();
       } catch (err) {
-        console.error('Автоматичний збір статистики помилився', err);
+        console.error('Періодичне оновлення статистики помилилось', err);
       }
-    }, 60_000);
-    // realtime listener for new events
+    }, 5 * 60_000);
+
+    // realtime listener for new events — read-only refresh, no job trigger
     const channel = supabase
       .channel('stats_auto_add')
       .on(
         'postgres_changes',
         { event: 'INSERT', schema: 'public', table: 'events_approved' },
         async (payload) => {
+          if (!mounted) return;
           const newEvent = payload.new;
           const { slugs = [], typeNames = [] } = statsFiltersRef.current || {};
           if (
@@ -146,7 +152,6 @@ export default function Stats() {
             (newEvent.type && typeNames.includes(newEvent.type))
           ) {
             try {
-              await triggerPriceReactionJob();
               await loadItems();
             } catch (err) {
               console.error('Автооновлення статистики помилилося', err);
@@ -155,6 +160,7 @@ export default function Stats() {
         },
       )
       .subscribe();
+
     return () => {
       mounted = false;
       clearInterval(intervalId);
