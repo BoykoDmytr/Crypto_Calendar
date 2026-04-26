@@ -19,11 +19,12 @@ dayjs.extend(timezone);
 
 const KYIV_TZ = 'Europe/Kyiv';
 
-// Explicit column lists. Avoids select('*') (smaller responses, fewer dead
-// bytes scanned by Postgres). Keep in sync with EventForm fields.
+// Explicit column list for events_approved (smaller responses, fewer dead
+// bytes scanned by Postgres). Keep in sync with EventForm fields. Pending
+// tables keep select('*') because their column set differs (no enrichment
+// fields like mcap_usd / event_usd_value) and they are small anyway.
 const ADMIN_EVENT_COLUMNS_BASE =
   'id,title,description,start_at,end_at,timezone,type,event_type_slug,link,tge_exchanges,created_at,coin_name,coin_quantity,coin_price_link,coins,coin_pct_circ,coin_circ_supply,coin_circulating_supply,mcap_usd,mcap_coins,event_usd_value,show_mcap,nickname';
-const ADMIN_EVENT_COLUMNS_PENDING = `${ADMIN_EVENT_COLUMNS_BASE},status`;
 const ADMIN_APPROVED_INITIAL_LIMIT = 50;
 const ADMIN_STATS_INITIAL_LIMIT = 50;
 
@@ -398,13 +399,17 @@ export default function Admin() {
   const refresh = async () => {
     const approvedLimitForFetch = approvedFetchLimit;
     const [auto, p, a, e, x, t, s, excluded] = await Promise.all([
+      // events_pending / auto_events_pending мають вужчий набір колонок
+      // (без mcap_usd, event_usd_value, coin_circulating_supply тощо —
+      // ті заповнюються лише при апруві в events_approved). Тому беремо
+      // select('*'): таблиці малі, інакше Supabase валить запит з 400.
       supabase
         .from('auto_events_pending')
-        .select(ADMIN_EVENT_COLUMNS_PENDING)
+        .select('*')
         .order('created_at', { ascending: true }),
       supabase
         .from('events_pending')
-        .select(ADMIN_EVENT_COLUMNS_PENDING)
+        .select('*')
         .order('created_at', { ascending: true }),
       supabase
         .from('events_approved')
