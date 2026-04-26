@@ -7,6 +7,7 @@ import dayjs from 'dayjs';
 import TelegramCTA from '../components/TelegramCTA';
 import { compareMinutes, timeStringToMinutes } from '../utils/time';
 import { toEventLocal, eventDateKey } from '../utils/eventTime';
+import { useReactionsBatch } from '../hooks/useReactionsBatch';
 
 // ───────────────────────────────── Filter scroller (стрілки) ─────────────────────────────────
 function FilterScroller({ children }) {
@@ -45,12 +46,17 @@ function FilterScroller({ children }) {
 }
 
 const PAST_EVENTS_BATCH_SIZE = 5;
+const PAST_WINDOW_DAYS = 90;
+const EVENT_COLUMNS = 'id,title,description,start_at,end_at,timezone,type,event_type_slug,link,tge_exchanges,coins,coin_name,coin_quantity,coin_price_link,coin_pct_circ,show_mcap,nickname';
 
 export default function Calendar() {
   const [allEvents, setAllEvents] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showPast, setShowPast] = useState(false);
   const [visiblePastCount, setVisiblePastCount] = useState(PAST_EVENTS_BATCH_SIZE);
+  const [oldestLoadedDays, setOldestLoadedDays] = useState(PAST_WINDOW_DAYS);
+  const [hasMoreOlder, setHasMoreOlder] = useState(true);
+  const [loadingOlder, setLoadingOlder] = useState(false);
   const [now, setNow] = useState(dayjs());
   const touchStartRef = useRef(null);
   const pastPanelRef = useRef(null);
@@ -76,10 +82,12 @@ export default function Calendar() {
   useEffect(() => {
     (async () => {
       setLoading(true);
+      const sinceISO = dayjs().subtract(PAST_WINDOW_DAYS, 'day').toISOString();
       const [ev, et] = await Promise.all([
         supabase
           .from('events_approved')
-          .select('*')
+          .select(EVENT_COLUMNS)
+          .gte('start_at', sinceISO)
           .order('start_at', { ascending: true }),
         supabase
           .from('event_types')
@@ -120,6 +128,12 @@ export default function Calendar() {
     () => (type === 'All' ? allEvents : allEvents.filter((ev) => ev.type === type)),
     [allEvents, type]
   );
+
+  const allEventIds = useMemo(
+    () => allEvents.map((ev) => ev?.id).filter(Boolean),
+    [allEvents]
+  );
+  const { reactionsMap, onReact } = useReactionsBatch(allEventIds);
 
   // ✅ FIX: Групуємо по даті в TZ ІВЕНТУ, а не браузера
   const groups = useMemo(() => {
@@ -258,6 +272,45 @@ export default function Calendar() {
     setVisiblePastCount((prev) => Math.min(prev + PAST_EVENTS_BATCH_SIZE, totalPastEvents));
   }, [totalPastEvents]);
 
+  const loadOlder = useCallback(async () => {
+    if (loadingOlder || !hasMoreOlder) return;
+    setLoadingOlder(true);
+    try {
+      const fromDays = oldestLoadedDays + PAST_WINDOW_DAYS;
+      const sinceISO = dayjs().subtract(fromDays, 'day').toISOString();
+      const untilISO = dayjs().subtract(oldestLoadedDays, 'day').toISOString();
+      const { data, error } = await supabase
+        .from('events_approved')
+        .select(EVENT_COLUMNS)
+        .gte('start_at', sinceISO)
+        .lt('start_at', untilISO)
+        .order('start_at', { ascending: true });
+      if (error) throw error;
+      const rows = data || [];
+      setOldestLoadedDays(fromDays);
+      if (rows.length === 0) {
+        setHasMoreOlder(false);
+      } else {
+        setAllEvents((prev) => {
+          const seen = new Set(prev.map((e) => e.id));
+          const merged = prev.slice();
+          for (const r of rows) {
+            if (!seen.has(r.id)) merged.push(r);
+          }
+          merged.sort((a, b) =>
+            new Date(a.start_at).getTime() - new Date(b.start_at).getTime()
+          );
+          return merged;
+        });
+        setVisiblePastCount((prev) => prev + rows.length);
+      }
+    } catch (err) {
+      console.error('[calendar] loadOlder failed', err);
+    } finally {
+      setLoadingOlder(false);
+    }
+  }, [hasMoreOlder, loadingOlder, oldestLoadedDays]);
+
   const updatePastPanelMaxHeight = useCallback(() => {
     if (!showPast) return;
     const panel = pastPanelRef.current;
@@ -383,7 +436,13 @@ export default function Calendar() {
 
           <div className="space-y-2">
             {g.items.map((ev) => (
-              <EventCard key={ev.id} ev={ev} isPast={variant === 'past'} />
+              <EventCard
+                key={ev.id}
+                ev={ev}
+                isPast={variant === 'past'}
+                reaction={reactionsMap.get(ev.id) ?? { likes: 0, dislikes: 0, myReaction: null }}
+                onReact={onReact}
+              />
             ))}
           </div>
         </section>
@@ -494,6 +553,18 @@ export default function Calendar() {
                   className="btn h-9 px-4 text-sm"
                 >
                   Показати більше
+                </button>
+              </div>
+            )}
+            {!canLoadMorePast && hasMoreOlder && (
+              <div className="pt-4 flex justify-center">
+                <button
+                  type="button"
+                  onClick={loadOlder}
+                  disabled={loadingOlder}
+                  className="btn h-9 px-4 text-sm disabled:opacity-60"
+                >
+                  {loadingOlder ? 'Завантаження…' : 'Завантажити старіші події'}
                 </button>
               </div>
             )}

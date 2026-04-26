@@ -81,68 +81,32 @@ export default async function handler(req, res) {
       return !shouldKeep;
     });
 
+    // Hard cap per run so a one-off backlog can't spike Disk IO. Subsequent
+    // cron runs will drain the rest.
+    const MAX_DELETE_PER_RUN = 500;
+    const idsToDelete = targetEvents
+      .map((ev) => ev.id)
+      .slice(0, MAX_DELETE_PER_RUN);
+
     let deleted = 0;
-
-    for (const ev of targetEvents) {
-      const id = ev.id;
-
-      const { error: exclErr } = await supabase
-        .from("event_price_reaction_exclusions")
-        .delete()
-        .eq("event_id", id);
-
-      if (exclErr) {
-        return res.status(500).json({
-          ok: false,
-          error: exclErr.message,
-          where: "exclusions delete",
-          id,
-        });
-      }
-
-      const { error: reactErr } = await supabase
-        .from("event_price_reaction")
-        .delete()
-        .eq("event_id", id);
-
-      if (reactErr) {
-        return res.status(500).json({
-          ok: false,
-          error: reactErr.message,
-          where: "price reaction delete",
-          id,
-        });
-      }
-
-      const { error: editsErr } = await supabase
-        .from("event_edits_pending")
-        .delete()
-        .eq("event_id", id);
-
-      if (editsErr) {
-        return res.status(500).json({
-          ok: false,
-          error: editsErr.message,
-          where: "pending edits delete",
-          id,
-        });
-      }
-
+    if (idsToDelete.length) {
+      // With ON DELETE CASCADE on event_price_reaction(_exclusions) and
+      // event_edits_pending FKs (see migration 20260425215346_optimize_io.sql),
+      // this single delete removes child rows automatically.
       const { error: delErr } = await supabase
         .from("events_approved")
         .delete()
-        .eq("id", id);
+        .in("id", idsToDelete);
 
       if (delErr) {
         return res.status(500).json({
           ok: false,
           error: delErr.message,
-          where: "event delete",
-          id,
+          where: "event delete bulk",
         });
       }
 
-      deleted += 1;
+      deleted = idsToDelete.length;
     }
 
     const tablesToPrune = ["events_pending", "auto_events_pending"];
@@ -154,36 +118,36 @@ export default async function handler(req, res) {
         .select("id, event_type_slug, type")
         .lt("start_at", threshold);
 
-      if (!pendingFetchErr) {
-        const targets = (rows || []).filter((row) => {
+      if (pendingFetchErr) continue;
+
+      const targetIds = (rows || [])
+        .filter((row) => {
           const slug = String(row.event_type_slug || "").trim().toLowerCase();
           const type = String(row.type || "").trim();
-
           const shouldKeep =
             KEEP_EVENT_TYPE_SLUGS.includes(slug) ||
             KEEP_EVENT_TYPE_NAMES.includes(type);
-
           return !shouldKeep;
+        })
+        .map((row) => row.id)
+        .slice(0, MAX_DELETE_PER_RUN);
+
+      if (!targetIds.length) continue;
+
+      const { error: pendDelErr } = await supabase
+        .from(table)
+        .delete()
+        .in("id", targetIds);
+
+      if (pendDelErr) {
+        return res.status(500).json({
+          ok: false,
+          error: pendDelErr.message,
+          where: `${table} delete bulk`,
         });
-
-        for (const row of targets) {
-          const { error: pendDelErr } = await supabase
-            .from(table)
-            .delete()
-            .eq("id", row.id);
-
-          if (pendDelErr) {
-            return res.status(500).json({
-              ok: false,
-              error: pendDelErr.message,
-              where: `${table} delete`,
-              id: row.id,
-            });
-          }
-
-          pendingDeleted += 1;
-        }
       }
+
+      pendingDeleted += targetIds.length;
     }
 
     return res.status(200).json({

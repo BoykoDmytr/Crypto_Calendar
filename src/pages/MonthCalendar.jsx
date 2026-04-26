@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { supabase } from '../lib/supabase';
 import EventCard from '../components/EventCard';
 import dayjs from 'dayjs';
@@ -6,6 +6,9 @@ import utc from 'dayjs/plugin/utc';
 import timezone from 'dayjs/plugin/timezone';
 import { Link } from 'react-router-dom';
 import TelegramCTA from '../components/TelegramCTA';
+import { useReactionsBatch } from '../hooks/useReactionsBatch';
+
+const MONTH_EVENT_COLUMNS = 'id,title,description,start_at,end_at,timezone,type,event_type_slug,link,tge_exchanges,coins,coin_name,coin_quantity,coin_price_link,coin_pct_circ,show_mcap,nickname';
 
 dayjs.extend(utc);
 dayjs.extend(timezone);
@@ -29,17 +32,38 @@ export default function MonthCalendar() {
   const [selectedISO, setSelectedISO] = useState(dayjs().format('YYYY-MM-DD'));
   const [loading, setLoading] = useState(true);
 
+  // Cache events per month-key to avoid refetching when navigating back/forth.
+  const monthCacheRef = useRef(new Map());
+  const monthKey = monthCursor.format('YYYY-MM');
+
   useEffect(() => {
+    let cancelled = false;
     (async () => {
       setLoading(true);
+      const cached = monthCacheRef.current.get(monthKey);
+      if (cached) {
+        setEvents(cached);
+        setLoading(false);
+        return;
+      }
+      const start = monthCursor.startOf('month').subtract(7, 'day').toISOString();
+      const end = monthCursor.endOf('month').add(7, 'day').toISOString();
       const { data, error } = await supabase
         .from('events_approved')
-        .select('*')
+        .select(MONTH_EVENT_COLUMNS)
+        .gte('start_at', start)
+        .lte('start_at', end)
         .order('start_at', { ascending: true });
-      if (!error) setEvents(data || []);
+      if (cancelled) return;
+      const rows = error ? [] : (data || []);
+      monthCacheRef.current.set(monthKey, rows);
+      setEvents(rows);
       setLoading(false);
     })();
-  }, []);
+    return () => {
+      cancelled = true;
+    };
+  }, [monthCursor, monthKey]);
 
   const byDate = useMemo(() => {
     const map = new Map();
@@ -60,8 +84,17 @@ export default function MonthCalendar() {
     days.push(d);
   }
 
-  const selectedEvents = byDate.get(selectedISO) || [];
+  const selectedEvents = useMemo(
+    () => byDate.get(selectedISO) || [],
+    [byDate, selectedISO]
+  );
   const todayISO = dayjs().format('YYYY-MM-DD');
+
+  const selectedEventIds = useMemo(
+    () => selectedEvents.map((ev) => ev?.id).filter(Boolean),
+    [selectedEvents]
+  );
+  const { reactionsMap, onReact } = useReactionsBatch(selectedEventIds);
 
   return (
     <div className="overflow-x-hidden space-y-3 sm:space-y-4">
@@ -143,7 +176,14 @@ export default function MonthCalendar() {
           <p className="text-sm text-gray-600 mt-2">Немає подій на цю дату.</p>
         ) : (
           <div className="mt-2 space-y-2">
-            {selectedEvents.map(ev => <EventCard key={ev.id} ev={ev} />)}
+            {selectedEvents.map(ev => (
+              <EventCard
+                key={ev.id}
+                ev={ev}
+                reaction={reactionsMap.get(ev.id) ?? { likes: 0, dislikes: 0, myReaction: null }}
+                onReact={onReact}
+              />
+            ))}
           </div>
         )}
       </div>

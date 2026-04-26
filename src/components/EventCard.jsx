@@ -28,15 +28,25 @@ function formatMcapPercent(value) {
   return `${n.toFixed(6).replace(/\.?0+$/, '')}%`;
 }
 
-export default function EventCard({ ev, isPast = false }) {
+export default function EventCard({ ev, isPast = false, reaction = null, onReact = null }) {
   const isTGE = ev?.type === 'Listing (TGE)';
   const tz = ev?.timezone || 'UTC';
 
   // Стейт для відкривання/закривання меню календаря
   const [calendarOpen, setCalendarOpen] = useState(false);
 
-  // Лайки / дизлайки
-  const { counts, userReaction, updateReaction } = useEventReaction(ev?.id);
+  // Лайки / дизлайки. Якщо батько передав batched reaction + onReact —
+  // використовуємо їх (одна RPC на сторінку). Інакше падаємо на старий
+  // 3-запитовий per-card hook як fallback.
+  const useBatched = reaction != null && typeof onReact === 'function';
+  const fallback = useEventReaction(useBatched ? null : ev?.id);
+  const counts = useBatched
+    ? { like: reaction.likes ?? 0, dislike: reaction.dislikes ?? 0 }
+    : fallback.counts;
+  const userReaction = useBatched ? reaction.myReaction ?? null : fallback.userReaction;
+  const updateReaction = useBatched
+    ? (type) => onReact(ev?.id, type)
+    : fallback.updateReaction;
 
   // ✅ FIX: Конвертуємо в TZ ІВЕНТУ, а не в браузерний час
   const start = useMemo(() => toEventLocal(ev?.start_at, tz), [ev?.start_at, tz]);
