@@ -12,7 +12,7 @@ const LOOKAHEAD_DAYS = 60;
 // After T0+35 minutes we can safely fetch ±30m series
 const SERIES_CUTOFF_MINUTES = 35;
 // Price capture window in minutes for T0, +5, +15
-const CAPTURE_WINDOW_MINUTES = 10;
+const CAPTURE_WINDOW_MINUTES = 15;
 
 // In the series we ALWAYS include T0..T+30 (31 points)
 const AFTER_EVENT_POINTS = 31;
