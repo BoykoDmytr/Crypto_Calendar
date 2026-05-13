@@ -98,3 +98,26 @@ Existing vars reused: `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`.
 - `scripts/setup-telegram-admin-webhook.js` — one-shot webhook setup.
 - `api/telegram/webhook.js` — TG → server.
 - `api/cron/telegram-notify-pending.js` — server → TG (notifications).
+- `supabase/migrations/20260513120100_events_approved_tg_dirty.sql` —
+  `tg_dirty` flag on `events_approved` for in-place broadcast edits.
+
+## Broadcast edits (Stage 3)
+
+When an admin edits an event on the site that was already posted to the
+public channel, `Admin.jsx` sets `tg_dirty = true` on that row. The
+existing hourly broadcast cron has two phases:
+
+1. **Post**: rows with `tg_posted_at IS NULL` (unchanged from before).
+2. **Edit**: rows with `tg_dirty = true AND tg_message_id IS NOT NULL`.
+   Calls `editMessageText` and clears the flag.
+
+Special cases handled in phase 2:
+- `message is not modified` → clear flag (success, no-op edit).
+- `message to edit not found` → if post < 48h old, clear
+  `tg_message_id` + `tg_posted_at` so phase 1 re-posts. Older than 48h:
+  clear flag only (don't spam the channel with old events).
+
+Each phase caps at 20 ops per run to stay under the 60s function budget.
+
+Deleting an event from `events_approved` does **not** delete the
+Telegram post — out of scope, do it manually if needed.

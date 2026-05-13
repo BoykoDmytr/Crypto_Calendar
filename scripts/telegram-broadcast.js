@@ -24,33 +24,60 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 // Telegram API
 // ---------------------------------------------------------------------------
 
-async function sendTelegramMessage({ token, chatId, text, keyboard }) {
-  const url = `https://api.telegram.org/bot${token}/sendMessage`;
-  const body = {
-    chat_id: chatId,
-    text,
-    parse_mode: "HTML",
-    disable_web_page_preview: true,
-    reply_markup: keyboard,
-  };
+const TG_TIMEOUT_MS = 10_000;
 
-  const res = await fetch(url, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-  });
-
-  const json = await res.json().catch(() => ({}));
-  if (!res.ok || !json.ok) {
-    const err = new Error(
-      `Telegram sendMessage failed: ${res.status} ${json.description || ""}`
-    );
-    err.response = json;
-    err.status = res.status;
-    throw err;
+async function tgApi({ token, method, body }) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), TG_TIMEOUT_MS);
+  try {
+    const res = await fetch(`https://api.telegram.org/bot${token}/${method}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+      signal: controller.signal,
+    });
+    const json = await res.json().catch(() => ({}));
+    if (!res.ok || !json.ok) {
+      const err = new Error(
+        `Telegram ${method} failed: ${res.status} ${json.description || ""}`,
+      );
+      err.response = json;
+      err.status = res.status;
+      throw err;
+    }
+    return json.result;
+  } finally {
+    clearTimeout(timer);
   }
+}
 
-  return json.result; // { message_id, ... }
+async function sendTelegramMessage({ token, chatId, text, keyboard }) {
+  return tgApi({
+    token,
+    method: "sendMessage",
+    body: {
+      chat_id: chatId,
+      text,
+      parse_mode: "HTML",
+      disable_web_page_preview: true,
+      reply_markup: keyboard,
+    },
+  });
+}
+
+async function editTelegramMessage({ token, chatId, messageId, text, keyboard }) {
+  return tgApi({
+    token,
+    method: "editMessageText",
+    body: {
+      chat_id: chatId,
+      message_id: messageId,
+      text,
+      parse_mode: "HTML",
+      disable_web_page_preview: true,
+      reply_markup: keyboard,
+    },
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -97,8 +124,15 @@ export async function run() {
 
   if (error) throw error;
 
-  const summary = { fetched: rows?.length || 0, sent: 0, failed: 0, errors: [] };
+  const summary = {
+    fetched: rows?.length || 0,
+    sent: 0,
+    edited: 0,
+    failed: 0,
+    errors: [],
+  };
 
+  // ----- Phase 1: new posts -----
   for (const ev of rows || []) {
     try {
       const { text, keyboard } = buildPost(ev, { siteBaseUrl });
@@ -115,6 +149,7 @@ export async function run() {
         .update({
           tg_posted_at: new Date().toISOString(),
           tg_message_id: result?.message_id ?? null,
+          tg_dirty: false,
         })
         .eq("id", ev.id);
 
@@ -127,6 +162,85 @@ export async function run() {
       summary.errors.push({ id: ev.id, message: err?.message || String(err) });
 
       // 429 => respect retry_after, but only within a single run
+      if (err?.status === 429) {
+        const retryAfter = Number(err.response?.parameters?.retry_after || 5);
+        await sleep(Math.min(retryAfter * 1000, 30_000));
+      }
+    }
+  }
+
+  // ----- Phase 2: edit dirty rows that were already posted -----
+  const { data: dirty, error: dirtyErr } = await supabase
+    .from("events_approved")
+    .select(
+      "id,title,description,start_at,end_at,timezone,type,event_type_slug,link,tge_exchanges,coins,coin_name,coin_quantity,coin_price_link,coin_pct_circ,event_usd_value,mcap_usd,show_mcap,created_at,tg_posted_at,tg_message_id",
+    )
+    .eq("tg_dirty", true)
+    .not("tg_message_id", "is", null)
+    .order("tg_posted_at", { ascending: true })
+    .limit(MAX_PER_RUN);
+
+  if (dirtyErr) {
+    summary.errors.push({ phase: "edit_fetch", message: dirtyErr.message });
+    return summary;
+  }
+
+  for (const ev of dirty || []) {
+    try {
+      const { text, keyboard } = buildPost(ev, { siteBaseUrl });
+
+      await editTelegramMessage({
+        token: botToken,
+        chatId,
+        messageId: ev.tg_message_id,
+        text,
+        keyboard,
+      });
+
+      const { error: updErr } = await supabase
+        .from("events_approved")
+        .update({ tg_dirty: false })
+        .eq("id", ev.id);
+      if (updErr) throw updErr;
+
+      summary.edited += 1;
+      await sleep(SEND_DELAY_MS);
+    } catch (err) {
+      const desc = String(err?.response?.description || err?.message || "");
+      // "message is not modified" — same content, treat as success.
+      if (desc.includes("message is not modified")) {
+        await supabase
+          .from("events_approved")
+          .update({ tg_dirty: false })
+          .eq("id", ev.id);
+        summary.edited += 1;
+        continue;
+      }
+      // "message to edit not found" — deleted in TG.
+      // If the post was recent enough (<48h) clear tg_message_id so the next
+      // cycle re-posts as new. Older than that we leave alone — re-posting
+      // old events is spam.
+      if (desc.includes("message to edit not found")) {
+        const ageHours = dayjs.utc().diff(dayjs.utc(ev.tg_posted_at), "hour");
+        if (ageHours <= 48) {
+          await supabase
+            .from("events_approved")
+            .update({ tg_message_id: null, tg_posted_at: null, tg_dirty: false })
+            .eq("id", ev.id);
+        } else {
+          await supabase
+            .from("events_approved")
+            .update({ tg_dirty: false })
+            .eq("id", ev.id);
+        }
+        continue;
+      }
+      summary.failed += 1;
+      summary.errors.push({
+        id: ev.id,
+        phase: "edit",
+        message: err?.message || String(err),
+      });
       if (err?.status === 429) {
         const retryAfter = Number(err.response?.parameters?.retry_after || 5);
         await sleep(Math.min(retryAfter * 1000, 30_000));

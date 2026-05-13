@@ -581,6 +581,17 @@ export default function Admin() {
     await sharedEnrichPayload(supabase, clean); // ✅ тут coins стане string
   }
 
+  // If we are editing an already-broadcast event, mark it dirty so the next
+  // broadcast cron edits the existing TG message instead of duplicating.
+  if (table === 'events_approved') {
+    const { data: cur } = await supabase
+      .from('events_approved')
+      .select('tg_message_id')
+      .eq('id', id)
+      .maybeSingle();
+    if (cur?.tg_message_id != null) clean.tg_dirty = true;
+  }
+
   const { error } = await supabase.from(table).update(clean).eq('id', id);
   if (error) return alert('Помилка: ' + error.message);
 
@@ -667,6 +678,15 @@ const approveEdit = async (edit) => {
   if (touchesCoins) {
     await sharedEnrichPayload(supabase, patch); // ✅ coins стане string
   }
+
+  // If the target event was already broadcast, mark dirty so the next
+  // broadcast cron edits the TG message in place.
+  const { data: cur } = await supabase
+    .from('events_approved')
+    .select('tg_message_id')
+    .eq('id', edit.event_id)
+    .maybeSingle();
+  if (cur?.tg_message_id != null) patch.tg_dirty = true;
 
   const { error } = await supabase.from('events_approved').update(patch).eq('id', edit.event_id);
   if (error) return alert('Помилка: ' + error.message);
