@@ -253,11 +253,212 @@ async function handleCallback(update) {
 }
 
 // ---------------------------------------------------------------------------
-// Message / command handler — Stage 2 (registered as stub here)
+// Command handlers
+//
+// Commands work in DM only. In groups, Telegram appends `@botname` to the
+// command text, so we accept that form too but reject otherwise (groups can
+// be noisy, we don't want every "/stats" in some random chat to fire).
 // ---------------------------------------------------------------------------
 
-async function handleCommand(/* update */) {
-  // Stage 2 fills this in.
+function buildAdminKeyboard({ source, fullId, siteUrl }) {
+  const shortId = String(fullId).replace(/-/g, "").slice(0, 8);
+  const focusUrl = `${siteUrl.replace(/\/+$/, "")}/admin?focus=${fullId}`;
+  return {
+    inline_keyboard: [
+      [
+        { text: "✅ Approve", callback_data: `a:${source}:${shortId}` },
+        { text: "❌ Reject", callback_data: `r:${source}:${shortId}` },
+      ],
+      [{ text: "✏ Edit on site", url: focusUrl }],
+    ],
+  };
+}
+
+function todayUtcStart() {
+  return dayjs.utc().startOf("day").toISOString();
+}
+
+async function sendText(chatId, text, extra = {}) {
+  return tgApi("sendMessage", {
+    chat_id: chatId,
+    text: text.slice(0, 4000),
+    parse_mode: "HTML",
+    disable_web_page_preview: true,
+    ...extra,
+  });
+}
+
+async function cmdHelp(chatId) {
+  const text = [
+    "<b>Available commands</b>",
+    "",
+    "/pending — show up to 10 oldest pending events with action buttons",
+    "/stats — totals: approved, pending, approved today, broadcasts today",
+    "/today — events posted to the public channel today",
+    "/help — this list",
+  ].join("\n");
+  await sendText(chatId, text);
+}
+
+async function cmdPending(chatId, supabase) {
+  const siteUrl = process.env.SITE_URL || "https://cryptoeventscalendar.com";
+  const adminChatId = Number(process.env.ADMIN_TG_CHAT_ID || chatId);
+
+  const [pendRes, autoRes] = await Promise.all([
+    supabase
+      .from("events_pending")
+      .select("*")
+      .order("created_at", { ascending: true })
+      .limit(10),
+    supabase
+      .from("auto_events_pending")
+      .select("*")
+      .order("created_at", { ascending: true })
+      .limit(10),
+  ]);
+
+  const items = [];
+  for (const r of pendRes.data || []) items.push({ ev: r, source: "pending" });
+  for (const r of autoRes.data || []) items.push({ ev: r, source: "auto_pending" });
+
+  if (!items.length) {
+    await sendText(chatId, "No pending events right now ✅");
+    return;
+  }
+
+  const top = items.slice(0, 10);
+  for (const { ev, source } of top) {
+    const { text } = buildPost(ev, { siteBaseUrl: siteUrl, mode: "admin", source });
+    const keyboard = buildAdminKeyboard({
+      source,
+      fullId: ev.id,
+      siteUrl,
+    });
+    try {
+      const result = await sendText(chatId, text, { reply_markup: keyboard });
+      // Insert tracking row only when posting to the canonical admin chat —
+      // /pending replies in DMs would otherwise collide on the UNIQUE
+      // (pending_id, source) constraint.
+      if (result?.message_id && Number(chatId) === adminChatId) {
+        await supabase
+          .from("telegram_admin_messages")
+          .insert({
+            pending_id: ev.id,
+            source,
+            tg_chat_id: Number(chatId),
+            tg_message_id: result.message_id,
+            status: "awaiting",
+          })
+          .then(() => null, () => null); // ignore duplicate
+      }
+    } catch (err) {
+      console.error("[telegram-admin] /pending send failed", err?.message);
+    }
+  }
+}
+
+async function cmdStats(chatId, supabase) {
+  const todayStart = todayUtcStart();
+
+  const [totalApproved, pendingCount, autoPendingCount, approvedToday, broadcastsToday] =
+    await Promise.all([
+      supabase.from("events_approved").select("id", { count: "exact", head: true }),
+      supabase.from("events_pending").select("id", { count: "exact", head: true }),
+      supabase.from("auto_events_pending").select("id", { count: "exact", head: true }),
+      supabase
+        .from("events_approved")
+        .select("id", { count: "exact", head: true })
+        .gte("created_at", todayStart),
+      supabase
+        .from("events_approved")
+        .select("id", { count: "exact", head: true })
+        .gte("tg_posted_at", todayStart),
+    ]);
+
+  const lines = [
+    "<b>Stats</b>",
+    "",
+    `Total approved: <b>${totalApproved.count ?? 0}</b>`,
+    `Pending (manual): <b>${pendingCount.count ?? 0}</b>`,
+    `Pending (auto): <b>${autoPendingCount.count ?? 0}</b>`,
+    `Approved today: <b>${approvedToday.count ?? 0}</b>`,
+    `Broadcasts today: <b>${broadcastsToday.count ?? 0}</b>`,
+  ];
+
+  await sendText(chatId, lines.join("\n"));
+}
+
+async function cmdToday(chatId, supabase) {
+  const todayStart = todayUtcStart();
+  const siteUrl = process.env.SITE_URL || "https://cryptoeventscalendar.com";
+  const base = siteUrl.replace(/\/+$/, "");
+
+  const { data, error } = await supabase
+    .from("events_approved")
+    .select("id, title, type, tg_posted_at")
+    .gte("tg_posted_at", todayStart)
+    .order("tg_posted_at", { ascending: false })
+    .limit(50);
+
+  if (error) {
+    await sendText(chatId, `Error: ${esc(error.message)}`);
+    return;
+  }
+
+  if (!data?.length) {
+    await sendText(chatId, "No broadcasts today.");
+    return;
+  }
+
+  const lines = ["<b>Broadcast today</b>", ""];
+  for (const ev of data) {
+    const t = dayjs.utc(ev.tg_posted_at).format("HH:mm");
+    const title = esc(ev.title || "(untitled)");
+    const url = `${base}/admin?focus=${ev.id}`;
+    lines.push(`• <code>${t}</code> ${title} — <a href="${url}">edit</a>`);
+  }
+
+  await sendText(chatId, lines.join("\n"));
+}
+
+async function handleCommand(update) {
+  const msg = update.message;
+  const fromId = msg?.from?.id;
+  const text = String(msg?.text || "").trim();
+  if (!text.startsWith("/")) return;
+  if (!isAdmin(fromId)) return; // silent — do not leak bot existence
+
+  const chatType = msg.chat?.type;
+  // In groups, only respond when @botname is appended.
+  const botName = (process.env.TELEGRAM_ADMIN_BOT_USERNAME || "").toLowerCase();
+  const tokens = text.split(/\s+/);
+  let cmd = tokens[0].toLowerCase();
+  const atIdx = cmd.indexOf("@");
+  if (atIdx >= 0) {
+    const target = cmd.slice(atIdx + 1);
+    cmd = cmd.slice(0, atIdx);
+    if (chatType !== "private" && botName && target !== botName) return;
+  } else if (chatType !== "private") {
+    return;
+  }
+
+  const chatId = msg.chat?.id;
+  const supabase = getSupabase();
+
+  try {
+    if (cmd === "/help" || cmd === "/start") {
+      await cmdHelp(chatId);
+    } else if (cmd === "/pending") {
+      await cmdPending(chatId, supabase);
+    } else if (cmd === "/stats") {
+      await cmdStats(chatId, supabase);
+    } else if (cmd === "/today") {
+      await cmdToday(chatId, supabase);
+    }
+    // unknown commands: silently ignored
+  } catch (err) {
+    console.error("[telegram-admin] command failed", cmd, err?.message);
+  }
 }
 
 // ---------------------------------------------------------------------------

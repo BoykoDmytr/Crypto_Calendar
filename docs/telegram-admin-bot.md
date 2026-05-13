@@ -30,6 +30,10 @@ TELEGRAM_ADMIN_WEBHOOK_URL=https://cryptoeventscalendar.com/api/telegram/webhook
 ADMIN_TG_USER_IDS=12345678,87654321   # comma-separated TG numeric user IDs
 ADMIN_TG_CHAT_ID=-1001234567890        # private group/channel for notifications
 SITE_URL=https://cryptoeventscalendar.com
+
+# Optional — only needed if you want commands to work in group chats with
+# the `/cmd@botname` form. DM-only setups can skip this.
+TELEGRAM_ADMIN_BOT_USERNAME=my_admin_bot
 ```
 
 Existing vars reused: `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`.
