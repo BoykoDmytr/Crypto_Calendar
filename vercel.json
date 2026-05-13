@@ -28,7 +28,7 @@
     },
     {
       "path": "/api/cron/telegram-broadcast",
-      "schedule": "0 * * * *"
+      "schedule": "* * * * *"
     },
     {
       "path": "/api/cron/telegram-notify-pending",
