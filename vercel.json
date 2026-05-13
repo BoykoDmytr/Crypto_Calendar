@@ -3,6 +3,15 @@
   "functions": {
     "api/mexc-ticker.js": {
       "maxDuration": 10
+    },
+    "api/telegram/webhook.js": {
+      "maxDuration": 30
+    },
+    "api/cron/telegram-notify-pending.js": {
+      "maxDuration": 60
+    },
+    "api/cron/telegram-broadcast.js": {
+      "maxDuration": 60
     }
   },
   "rewrites": [
@@ -20,6 +29,10 @@
     {
       "path": "/api/cron/telegram-broadcast",
       "schedule": "0 * * * *"
+    },
+    {
+      "path": "/api/cron/telegram-notify-pending",
+      "schedule": "*/5 * * * *"
     }
   ]
 }
