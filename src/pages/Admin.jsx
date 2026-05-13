@@ -2,6 +2,7 @@
 import { useEffect, useState } from 'react';
 import { toLocalInput } from "../utils/timeLocal";
 import { Link } from 'react-router-dom';
+import { useLocation } from 'react-router-dom';
 import dayjs from 'dayjs';
 import utc from 'dayjs/plugin/utc';
 import timezone from 'dayjs/plugin/timezone';
@@ -9,9 +10,12 @@ import { supabase } from '../lib/supabase';
 import EventForm from '../components/EventForm';
 import { formatQuantity as formatTokenQuantity } from '../hooks/useTokenPrice';
 import Toast from '../components/Toast';
-import { extractCoinEntries, coinEntriesEqual, parseCoinQuantity as parseQuantity } from '../utils/coins';
-import { fetchMexcTickerPrice } from '../utils/fetchMexcTicker';
-import { getDropstabCircCached } from '../utils/dropstabCache';
+import { extractCoinEntries, coinEntriesEqual } from '../utils/coins';
+import {
+  approvePendingEvent,
+  rejectPendingEvent,
+  enrichPayloadWithCircPct as sharedEnrichPayload,
+} from '../../scripts/lib/approveEvent.js';
 
 
 dayjs.extend(utc);
@@ -313,6 +317,8 @@ function TypeRow({ t, onSave, onDelete, moveType, isFirst, isLast }) {
 }
 
 export default function Admin() {
+  const location = useLocation();
+  const focusId = new URLSearchParams(location.search).get('focus') || null;
   const [pass, setPass] = useState('');
   const [ok, setOk] = useState(false);
 
@@ -395,6 +401,20 @@ export default function Admin() {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ok]);
+
+  // Scroll to and briefly highlight a row when the bot links to ?focus=<id>.
+  useEffect(() => {
+    if (!ok || !focusId) return;
+    // wait until refresh() has populated the relevant section
+    const total = autoPending.length + pending.length + approved.length;
+    if (!total) return;
+    const el = document.getElementById(`event-${focusId}`);
+    if (!el) return;
+    el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    el.classList.add('ring-2', 'ring-amber-400');
+    const t = setTimeout(() => el.classList.remove('ring-2', 'ring-amber-400'), 2500);
+    return () => clearTimeout(t);
+  }, [ok, focusId, autoPending.length, pending.length, approved.length]);
 
   const refresh = async () => {
     const approvedLimitForFetch = approvedFetchLimit;
@@ -504,211 +524,31 @@ export default function Admin() {
     await refresh(); // перечитати список після апдейту
   };
 
-  const formatPct = (p) => {
-  if (p == null || !Number.isFinite(p)) return '';
-  const abs = Math.abs(p);
-  if (abs >= 1) return p.toFixed(2);
-  if (abs >= 0.1) return p.toFixed(3);
-  if (abs >= 0.01) return p.toFixed(4);
-  return p.toExponential(2);
-};
+  const tableToSource = (table) =>
+    table === 'auto_events_pending' ? 'auto_pending' : 'pending';
 
-// ✅ беремо circulatingSupply та slug через Edge Function (без CORS і без витоку ключа).
-//    Перед викликом перевіряємо public.dropstab_cache (TTL 6h) — таким чином
-//    повторні апрували тієї самої монети не б'ють по Edge Function.
-const fetchCircSupplyViaFn = async (coinName) => {
-  return getDropstabCircCached({
-    supabase,
-    symbol: coinName,
-    fetcher: async () => {
-      const { data, error } = await supabase.functions.invoke('dropstab-circ', {
-        body: { coinName },
-      });
-      console.log('[dropstab-circ] response:', { coinName, data, error });
-      if (error) return { circulatingSupply: null, slug: null };
-      const circulatingSupply = typeof data?.circulatingSupply === 'number' ? data.circulatingSupply : null;
-      const slug = circulatingSupply != null && typeof data?.slug === 'string' && data.slug
-        ? data.slug
-        : null;
-      return { circulatingSupply, slug };
-    },
-  });
-};
-// Витягує MEXC-символ з price_link або з назви монети
-const extractMexcSymbolForAdmin = (coinName, priceLink) => {
-  // 1) З price_link: /futures/TOKEN_USDT або /exchange/TOKEN_USDT
-  if (priceLink && typeof priceLink === 'string') {
-    const m = priceLink.match(/\/(futures|exchange)\/([A-Z0-9]+)_([A-Z0-9]+)/i);
-    if (m) {
-      const base = (m[2] || '').toUpperCase();
-      const isFutures = (m[1] || '').toLowerCase() === 'futures';
-      return {
-        symbol: isFutures ? `${base}_USDT` : `${base}USDT`,
-        market: isFutures ? 'futures' : 'spot',
-      };
-    }
-    // fallback: TOKEN_USDT десь у рядку
-    const m2 = priceLink.match(/([A-Z0-9]{2,})_USDT/i);
-    if (m2) {
-      const base = (m2[1] || '').toUpperCase();
-      const isFutures = /\/futures\//i.test(priceLink);
-      return {
-        symbol: isFutures ? `${base}_USDT` : `${base}USDT`,
-        market: isFutures ? 'futures' : 'spot',
-      };
-    }
-  }
- 
-  // 2) З назви монети: GWEI -> GWEIUSDT (spot)
-  if (coinName) {
-    const tok = String(coinName).trim().toUpperCase().replace(/[^A-Z0-9]/g, '');
-    if (tok) {
-      return { symbol: `${tok}USDT`, market: 'spot' };
-    }
-  }
- 
-  return null;
-};
-// ✅ головний хелпер: рахує pct і ПИШЕ В БД КОРЕКТНО (coins = TEXT)
-const enrichPayloadWithCircPct = async (payload) => {
-  const entries = extractCoinEntries(payload);
-  if (!entries.length) return payload;
- 
-  // ✅ Перевіряємо чи є кастомний circulating supply (кількість монет)
-  const hasCustomCoins = payload.mcap_coins != null
-    && Number.isFinite(Number(payload.mcap_coins))
-    && Number(payload.mcap_coins) > 0;
-  const customCoins = hasCustomCoins ? Number(payload.mcap_coins) : null;
-
-  const circList = [];
-  const pctList = [];
-  const enrichedCoins = [];
-  let mcapUsdWritten = false; // щоб записати mcap_usd лише один раз
-
-  for (const entry of entries) {
-    const name = (entry?.name || '').trim();
-    const qty = parseQuantity(entry?.quantity);
-
-    let circ = null;
-    let pct = null;
-    let dropstabSlug = null;
-
-    if (name && qty != null && qty > 0) {
-      if (hasCustomCoins) {
-        // ✅ КАСТОМНИЙ CIRCULATING SUPPLY: pct = qty / customCoins * 100
-        pct = (qty / customCoins) * 100;
-        circ = customCoins;
-
-        // Тягнемо ціну з MEXC для розрахунку USD-значень
-        const priceLink = entry?.price_link || payload.coin_price_link || '';
-        const mexcMeta = extractMexcSymbolForAdmin(name, priceLink);
-
-        let price = null;
-        if (mexcMeta?.symbol) {
-          try {
-            const result = await fetchMexcTickerPrice(mexcMeta.symbol, {
-              market: mexcMeta.market || 'spot',
-            });
-            price = result?.price ?? null;
-          } catch (e) {
-            console.warn('[enrichPayloadWithCircPct] MEXC price fetch failed:', name, e?.message);
-          }
-        }
-
-        if (price != null && Number.isFinite(price) && price > 0) {
-          payload.event_usd_value = qty * price;
-          // Записуємо mcap_usd = customCoins × price лише один раз (перша монета з валідною ціною)
-          if (!mcapUsdWritten) {
-            payload.mcap_usd = customCoins * price;
-            mcapUsdWritten = true;
-          }
-        } else {
-          console.warn('[enrichPayloadWithCircPct] Price not available for', name, '— pct still calculated via coins');
-        }
-
-        // Fetch Dropstab slug separately for custom MCAP mode
-        const dropstabData = await fetchCircSupplyViaFn(name);
-        dropstabSlug = dropstabData?.slug ?? null;
-      } else {
-        // ✅ АВТО MCAP: стандартний розрахунок через Dropstab API
-        const dropstabData = await fetchCircSupplyViaFn(name);
-        circ = dropstabData?.circulatingSupply ?? null;
-        dropstabSlug = dropstabData?.slug ?? null;
-        if (circ != null && circ > 0) pct = (qty / circ) * 100;
-      }
-    }
-
-    enrichedCoins.push({
-      ...entry,
-      circ_supply: circ,
-      pct_circ: pct,
-      dropstab_slug: dropstabSlug || null,
+  // Both web admin and the Telegram bot share scripts/lib/approveEvent.js.
+  // Keep the contract: pending row deleted, approved row created, enrichment
+  // (mcap_usd / event_usd_value / coin_pct_circ) filled.
+  const approve = async (ev, table = 'events_pending') => {
+    const result = await approvePendingEvent({
+      supabase,
+      source: tableToSource(table),
+      id: ev.id,
+      row: ev,
     });
-
-    circList.push(circ != null ? String(circ) : '');
-    pctList.push(pct != null ? formatPct(pct) : '');
-  }
- 
-  // ⚠️ coins у events_approved = TEXT → тільки JSON.stringify
-  payload.coins = JSON.stringify(enrichedCoins);
- 
-  // текстові колонки
-  payload.coin_circ_supply = circList.join('\n');
-  payload.coin_pct_circ = pctList.join('\n');
- 
-  // Для першої монети — числова колонка circulating_supply
-  const firstCoin = enrichedCoins[0];
-  if (firstCoin?.circ_supply != null) {
-    payload.coin_circulating_supply = firstCoin.circ_supply;
-  }
- 
-  return payload;
-};
-
-  // ===== МОДЕРАЦІЯ ЗАЯВОК =====
-const approve = async (ev, table = 'events_pending') => {
-  const allowed = [
-    'title','description','start_at','end_at','timezone','type','tge_exchanges','link','nickname','coins',
-    'coin_name','coin_quantity','coin_price_link','show_mcap','mcap_usd','mcap_coins',
-  ];
-
-  const payload = Object.fromEntries(Object.entries(ev).filter(([k]) => allowed.includes(k)));
-
-  if (Array.isArray(ev.tge_exchanges)) {
-    payload.tge_exchanges = [...ev.tge_exchanges].sort(
-      (a, b) => toMinutes(a?.time) - toMinutes(b?.time)
-    );
-  }
-
-  // якщо coins прийшов як масив — нормально, enrich сам перетворить у string
-  if (Array.isArray(payload.coins)) {
-    payload.coins = payload.coins.map((coin) => ({ ...coin }));
-  }
-
-  if (payload.end_at === '' || payload.end_at == null) delete payload.end_at;
-
-  if ('nickname' in payload) {
-    const trimmed = (payload.nickname || '').trim();
-    if (trimmed) payload.nickname = trimmed;
-    else delete payload.nickname;
-  }
-
-  // ✅ NEW: рахунок % + правильний формат coins (TEXT)
-  await enrichPayloadWithCircPct(payload);
-
-  console.log('INSERT payload:', payload); // дебаг (можеш прибрати потім)
-
-  const { error } = await supabase.from('events_approved').insert(payload);
-  if (error) return alert('Помилка: ' + error.message);
-
-  await supabase.from(table).delete().eq('id', ev.id);
-  await refresh();
-};
+    if (!result.ok) return alert('Помилка: ' + result.reason);
+    await refresh();
+  };
 
   const reject = async (ev, table = 'events_pending') => {
     if (!confirm('Відхилити і видалити цю заявку?')) return;
-    const { error } = await supabase.from(table).delete().eq('id', ev.id);
-    if (error) return alert('Помилка: ' + error.message);
+    const result = await rejectPendingEvent({
+      supabase,
+      source: tableToSource(table),
+      id: ev.id,
+    });
+    if (!result.ok) return alert('Помилка: ' + result.reason);
     await refresh();
   };
 
@@ -738,10 +578,8 @@ const approve = async (ev, table = 'events_pending') => {
     table === 'events_approved' || table === 'events_pending' || table === 'auto_events_pending';
 
   if (canHaveCoins) {
-    await enrichPayloadWithCircPct(clean); // ✅ тут coins стане string
+    await sharedEnrichPayload(supabase, clean); // ✅ тут coins стане string
   }
-
-  console.log('UPDATE payload:', clean); // дебаг
 
   const { error } = await supabase.from(table).update(clean).eq('id', id);
   if (error) return alert('Помилка: ' + error.message);
@@ -827,10 +665,8 @@ const approveEdit = async (edit) => {
     'coin_price_link' in patch;
 
   if (touchesCoins) {
-    await enrichPayloadWithCircPct(patch); // ✅ coins стане string
+    await sharedEnrichPayload(supabase, patch); // ✅ coins стане string
   }
-
-  console.log('APPROVE EDIT patch:', patch); // дебаг
 
   const { error } = await supabase.from('events_approved').update(patch).eq('id', edit.event_id);
   if (error) return alert('Помилка: ' + error.message);
@@ -1061,7 +897,7 @@ const payload = {
               const coins = extractCoinEntries(ev);
               const normalizedLink = normalizeAutoLink(ev?.link);
               return (
-                <article key={ev.id} className="card p-4">
+                <article key={ev.id} id={`event-${ev.id}`} className="card p-4">
                   {editId === ev.id && editTable === 'auto_events_pending' ? (
                     <EditingCard table="auto_events_pending" ev={ev} />
                   ) : (
@@ -1127,7 +963,7 @@ const payload = {
           {pending.map((ev) => {
             const coins = extractCoinEntries(ev);
             return (
-              <article key={ev.id} className="card p-4">
+              <article key={ev.id} id={`event-${ev.id}`} className="card p-4">
                 {editId === ev.id && editTable === 'events_pending' ? (
                   <EditingCard table="events_pending" ev={ev} />
                 ) : (
@@ -1341,7 +1177,7 @@ const payload = {
           {approvedVisible.map((ev) => {
             const coins = extractCoinEntries(ev);
             return (
-              <article key={ev.id} className="card p-4">
+              <article key={ev.id} id={`event-${ev.id}`} className="card p-4">
                 {editId === ev.id && editTable === 'events_approved' ? (
                   <EditingCard table="events_approved" ev={ev} />
                 ) : (
