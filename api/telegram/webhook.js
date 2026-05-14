@@ -16,12 +16,18 @@ import { createClient } from "@supabase/supabase-js";
 import dayjs from "dayjs";
 import utc from "dayjs/plugin/utc.js";
 import timezone from "dayjs/plugin/timezone.js";
+import { Agent, setGlobalDispatcher } from "undici";
 
 import {
   approvePendingEvent,
   rejectPendingEvent,
 } from "../../scripts/lib/approveEvent.js";
 import { buildPost, esc } from "../../scripts/lib/eventFormatting.js";
+
+// Force IPv4 for all outgoing fetch() calls. Vercel fra1 advertises IPv6 but
+// api.telegram.org from that subnet often hangs on v6 → ETIMEDOUT after the
+// connect timeout. v4 is reliable.
+setGlobalDispatcher(new Agent({ connect: { family: 4 } }));
 
 dayjs.extend(utc);
 dayjs.extend(timezone);
@@ -207,13 +213,21 @@ async function handleCallback(update) {
     } catch (err) {
       console.error("[telegram-admin] editMessageText (stale) failed", err?.message);
     }
-    await answerCallback(cb.id, "Already gone — marked stale");
+    try {
+      await answerCallback(cb.id, "Already gone — marked stale");
+    } catch (err) {
+      console.error("[telegram-admin] answerCallback (stale) failed", err?.message);
+    }
     return;
   }
 
   if (!result.ok) {
     console.error("[telegram-admin] action failed", action, result.reason);
-    await answerCallback(cb.id, `Error: ${result.reason}`.slice(0, 200));
+    try {
+      await answerCallback(cb.id, `Error: ${result.reason}`.slice(0, 200));
+    } catch (err) {
+      console.error("[telegram-admin] answerCallback (error) failed", err?.message);
+    }
     return;
   }
 
@@ -234,6 +248,9 @@ async function handleCallback(update) {
   const header = formatResolvedHeader(action, username, now);
   const newText = `${header}\n\n${esc(previousText)}`;
 
+  // Each TG call wrapped independently — if the network drops we still want
+  // the DB write to land and the other side to attempt. answerCallback in
+  // particular has a ~15s window from TG before it 400s, so isolate it.
   try {
     await tgApi("editMessageText", {
       chat_id: chatId,
@@ -246,10 +263,14 @@ async function handleCallback(update) {
     console.error("[telegram-admin] editMessageText failed", err?.message);
   }
 
-  await answerCallback(
-    cb.id,
-    action === "approve" ? "Approved ✅" : "Rejected ❌",
-  );
+  try {
+    await answerCallback(
+      cb.id,
+      action === "approve" ? "Approved ✅" : "Rejected ❌",
+    );
+  } catch (err) {
+    console.error("[telegram-admin] answerCallback failed", err?.message);
+  }
 }
 
 // ---------------------------------------------------------------------------
