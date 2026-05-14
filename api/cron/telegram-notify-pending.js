@@ -7,11 +7,12 @@
 // telegram_admin_messages keeps re-runs idempotent.
 
 import { createClient } from "@supabase/supabase-js";
-import { Agent, setGlobalDispatcher } from "undici";
+import dns from "node:dns";
 import { buildPost } from "../../scripts/lib/eventFormatting.js";
 
-// Force IPv4 — Vercel fra1 → api.telegram.org over IPv6 frequently times out.
-setGlobalDispatcher(new Agent({ connect: { family: 4 } }));
+// Force IPv4 first for DNS — Vercel fra1 → api.telegram.org over IPv6
+// frequently times out.
+dns.setDefaultResultOrder("ipv4first");
 
 const TG_TIMEOUT_MS = 10_000;
 const SEND_DELAY_MS = 400;

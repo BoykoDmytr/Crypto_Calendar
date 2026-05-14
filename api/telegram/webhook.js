@@ -16,7 +16,7 @@ import { createClient } from "@supabase/supabase-js";
 import dayjs from "dayjs";
 import utc from "dayjs/plugin/utc.js";
 import timezone from "dayjs/plugin/timezone.js";
-import { Agent, setGlobalDispatcher } from "undici";
+import dns from "node:dns";
 
 import {
   approvePendingEvent,
@@ -24,10 +24,11 @@ import {
 } from "../../scripts/lib/approveEvent.js";
 import { buildPost, esc } from "../../scripts/lib/eventFormatting.js";
 
-// Force IPv4 for all outgoing fetch() calls. Vercel fra1 advertises IPv6 but
+// Force IPv4 first for DNS lookups. Vercel fra1 advertises IPv6 but
 // api.telegram.org from that subnet often hangs on v6 → ETIMEDOUT after the
-// connect timeout. v4 is reliable.
-setGlobalDispatcher(new Agent({ connect: { family: 4 } }));
+// connect timeout. Node's fetch (built on undici) calls dns.lookup under the
+// hood, which respects this setting. No external package needed.
+dns.setDefaultResultOrder("ipv4first");
 
 dayjs.extend(utc);
 dayjs.extend(timezone);
@@ -171,6 +172,19 @@ async function handleCallback(update) {
     return;
   }
 
+  // Ack the click immediately. Telegram only honours answerCallbackQuery
+  // within ~15s of the original callback, and the approve flow (Dropstab
+  // + MEXC) can take a while. Without this early ack the user just sees
+  // the spinner stop with no toast.
+  try {
+    await answerCallback(
+      cb.id,
+      action === "approve" ? "Approving…" : "Rejecting…",
+    );
+  } catch (err) {
+    console.error("[telegram-admin] early answerCallback failed", err?.message);
+  }
+
   // Execute action.
   let result;
   if (action === "approve") {
@@ -213,20 +227,21 @@ async function handleCallback(update) {
     } catch (err) {
       console.error("[telegram-admin] editMessageText (stale) failed", err?.message);
     }
-    try {
-      await answerCallback(cb.id, "Already gone — marked stale");
-    } catch (err) {
-      console.error("[telegram-admin] answerCallback (stale) failed", err?.message);
-    }
     return;
   }
 
   if (!result.ok) {
     console.error("[telegram-admin] action failed", action, result.reason);
     try {
-      await answerCallback(cb.id, `Error: ${result.reason}`.slice(0, 200));
+      await tgApi("editMessageText", {
+        chat_id: chatId,
+        message_id: messageId,
+        text: `⚠️ Failed: ${esc(result.reason).slice(0, 200)}`,
+        parse_mode: "HTML",
+        disable_web_page_preview: true,
+      });
     } catch (err) {
-      console.error("[telegram-admin] answerCallback (error) failed", err?.message);
+      console.error("[telegram-admin] editMessageText (error) failed", err?.message);
     }
     return;
   }
@@ -248,9 +263,9 @@ async function handleCallback(update) {
   const header = formatResolvedHeader(action, username, now);
   const newText = `${header}\n\n${esc(previousText)}`;
 
-  // Each TG call wrapped independently — if the network drops we still want
-  // the DB write to land and the other side to attempt. answerCallback in
-  // particular has a ~15s window from TG before it 400s, so isolate it.
+  // Final result lives in the edited message — answerCallback was already
+  // sent up-front, so we can't show a second toast (TG honours one per
+  // callback_query_id).
   try {
     await tgApi("editMessageText", {
       chat_id: chatId,
@@ -261,15 +276,6 @@ async function handleCallback(update) {
     });
   } catch (err) {
     console.error("[telegram-admin] editMessageText failed", err?.message);
-  }
-
-  try {
-    await answerCallback(
-      cb.id,
-      action === "approve" ? "Approved ✅" : "Rejected ❌",
-    );
-  } catch (err) {
-    console.error("[telegram-admin] answerCallback failed", err?.message);
   }
 }
 
