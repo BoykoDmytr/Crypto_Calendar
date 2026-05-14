@@ -519,6 +519,31 @@ async function handleCommand(update) {
 // Vercel handler
 // ---------------------------------------------------------------------------
 
+// Vercel's "Fluid Compute" runtime exposes req.body as a stream, not a
+// parsed object. Older Node-style runtime gives a parsed body when the
+// content-type is application/json. Handle both.
+async function readUpdate(req) {
+  if (req.body && typeof req.body === "object" && !req.body.pipe && !req.body.getReader) {
+    return req.body;
+  }
+  try {
+    if (typeof req.json === "function") return await req.json();
+  } catch {
+    // fall through
+  }
+  try {
+    const chunks = [];
+    for await (const chunk of req) {
+      chunks.push(typeof chunk === "string" ? Buffer.from(chunk) : chunk);
+    }
+    const raw = Buffer.concat(chunks).toString("utf8");
+    return raw ? JSON.parse(raw) : {};
+  } catch (err) {
+    console.error("[telegram-admin] body parse failed", err?.message);
+    return {};
+  }
+}
+
 export default async function handler(req, res) {
   if (req.method !== "POST") {
     return res.status(200).json({ ok: true });
@@ -532,17 +557,23 @@ export default async function handler(req, res) {
     return res.status(401).json({ ok: false, error: "bad_secret" });
   }
 
-  // Ack immediately so Telegram does not retry; process synchronously after
-  // (everything fits in well under the 60s function budget for the volumes
-  // we expect — at most a few events per minute).
+  // Read body BEFORE responding. On Fluid Compute the request stream may be
+  // closed once we send the response, so we'd lose access to it.
+  const update = await readUpdate(req);
+
+  // Ack so Telegram does not retry; do the work after the response.
   res.status(200).json({ ok: true });
 
   try {
-    const update = req.body || {};
     if (update.callback_query) {
       await handleCallback(update);
     } else if (update.message) {
       await handleCommand(update);
+    } else {
+      console.error(
+        "[telegram-admin] empty update — no callback_query/message in body",
+        Object.keys(update || {}),
+      );
     }
   } catch (err) {
     console.error("[telegram-admin] webhook fatal", err);
