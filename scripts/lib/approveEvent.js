@@ -145,27 +145,57 @@ const defaultMexcPriceFetcher = isServer
 // ---------------------------------------------------------------------------
 
 async function fetchCircSupplyViaFn(supabase, coinName) {
-  return getDropstabCircCached({
-    supabase,
-    symbol: coinName,
-    fetcher: async () => {
-      const { data, error } = await supabase.functions.invoke("dropstab-circ", {
-        body: { coinName },
-      });
-      if (error) return { circulatingSupply: null, slug: null };
-      const circulatingSupply =
-        typeof data?.circulatingSupply === "number"
-          ? data.circulatingSupply
-          : null;
-      const slug =
-        circulatingSupply != null &&
-        typeof data?.slug === "string" &&
-        data.slug
-          ? data.slug
-          : null;
-      return { circulatingSupply, slug };
-    },
-  });
+  // Wrap supabase.functions.invoke so a transient network failure
+  // (`TypeError: fetch failed` from Vercel fra1 ↔ Supabase) doesn't bubble
+  // up and kill the approve. We try twice and then return nulls — approve
+  // can complete without dropstab enrichment.
+  const safeInvoke = async () => {
+    let lastErr;
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+        const { data, error } = await supabase.functions.invoke("dropstab-circ", {
+          body: { coinName },
+        });
+        if (error) {
+          lastErr = error;
+        } else {
+          const cs =
+            typeof data?.circulatingSupply === "number"
+              ? data.circulatingSupply
+              : null;
+          const slug =
+            cs != null && typeof data?.slug === "string" && data.slug
+              ? data.slug
+              : null;
+          return { circulatingSupply: cs, slug };
+        }
+      } catch (err) {
+        lastErr = err;
+      }
+      await new Promise((r) => setTimeout(r, 500));
+    }
+    console.warn(
+      "[approveEvent] dropstab-circ failed for",
+      coinName,
+      lastErr?.message || lastErr,
+    );
+    return { circulatingSupply: null, slug: null };
+  };
+
+  try {
+    return await getDropstabCircCached({
+      supabase,
+      symbol: coinName,
+      fetcher: safeInvoke,
+    });
+  } catch (err) {
+    console.warn(
+      "[approveEvent] getDropstabCircCached threw for",
+      coinName,
+      err?.message || err,
+    );
+    return { circulatingSupply: null, slug: null };
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -320,45 +350,61 @@ export async function approvePendingEvent({
   row,
   mexcPriceFetcher,
 }) {
-  const table = sourceToTable(source);
-  if (!table) return { ok: false, reason: "invalid_source" };
-  if (!id) return { ok: false, reason: "invalid_id" };
+  try {
+    const table = sourceToTable(source);
+    if (!table) return { ok: false, reason: "invalid_source" };
+    if (!id) return { ok: false, reason: "invalid_id" };
 
-  let pending = row;
-  if (!pending) {
-    const { data, error } = await supabase
-      .from(table)
-      .select("*")
-      .eq("id", id)
-      .maybeSingle();
-    if (error) return { ok: false, reason: error.message };
-    if (!data) return { ok: false, reason: "not_found" };
-    pending = data;
-  }
+    let pending = row;
+    if (!pending) {
+      const { data, error } = await supabase
+        .from(table)
+        .select("*")
+        .eq("id", id)
+        .maybeSingle();
+      if (error) return { ok: false, reason: error.message };
+      if (!data) return { ok: false, reason: "not_found" };
+      pending = data;
+    }
 
-  const payload = buildApprovedPayload(pending);
-  await enrichPayloadWithCircPct(supabase, payload, { mexcPriceFetcher });
+    const payload = buildApprovedPayload(pending);
 
-  const { data: inserted, error: insErr } = await supabase
-    .from("events_approved")
-    .insert(payload)
-    .select("id")
-    .single();
+    // Enrichment is best-effort. A network blip to dropstab-circ or MEXC
+    // should not prevent the approve — admin can edit the row later to
+    // add mcap/pct data. Log and proceed.
+    try {
+      await enrichPayloadWithCircPct(supabase, payload, { mexcPriceFetcher });
+    } catch (enrichErr) {
+      console.warn(
+        "[approveEvent] enrichment failed (continuing without mcap data)",
+        enrichErr?.message || enrichErr,
+      );
+    }
 
-  if (insErr) return { ok: false, reason: insErr.message };
+    const { data: inserted, error: insErr } = await supabase
+      .from("events_approved")
+      .insert(payload)
+      .select("id")
+      .single();
 
-  const { error: delErr } = await supabase.from(table).delete().eq("id", id);
-  if (delErr) {
-    // Insert already succeeded; we leak a pending row. Surface but don't roll
-    // back — the duplicate is preferable to losing the approved event.
+    if (insErr) return { ok: false, reason: insErr.message };
+
+    const { error: delErr } = await supabase.from(table).delete().eq("id", id);
+    if (delErr) {
+      return {
+        ok: true,
+        approvedId: inserted?.id,
+        warning: `delete_pending_failed: ${delErr.message}`,
+      };
+    }
+
+    return { ok: true, approvedId: inserted?.id };
+  } catch (err) {
     return {
-      ok: true,
-      approvedId: inserted?.id,
-      warning: `delete_pending_failed: ${delErr.message}`,
+      ok: false,
+      reason: `unexpected: ${err?.message || String(err)}`,
     };
   }
-
-  return { ok: true, approvedId: inserted?.id };
 }
 
 /**
@@ -371,19 +417,26 @@ export async function approvePendingEvent({
  * @returns {Promise<{ok: true} | {ok: false, reason: string}>}
  */
 export async function rejectPendingEvent({ supabase, source, id }) {
-  const table = sourceToTable(source);
-  if (!table) return { ok: false, reason: "invalid_source" };
-  if (!id) return { ok: false, reason: "invalid_id" };
+  try {
+    const table = sourceToTable(source);
+    if (!table) return { ok: false, reason: "invalid_source" };
+    if (!id) return { ok: false, reason: "invalid_id" };
 
-  const { data: existing, error: selErr } = await supabase
-    .from(table)
-    .select("id")
-    .eq("id", id)
-    .maybeSingle();
-  if (selErr) return { ok: false, reason: selErr.message };
-  if (!existing) return { ok: false, reason: "not_found" };
+    const { data: existing, error: selErr } = await supabase
+      .from(table)
+      .select("id")
+      .eq("id", id)
+      .maybeSingle();
+    if (selErr) return { ok: false, reason: selErr.message };
+    if (!existing) return { ok: false, reason: "not_found" };
 
-  const { error } = await supabase.from(table).delete().eq("id", id);
-  if (error) return { ok: false, reason: error.message };
-  return { ok: true };
+    const { error } = await supabase.from(table).delete().eq("id", id);
+    if (error) return { ok: false, reason: error.message };
+    return { ok: true };
+  } catch (err) {
+    return {
+      ok: false,
+      reason: `unexpected: ${err?.message || String(err)}`,
+    };
+  }
 }
