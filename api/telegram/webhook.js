@@ -16,7 +16,7 @@ import { createClient } from "@supabase/supabase-js";
 import dayjs from "dayjs";
 import utc from "dayjs/plugin/utc.js";
 import timezone from "dayjs/plugin/timezone.js";
-import { Agent, setGlobalDispatcher } from "undici";
+import dns from "node:dns";
 
 import {
   approvePendingEvent,
@@ -24,10 +24,11 @@ import {
 } from "../../scripts/lib/approveEvent.js";
 import { buildPost, esc } from "../../scripts/lib/eventFormatting.js";
 
-// Force IPv4 for all outgoing fetch() calls. Vercel fra1 advertises IPv6 but
+// Force IPv4 first for DNS lookups. Vercel fra1 advertises IPv6 but
 // api.telegram.org from that subnet often hangs on v6 → ETIMEDOUT after the
-// connect timeout. v4 is reliable.
-setGlobalDispatcher(new Agent({ connect: { family: 4 } }));
+// connect timeout. Node's fetch (built on undici) calls dns.lookup under the
+// hood, which respects this setting. No external package needed.
+dns.setDefaultResultOrder("ipv4first");
 
 dayjs.extend(utc);
 dayjs.extend(timezone);
