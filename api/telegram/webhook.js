@@ -33,7 +33,8 @@ dns.setDefaultResultOrder("ipv4first");
 dayjs.extend(utc);
 dayjs.extend(timezone);
 
-const TG_TIMEOUT_MS = 10_000;
+const TG_TIMEOUT_MS = 20_000;
+const TG_RETRIES = 2;
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -60,7 +61,7 @@ function getSupabase() {
   return createClient(url, key, { auth: { persistSession: false } });
 }
 
-async function tgApi(method, body) {
+async function tgApiOnce(method, body) {
   const token = process.env.TELEGRAM_ADMIN_BOT_TOKEN;
   if (!token) throw new Error("Missing TELEGRAM_ADMIN_BOT_TOKEN");
 
@@ -86,6 +87,32 @@ async function tgApi(method, body) {
   } finally {
     clearTimeout(timer);
   }
+}
+
+// Wrap with retry. Vercel fra1 → api.telegram.org occasionally has transit
+// glitches that surface as `write ETIMEDOUT` mid-stream; a single retry with
+// short backoff usually catches the working path.
+async function tgApi(method, body) {
+  let lastErr;
+  for (let attempt = 0; attempt <= TG_RETRIES; attempt++) {
+    try {
+      return await tgApiOnce(method, body);
+    } catch (err) {
+      lastErr = err;
+      const code = err?.cause?.code || err?.code;
+      const transient =
+        err?.name === "AbortError" ||
+        code === "ETIMEDOUT" ||
+        code === "ECONNRESET" ||
+        code === "ENOTFOUND" ||
+        code === "UND_ERR_SOCKET" ||
+        (typeof err?.status === "number" && err.status >= 500);
+      // 4xx from Telegram (e.g. message too long, bad chat id) won't fix itself.
+      if (!transient || attempt === TG_RETRIES) throw err;
+      await new Promise((r) => setTimeout(r, 500 * (attempt + 1)));
+    }
+  }
+  throw lastErr;
 }
 
 const answerCallback = (id, text, opts = {}) =>

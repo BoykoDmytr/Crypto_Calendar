@@ -14,13 +14,14 @@ import { buildPost } from "../../scripts/lib/eventFormatting.js";
 // frequently times out.
 dns.setDefaultResultOrder("ipv4first");
 
-const TG_TIMEOUT_MS = 10_000;
+const TG_TIMEOUT_MS = 20_000;
+const TG_RETRIES = 2;
 const SEND_DELAY_MS = 400;
 const MAX_PER_RUN = 20;
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-async function tgApi(token, method, body) {
+async function tgApiOnce(token, method, body) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), TG_TIMEOUT_MS);
   try {
@@ -43,6 +44,28 @@ async function tgApi(token, method, body) {
   } finally {
     clearTimeout(timer);
   }
+}
+
+async function tgApi(token, method, body) {
+  let lastErr;
+  for (let attempt = 0; attempt <= TG_RETRIES; attempt++) {
+    try {
+      return await tgApiOnce(token, method, body);
+    } catch (err) {
+      lastErr = err;
+      const code = err?.cause?.code || err?.code;
+      const transient =
+        err?.name === "AbortError" ||
+        code === "ETIMEDOUT" ||
+        code === "ECONNRESET" ||
+        code === "ENOTFOUND" ||
+        code === "UND_ERR_SOCKET" ||
+        (typeof err?.status === "number" && err.status >= 500);
+      if (!transient || attempt === TG_RETRIES) throw err;
+      await sleep(500 * (attempt + 1));
+    }
+  }
+  throw lastErr;
 }
 
 function buildAdminKeyboard({ source, fullId, siteUrl }) {
