@@ -5,8 +5,12 @@ import dayjs from "dayjs";
 import utc from "dayjs/plugin/utc.js";
 import timezone from "dayjs/plugin/timezone.js";
 import { createClient } from "@supabase/supabase-js";
+import { Agent, setGlobalDispatcher } from "undici";
 
 import { buildPost } from "./lib/eventFormatting.js";
+
+// Force IPv4 — Vercel fra1 → api.telegram.org over IPv6 frequently times out.
+setGlobalDispatcher(new Agent({ connect: { family: 4 } }));
 
 dayjs.extend(utc);
 dayjs.extend(timezone);
