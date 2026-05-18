@@ -1297,20 +1297,24 @@ export async function run() {
           event_type_slug: ev.event_type_slug,
         };
 
-        // ✅ Всі автоматичні події (включно з launchpool) — одразу в events_approved
+        // ✅ Launchpool лишаємо в auto_events_pending, все інше — одразу в events_approved
+        const isLaunchpool = payload.event_type_slug === 'launchpool';
         const isBinanceAlpha = payload.event_type_slug === 'binance-alpha';
 
-        const targetTable = 'events_approved';
-        // ✅ AUTO MCAP ENRICH для всіх подій
-        await enrichApprovedWithMcap(
-          { SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY },
-          payload
-        );
-        // safety: якщо coins масив — серіалізуємо для events_approved
-        if (Array.isArray(payload.coins)) {
+        const targetTable = isLaunchpool ? 'auto_events_pending' : 'events_approved';
+        // ✅ AUTO MCAP ENRICH: тільки для events_approved (не для launchpool pending)
+        if (targetTable === 'events_approved') {
+          await enrichApprovedWithMcap(
+            { SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY },
+            payload
+          );
+        }
+        // safety: якщо coins масив — все одно зробити string для events_approved
+        if (targetTable === 'events_approved' && Array.isArray(payload.coins)) {
           payload.coins = JSON.stringify(payload.coins);
         }
         // Якщо є source/source_key, перевіряємо чи вже є затверджена подія.
+        // (для Launchpool ми НЕ робимо event_edits_pending — це все одно pending черга)
         if (payload.source && payload.source_key) {
           const baseSelect =
             'id, title, description, start_at, end_at, timezone, type, link, coins, coin_name, coin_quantity, coin_price_link, event_type_slug';
@@ -1319,7 +1323,7 @@ export async function run() {
           let approvedErr = null;
 
           // Для Binance Alpha робимо “вікно” по часу (щоб не плодити дублікати)
-          if (isBinanceAlpha && payload.coin_name) {
+          if (!isLaunchpool && isBinanceAlpha && payload.coin_name) {
             const window = buildStartAtWindow(payload.start_at, 5);
             if (window) {
               const { data, error } = await supabase
@@ -1340,8 +1344,8 @@ export async function run() {
             }
           }
 
-          // fallback exact match (якщо не binance-alpha)
-          if (!approvedErr && (!approved || approved.length === 0)) {
+          // fallback exact match (або якщо не binance-alpha)
+          if (!approvedErr && (!approved || approved.length === 0) && !isLaunchpool) {
             const { data, error } = await supabase
               .from('events_approved')
               .select(baseSelect)
@@ -1354,8 +1358,8 @@ export async function run() {
             approvedErr = error;
           }
 
-          // Якщо вже є схвалена подія — створюємо edits_pending
-          if (!approvedErr && approved && approved.length) {
+          // Якщо вже є схвалена подія — для НЕ-launchpool створюємо edits_pending, або пропускаємо
+          if (!isLaunchpool && !approvedErr && approved && approved.length) {
             const existing = approved[0];
 
             // визначаємо відмінності
@@ -1399,14 +1403,25 @@ export async function run() {
               skipped++;
             }
           } else {
-            // ✅ Немає existing approved — upsert в events_approved
-            const r =
-              isBinanceAlpha && payload.coin_name
-                ? await upsertApprovedByCoinWindow(supabase, payload, 3)
-                : await upsertApprovedBySourceKey(supabase, payload);
+            // ✅ Немає existing approved (або це launchpool) — робимо upsert у потрібну таблицю
+            if (isLaunchpool) {
+              const r =
+                isBinanceAlpha && payload.coin_name
+                  ? await upsertPendingByCoinWindow(supabase, payload, 3)
+                  : await upsertPendingBySourceKey(supabase, payload);
 
-            if (r.action === 'inserted') inserted++;
-            else skipped++;
+              if (r.action === 'inserted') inserted++;
+              else skipped++;
+            } else {
+              // upsert в events_approved
+              const r =
+                isBinanceAlpha && payload.coin_name
+                  ? await upsertApprovedByCoinWindow(supabase, payload, 3)
+                  : await upsertApprovedBySourceKey(supabase, payload);
+
+              if (r.action === 'inserted') inserted++;
+              else skipped++;
+            }
           }
         } else {
           // якщо немає source_key — дедуп по title+start+link у targetTable
