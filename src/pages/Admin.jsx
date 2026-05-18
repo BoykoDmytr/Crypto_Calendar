@@ -320,7 +320,22 @@ export default function Admin() {
   const location = useLocation();
   const focusId = new URLSearchParams(location.search).get('focus') || null;
   const [pass, setPass] = useState('');
-  const [ok, setOk] = useState(false);
+  const [ok, setOk] = useState(() => {
+    try {
+      return sessionStorage.getItem('admin_ok') === '1';
+    } catch {
+      return false;
+    }
+  });
+
+  useEffect(() => {
+    try {
+      if (ok) sessionStorage.setItem('admin_ok', '1');
+      else sessionStorage.removeItem('admin_ok');
+    } catch {
+      // ignore (private mode etc.)
+    }
+  }, [ok]);
 
   const [autoPending, setAutoPending] = useState([]);
   const [pending, setPending] = useState([]);
@@ -876,7 +891,14 @@ const payload = {
             value={pass}
             onChange={(e) => setPass(e.target.value)}
           />
-          <button className="btn w-full mt-3" onClick={() => setOk(pass === import.meta.env.VITE_ADMIN_PASS)}>
+          <button
+            className="btn w-full mt-3"
+            onClick={() => {
+              const next = pass === import.meta.env.VITE_ADMIN_PASS;
+              setOk(next);
+              if (next) setPass('');
+            }}
+          >
             Увійти
           </button>
           <p className="text-xs text-gray-500 mt-2">Пароль знає лише адміністратор.</p>
