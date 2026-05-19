@@ -33,7 +33,13 @@ dns.setDefaultResultOrder("ipv4first");
 dayjs.extend(utc);
 dayjs.extend(timezone);
 
-const TG_TIMEOUT_MS = 10_000;
+const TG_TIMEOUT_MS = 5_000;
+// Lease window for an in-flight approve. While status='awaiting' and
+// resolved_at is more recent than this, the row is considered "claimed" by
+// another invocation and a duplicate click is ignored. After this window
+// expires, the lease is reclaimable so a function that died mid-flight
+// doesn't permanently jam the row.
+const LEASE_WINDOW_MS = 60_000;
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -91,6 +97,25 @@ async function tgApi(method, body) {
 const answerCallback = (id, text, opts = {}) =>
   tgApi("answerCallbackQuery", { callback_query_id: id, text, ...opts });
 
+// Never let a slow / hung Telegram call propagate out of the handler.
+// api.telegram.org from Vercel fra1 occasionally takes >10s to respond,
+// and that has been the proximate cause of "webhook fatal DOMException" /
+// "query too old" loops in the logs.
+async function safeTg(method, body, label = method) {
+  try {
+    return await tgApi(method, body);
+  } catch (err) {
+    console.error(`[telegram-admin] ${label} failed`, err?.message);
+    return null;
+  }
+}
+const safeAnswerCallback = (id, text, opts = {}) =>
+  safeTg(
+    "answerCallbackQuery",
+    { callback_query_id: id, text, ...opts },
+    `answerCallback(${text})`,
+  );
+
 function formatResolvedHeader(action, username, ts) {
   const who = username ? `@${username}` : "admin";
   const time = dayjs(ts).utc().format("HH:mm");
@@ -110,11 +135,7 @@ async function handleCallback(update) {
   const username = cb?.from?.username || cb?.from?.first_name || "";
 
   if (!isAdmin(fromId)) {
-    try {
-      await answerCallback(cb.id, "Not authorized");
-    } catch (err) {
-      console.error("[telegram-admin] answerCallback failed", err?.message);
-    }
+    await safeAnswerCallback(cb.id, "Not authorized");
     return;
   }
 
@@ -122,7 +143,7 @@ async function handleCallback(update) {
   // Expected: "a:<source>:<short_id>" or "r:<source>:<short_id>"
   const m = /^([ar]):(pending|auto_pending):([a-f0-9]{4,12})$/i.exec(data);
   if (!m) {
-    await answerCallback(cb.id, "Unknown action");
+    await safeAnswerCallback(cb.id, "Unknown action");
     return;
   }
 
@@ -132,7 +153,7 @@ async function handleCallback(update) {
   const chatId = cb.message?.chat?.id;
   const messageId = cb.message?.message_id;
   if (!chatId || !messageId) {
-    await answerCallback(cb.id, "Missing chat/message ids");
+    await safeAnswerCallback(cb.id, "Missing chat/message ids");
     return;
   }
 
@@ -142,25 +163,25 @@ async function handleCallback(update) {
   // for the full pending UUID.
   const { data: trackRow, error: trackErr } = await supabase
     .from("telegram_admin_messages")
-    .select("id, pending_id, source, status, resolved_by_username")
+    .select("id, pending_id, source, status, resolved_at, resolved_by_username")
     .eq("tg_chat_id", chatId)
     .eq("tg_message_id", messageId)
     .maybeSingle();
 
   if (trackErr || !trackRow) {
-    await answerCallback(cb.id, "Tracking row missing");
+    await safeAnswerCallback(cb.id, "Tracking row missing");
     console.error("[telegram-admin] tracking lookup failed", trackErr?.message);
     return;
   }
 
   if (trackRow.source !== source) {
-    await answerCallback(cb.id, "Source mismatch");
+    await safeAnswerCallback(cb.id, "Source mismatch");
     return;
   }
 
   // Defense in depth: short_id must prefix the stored UUID.
   if (!String(trackRow.pending_id).toLowerCase().startsWith(shortId)) {
-    await answerCallback(cb.id, "ID mismatch");
+    await safeAnswerCallback(cb.id, "ID mismatch");
     return;
   }
 
@@ -168,58 +189,43 @@ async function handleCallback(update) {
     const by = trackRow.resolved_by_username
       ? `@${trackRow.resolved_by_username}`
       : "someone";
-    await answerCallback(cb.id, `Already ${trackRow.status} by ${by}`);
+    await safeAnswerCallback(cb.id, `Already ${trackRow.status} by ${by}`);
     return;
   }
 
-  // Atomic claim: flip status to its terminal value (approved/rejected) only
-  // if it is still 'awaiting'. The CHECK constraint on
-  // telegram_admin_messages.status restricts values to
-  // (awaiting|approved|rejected|stale), so we can't introduce a 'processing'
-  // tag without a migration — claim the terminal state instead and roll it
-  // back to 'awaiting' on failure so the user can retry.
-  //
-  // This is what stops a rapid double-tap from inserting the same event
-  // twice into events_approved (and the broadcast cron from posting it
-  // twice).
+  // Acquire a short lease on this row. The lease is encoded as resolved_at
+  // while status remains 'awaiting'. A rapid second tap finds the row
+  // still 'awaiting' but with a fresh resolved_at and skips. If a previous
+  // function died mid-flight, the lease expires after LEASE_WINDOW_MS and
+  // the next click can re-claim, so the row is never permanently jammed
+  // in a half-approved state.
   const now = new Date().toISOString();
-  const terminalStatus = action === "approve" ? "approved" : "rejected";
-  const { data: claimed, error: claimErr } = await supabase
+  const expiredCutoff = new Date(Date.now() - LEASE_WINDOW_MS).toISOString();
+  const { data: leased, error: leaseErr } = await supabase
     .from("telegram_admin_messages")
-    .update({
-      status: terminalStatus,
-      resolved_at: now,
-      resolved_by_tg_id: fromId,
-      resolved_by_username: username || null,
-    })
+    .update({ resolved_at: now })
     .eq("id", trackRow.id)
     .eq("status", "awaiting")
+    .or(`resolved_at.is.null,resolved_at.lt.${expiredCutoff}`)
     .select("id")
     .maybeSingle();
 
-  if (claimErr) {
-    await answerCallback(cb.id, "Lock error");
-    console.error("[telegram-admin] CAS claim failed", claimErr?.message);
+  if (leaseErr) {
+    await safeAnswerCallback(cb.id, "Lock error");
+    console.error("[telegram-admin] lease acquire failed", leaseErr?.message);
     return;
   }
-  if (!claimed) {
-    // Another concurrent click already claimed this row.
-    await answerCallback(cb.id, "Already being processed");
+  if (!leased) {
+    await safeAnswerCallback(cb.id, "Already being processed");
     return;
   }
 
-  // Ack the click immediately. Telegram only honours answerCallbackQuery
-  // within ~15s of the original callback, and the approve flow (Dropstab
-  // + MEXC) can take a while. Without this early ack the user just sees
-  // the spinner stop with no toast.
-  try {
-    await answerCallback(
-      cb.id,
-      action === "approve" ? "Approving…" : "Rejecting…",
-    );
-  } catch (err) {
-    console.error("[telegram-admin] early answerCallback failed", err?.message);
-  }
+  // Ack the click up-front so the spinner stops within Telegram's 15s
+  // budget, even if the heavy work below takes a while.
+  await safeAnswerCallback(
+    cb.id,
+    action === "approve" ? "Approving…" : "Rejecting…",
+  );
 
   // Execute action.
   let result;
@@ -243,75 +249,82 @@ async function handleCallback(update) {
 
   if (!result.ok && result.reason === "not_found") {
     // Pending row was already deleted (likely approved/rejected from the
-    // web admin). Mark stale (overriding the CAS claim), edit message, ack.
+    // web admin). Mark stale and stop holding the lease.
     await supabase
       .from("telegram_admin_messages")
-      .update({ status: "stale" })
+      .update({
+        status: "stale",
+        resolved_at: new Date().toISOString(),
+        resolved_by_tg_id: fromId,
+        resolved_by_username: username || null,
+      })
       .eq("id", trackRow.id);
 
-    try {
-      await tgApi("editMessageText", {
+    await safeTg(
+      "editMessageText",
+      {
         chat_id: chatId,
         message_id: messageId,
         text: "⚠️ Already deleted from DB — marked stale",
         parse_mode: "HTML",
         disable_web_page_preview: true,
-      });
-    } catch (err) {
-      console.error("[telegram-admin] editMessageText (stale) failed", err?.message);
-    }
+      },
+      "editMessageText (stale)",
+    );
     return;
   }
 
   if (!result.ok) {
     console.error("[telegram-admin] action failed", action, result.reason);
-    // Roll the CAS claim back so the user can retry the same message.
+    // Release the lease so the user can retry from the same message.
     await supabase
       .from("telegram_admin_messages")
-      .update({
-        status: "awaiting",
-        resolved_at: null,
-        resolved_by_tg_id: null,
-        resolved_by_username: null,
-      })
+      .update({ resolved_at: null })
       .eq("id", trackRow.id);
-    try {
-      await tgApi("editMessageText", {
+    await safeTg(
+      "editMessageText",
+      {
         chat_id: chatId,
         message_id: messageId,
         text: `⚠️ Failed: ${esc(result.reason).slice(0, 200)}`,
         parse_mode: "HTML",
         disable_web_page_preview: true,
-      });
-    } catch (err) {
-      console.error("[telegram-admin] editMessageText (error) failed", err?.message);
-    }
+      },
+      "editMessageText (error)",
+    );
     return;
   }
 
-  // Success — the CAS update already persisted the terminal status; nothing
-  // more to write to telegram_admin_messages.
+  // Success — commit the terminal status now that the work has actually
+  // landed in events_approved.
+  const resolvedAt = new Date().toISOString();
+  await supabase
+    .from("telegram_admin_messages")
+    .update({
+      status: action === "approve" ? "approved" : "rejected",
+      resolved_at: resolvedAt,
+      resolved_by_tg_id: fromId,
+      resolved_by_username: username || null,
+    })
+    .eq("id", trackRow.id);
 
   // Rebuild the message body from the previous text so we keep the preview.
   const previousText =
     cb.message?.text || cb.message?.caption || "(event resolved)";
-  const header = formatResolvedHeader(action, username, now);
+  const header = formatResolvedHeader(action, username, resolvedAt);
   const newText = `${header}\n\n${esc(previousText)}`;
 
-  // Final result lives in the edited message — answerCallback was already
-  // sent up-front, so we can't show a second toast (TG honours one per
-  // callback_query_id).
-  try {
-    await tgApi("editMessageText", {
+  await safeTg(
+    "editMessageText",
+    {
       chat_id: chatId,
       message_id: messageId,
       text: newText.slice(0, 4000),
       parse_mode: "HTML",
       disable_web_page_preview: true,
-    });
-  } catch (err) {
-    console.error("[telegram-admin] editMessageText failed", err?.message);
-  }
+    },
+    "editMessageText",
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -540,11 +553,14 @@ export default async function handler(req, res) {
     return res.status(401).json({ ok: false, error: "bad_secret" });
   }
 
-  // Ack immediately so Telegram does not retry; process synchronously after
-  // (everything fits in well under the 60s function budget for the volumes
-  // we expect — at most a few events per minute).
-  res.status(200).json({ ok: true });
-
+  // Process FIRST, respond AFTER. Sending the response early "fire and
+  // forget" looked like it should work, but in practice Vercel's runtime
+  // tends to freeze the function the moment res.end() runs — that's been
+  // killing the approve flow mid-step (CAS commits "approved", then the
+  // events_approved insert dies before it completes, leaving the tracking
+  // row in a half-resolved state). Telegram is happy with anything inside
+  // a 60s window, and Vercel's maxDuration is 30s, so doing the work
+  // synchronously is safer than racing the runtime.
   try {
     const update = req.body || {};
     if (update.callback_query) {
@@ -555,4 +571,6 @@ export default async function handler(req, res) {
   } catch (err) {
     console.error("[telegram-admin] webhook fatal", err);
   }
+
+  res.status(200).json({ ok: true });
 }

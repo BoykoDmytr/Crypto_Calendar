@@ -380,6 +380,16 @@ export async function approvePendingEvent({
   }
 
   const payload = buildApprovedPayload(pending);
+  // Idempotency token: tag the approved row with its pending UUID so a
+  // retry after a half-completed approve (function killed between insert
+  // and delete-pending, lease expired, user clicks again) hits the
+  // UNIQUE (source, source_key) index in events_approved instead of
+  // creating a duplicate that the broadcast cron would then post twice.
+  const idempotencySource =
+    source === "auto_pending" ? "auto_approve" : "manual_approve";
+  payload.source = idempotencySource;
+  payload.source_key = id;
+
   // Enrichment hits external APIs (MEXC, Dropstab). Treat it as best-effort:
   // a network blip from Vercel must not abort the approve, otherwise the
   // pending row gets stuck and the Telegram bot reports "TypeError: fetch
@@ -399,7 +409,29 @@ export async function approvePendingEvent({
     .select("id")
     .single();
 
-  if (insErr) return { ok: false, reason: insErr.message };
+  if (insErr) {
+    const isDuplicate =
+      String(insErr.code || "") === "23505" ||
+      /duplicate key|already exists/i.test(insErr.message || "");
+    if (isDuplicate) {
+      // A previous attempt already wrote the approved row. Locate it,
+      // clean up the lingering pending row, and report success — the
+      // event is in the right place.
+      const { data: existing } = await supabase
+        .from("events_approved")
+        .select("id")
+        .eq("source", idempotencySource)
+        .eq("source_key", id)
+        .maybeSingle();
+      await supabase.from(table).delete().eq("id", id);
+      return {
+        ok: true,
+        approvedId: existing?.id,
+        alreadyApproved: true,
+      };
+    }
+    return { ok: false, reason: insErr.message };
+  }
 
   const { error: delErr } = await supabase.from(table).delete().eq("id", id);
   if (delErr) {
