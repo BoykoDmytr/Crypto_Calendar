@@ -34,12 +34,6 @@ dayjs.extend(utc);
 dayjs.extend(timezone);
 
 const TG_TIMEOUT_MS = 5_000;
-// Lease window for an in-flight approve. While status='awaiting' and
-// resolved_at is more recent than this, the row is considered "claimed" by
-// another invocation and a duplicate click is ignored. After this window
-// expires, the lease is reclaimable so a function that died mid-flight
-// doesn't permanently jam the row.
-const LEASE_WINDOW_MS = 60_000;
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -193,32 +187,22 @@ async function handleCallback(update) {
     return;
   }
 
-  // Acquire a short lease on this row. The lease is encoded as resolved_at
-  // while status remains 'awaiting'. A rapid second tap finds the row
-  // still 'awaiting' but with a fresh resolved_at and skips. If a previous
-  // function died mid-flight, the lease expires after LEASE_WINDOW_MS and
-  // the next click can re-claim, so the row is never permanently jammed
-  // in a half-approved state.
-  const now = new Date().toISOString();
-  const expiredCutoff = new Date(Date.now() - LEASE_WINDOW_MS).toISOString();
-  const { data: leased, error: leaseErr } = await supabase
-    .from("telegram_admin_messages")
-    .update({ resolved_at: now })
-    .eq("id", trackRow.id)
-    .eq("status", "awaiting")
-    .or(`resolved_at.is.null,resolved_at.lt.${expiredCutoff}`)
-    .select("id")
-    .maybeSingle();
-
-  if (leaseErr) {
-    await safeAnswerCallback(cb.id, "Lock error");
-    console.error("[telegram-admin] lease acquire failed", leaseErr?.message);
-    return;
-  }
-  if (!leased) {
-    await safeAnswerCallback(cb.id, "Already being processed");
-    return;
-  }
+  // No DB-level lease. Two reasons:
+  //
+  // 1) PostgREST `.or(resolved_at.is.null,resolved_at.lt.<iso>)` chokes on
+  //    the dots inside an ISO timestamp (`.000Z`) — the parser reads them
+  //    as additional operator boundaries and the API returns an error,
+  //    which is what produced the "Lock error" toast in the bot.
+  // 2) approvePendingEvent is already idempotent via the UNIQUE
+  //    (source, source_key) index on events_approved. If two concurrent
+  //    clicks both make it past the status check, the loser's INSERT hits
+  //    23505, gets reported as alreadyApproved, and we end up with
+  //    exactly one approved row + one broadcast — the actual user-visible
+  //    invariant we care about.
+  //
+  // So: nothing to claim here. Costs a duplicate Dropstab/MEXC call in
+  // the rare double-tap case, which is cheap compared to the operational
+  // headache of a half-claimed row.
 
   // Ack the click up-front so the spinner stops within Telegram's 15s
   // budget, even if the heavy work below takes a while.
@@ -249,7 +233,7 @@ async function handleCallback(update) {
 
   if (!result.ok && result.reason === "not_found") {
     // Pending row was already deleted (likely approved/rejected from the
-    // web admin). Mark stale and stop holding the lease.
+    // web admin). Mark stale.
     await supabase
       .from("telegram_admin_messages")
       .update({
@@ -276,11 +260,9 @@ async function handleCallback(update) {
 
   if (!result.ok) {
     console.error("[telegram-admin] action failed", action, result.reason);
-    // Release the lease so the user can retry from the same message.
-    await supabase
-      .from("telegram_admin_messages")
-      .update({ resolved_at: null })
-      .eq("id", trackRow.id);
+    // status stayed 'awaiting' for the whole run, so there's nothing to
+    // roll back — the message keeps its Approve/Reject buttons and the
+    // admin can retry as soon as the underlying problem is fixed.
     await safeTg(
       "editMessageText",
       {
