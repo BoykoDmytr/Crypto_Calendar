@@ -172,6 +172,42 @@ async function handleCallback(update) {
     return;
   }
 
+  // Atomic claim: flip status to its terminal value (approved/rejected) only
+  // if it is still 'awaiting'. The CHECK constraint on
+  // telegram_admin_messages.status restricts values to
+  // (awaiting|approved|rejected|stale), so we can't introduce a 'processing'
+  // tag without a migration — claim the terminal state instead and roll it
+  // back to 'awaiting' on failure so the user can retry.
+  //
+  // This is what stops a rapid double-tap from inserting the same event
+  // twice into events_approved (and the broadcast cron from posting it
+  // twice).
+  const now = new Date().toISOString();
+  const terminalStatus = action === "approve" ? "approved" : "rejected";
+  const { data: claimed, error: claimErr } = await supabase
+    .from("telegram_admin_messages")
+    .update({
+      status: terminalStatus,
+      resolved_at: now,
+      resolved_by_tg_id: fromId,
+      resolved_by_username: username || null,
+    })
+    .eq("id", trackRow.id)
+    .eq("status", "awaiting")
+    .select("id")
+    .maybeSingle();
+
+  if (claimErr) {
+    await answerCallback(cb.id, "Lock error");
+    console.error("[telegram-admin] CAS claim failed", claimErr?.message);
+    return;
+  }
+  if (!claimed) {
+    // Another concurrent click already claimed this row.
+    await answerCallback(cb.id, "Already being processed");
+    return;
+  }
+
   // Ack the click immediately. Telegram only honours answerCallbackQuery
   // within ~15s of the original callback, and the approve flow (Dropstab
   // + MEXC) can take a while. Without this early ack the user just sees
@@ -187,33 +223,30 @@ async function handleCallback(update) {
 
   // Execute action.
   let result;
-  if (action === "approve") {
-    result = await approvePendingEvent({
-      supabase,
-      source,
-      id: trackRow.pending_id,
-    });
-  } else {
-    result = await rejectPendingEvent({
-      supabase,
-      source,
-      id: trackRow.pending_id,
-    });
+  try {
+    if (action === "approve") {
+      result = await approvePendingEvent({
+        supabase,
+        source,
+        id: trackRow.pending_id,
+      });
+    } else {
+      result = await rejectPendingEvent({
+        supabase,
+        source,
+        id: trackRow.pending_id,
+      });
+    }
+  } catch (err) {
+    result = { ok: false, reason: err?.message || String(err) };
   }
-
-  const now = new Date().toISOString();
 
   if (!result.ok && result.reason === "not_found") {
     // Pending row was already deleted (likely approved/rejected from the
-    // web admin). Mark stale, edit message, ack.
+    // web admin). Mark stale (overriding the CAS claim), edit message, ack.
     await supabase
       .from("telegram_admin_messages")
-      .update({
-        status: "stale",
-        resolved_at: now,
-        resolved_by_tg_id: fromId,
-        resolved_by_username: username || null,
-      })
+      .update({ status: "stale" })
       .eq("id", trackRow.id);
 
     try {
@@ -232,6 +265,16 @@ async function handleCallback(update) {
 
   if (!result.ok) {
     console.error("[telegram-admin] action failed", action, result.reason);
+    // Roll the CAS claim back so the user can retry the same message.
+    await supabase
+      .from("telegram_admin_messages")
+      .update({
+        status: "awaiting",
+        resolved_at: null,
+        resolved_by_tg_id: null,
+        resolved_by_username: null,
+      })
+      .eq("id", trackRow.id);
     try {
       await tgApi("editMessageText", {
         chat_id: chatId,
@@ -246,16 +289,8 @@ async function handleCallback(update) {
     return;
   }
 
-  // Success path — persist resolution and edit the message.
-  await supabase
-    .from("telegram_admin_messages")
-    .update({
-      status: action === "approve" ? "approved" : "rejected",
-      resolved_at: now,
-      resolved_by_tg_id: fromId,
-      resolved_by_username: username || null,
-    })
-    .eq("id", trackRow.id);
+  // Success — the CAS update already persisted the terminal status; nothing
+  // more to write to telegram_admin_messages.
 
   // Rebuild the message body from the previous text so we keep the preview.
   const previousText =

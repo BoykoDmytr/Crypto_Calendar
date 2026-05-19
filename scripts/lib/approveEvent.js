@@ -102,7 +102,9 @@ async function serverMexcPriceFetcher(symbol, { market = "spot" } = {}) {
       : `https://api.mexc.com/api/v3/ticker/price?symbol=${encodeURIComponent(sym)}`;
 
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 10_000);
+  // Keep this short: the approve flow is sequential over coins, and Vercel's
+  // function budget is 30s. A 10s hang per coin trivially overruns that.
+  const timer = setTimeout(() => controller.abort(), 5_000);
   try {
     const res = await fetch(url, {
       headers: { accept: "application/json" },
@@ -144,28 +146,62 @@ const defaultMexcPriceFetcher = isServer
 // Dropstab lookup
 // ---------------------------------------------------------------------------
 
+const DROPSTAB_TIMEOUT_MS = 8_000;
+
 async function fetchCircSupplyViaFn(supabase, coinName) {
-  return getDropstabCircCached({
-    supabase,
-    symbol: coinName,
-    fetcher: async () => {
-      const { data, error } = await supabase.functions.invoke("dropstab-circ", {
-        body: { coinName },
-      });
-      if (error) return { circulatingSupply: null, slug: null };
-      const circulatingSupply =
-        typeof data?.circulatingSupply === "number"
-          ? data.circulatingSupply
-          : null;
-      const slug =
-        circulatingSupply != null &&
-        typeof data?.slug === "string" &&
-        data.slug
-          ? data.slug
-          : null;
-      return { circulatingSupply, slug };
-    },
-  });
+  try {
+    return await getDropstabCircCached({
+      supabase,
+      symbol: coinName,
+      fetcher: async () => {
+        // Race the invoke against a hard timeout. Even if dropstab-circ
+        // returns fast on cache hits, the Edge Function can fall through to
+        // 300 pages of dropstab API calls on a miss — that blocks the
+        // approve flow for 30+ seconds and trips Vercel's maxDuration.
+        try {
+          const result = await Promise.race([
+            supabase.functions.invoke("dropstab-circ", { body: { coinName } }),
+            new Promise((_, reject) =>
+              setTimeout(
+                () => reject(new Error("dropstab-circ timeout")),
+                DROPSTAB_TIMEOUT_MS,
+              ),
+            ),
+          ]);
+          const { data, error } = result || {};
+          if (error) return { circulatingSupply: null, slug: null };
+          const circulatingSupply =
+            typeof data?.circulatingSupply === "number"
+              ? data.circulatingSupply
+              : null;
+          const slug =
+            circulatingSupply != null &&
+            typeof data?.slug === "string" &&
+            data.slug
+              ? data.slug
+              : null;
+          return { circulatingSupply, slug };
+        } catch (e) {
+          // supabase.functions.invoke can throw on undici network errors
+          // ("TypeError: fetch failed"). Never let that bubble up — the
+          // approve flow should proceed without enrichment.
+          console.warn(
+            "[approveEvent] dropstab-circ fetch failed:",
+            coinName,
+            e?.message,
+          );
+          return { circulatingSupply: null, slug: null };
+        }
+      },
+    });
+  } catch (e) {
+    console.warn(
+      "[approveEvent] dropstab cache wrapper failed:",
+      coinName,
+      e?.message,
+    );
+    return { circulatingSupply: null, slug: null };
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -204,22 +240,30 @@ export async function enrichPayloadWithCircPct(supabase, payload, opts = {}) {
         const priceLink = entry?.price_link || payload.coin_price_link || "";
         const mexcMeta = extractMexcSymbol(name, priceLink);
 
-        let price = null;
-        if (mexcMeta?.symbol) {
-          try {
-            const result = await mexcPriceFetcher(mexcMeta.symbol, {
+        // Fire MEXC and Dropstab in parallel — they're independent and
+        // keeping them serial doubles the worst-case latency per coin,
+        // which adds up fast in events with multiple coins and blows past
+        // Vercel's 30s budget.
+        const mexcPromise = mexcMeta?.symbol
+          ? mexcPriceFetcher(mexcMeta.symbol, {
               market: mexcMeta.market || "spot",
-            });
-            price = result?.price ?? null;
-          } catch (e) {
-            console.warn(
-              "[approveEvent] MEXC price fetch failed:",
-              name,
-              e?.message,
-            );
-          }
-        }
+            }).catch((e) => {
+              console.warn(
+                "[approveEvent] MEXC price fetch failed:",
+                name,
+                e?.message,
+              );
+              return null;
+            })
+          : Promise.resolve(null);
+        const dropstabPromise = fetchCircSupplyViaFn(supabase, name);
 
+        const [mexcResult, dropstabData] = await Promise.all([
+          mexcPromise,
+          dropstabPromise,
+        ]);
+
+        const price = mexcResult?.price ?? null;
         if (price != null && Number.isFinite(price) && price > 0) {
           payload.event_usd_value = qty * price;
           if (!mcapUsdWritten) {
@@ -228,7 +272,6 @@ export async function enrichPayloadWithCircPct(supabase, payload, opts = {}) {
           }
         }
 
-        const dropstabData = await fetchCircSupplyViaFn(supabase, name);
         dropstabSlug = dropstabData?.slug ?? null;
       } else {
         const dropstabData = await fetchCircSupplyViaFn(supabase, name);
@@ -337,7 +380,18 @@ export async function approvePendingEvent({
   }
 
   const payload = buildApprovedPayload(pending);
-  await enrichPayloadWithCircPct(supabase, payload, { mexcPriceFetcher });
+  // Enrichment hits external APIs (MEXC, Dropstab). Treat it as best-effort:
+  // a network blip from Vercel must not abort the approve, otherwise the
+  // pending row gets stuck and the Telegram bot reports "TypeError: fetch
+  // failed".
+  try {
+    await enrichPayloadWithCircPct(supabase, payload, { mexcPriceFetcher });
+  } catch (e) {
+    console.warn(
+      "[approveEvent] enrichment failed, proceeding with raw payload:",
+      e?.message,
+    );
+  }
 
   const { data: inserted, error: insErr } = await supabase
     .from("events_approved")
