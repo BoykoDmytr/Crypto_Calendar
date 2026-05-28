@@ -205,10 +205,10 @@ const CHANNELS = {
     trigger: 'New Binance Alpha Airdrop',
     parser: parseBinanceAlpha,
   },
-  okxboostx: {
-    username: 'okxboostx',
-    name: 'OKX Boost',
-    trigger: 'New OKX Boost X Launch Event',
+  okx_alert: {
+    username: 'okx_alert',
+    name: 'OKX Alert',
+    trigger: 'Новий X Launch',
     parser: parseOkxAlpha,
   },
   tokensplsh: {
@@ -228,7 +228,7 @@ const CHANNELS = {
 // Fallback list якщо захочеш додати загальні парсери пізніше
 const ALL_PARSERS = [
   { name: 'Binance Alpha', trigger: 'New Binance Alpha Airdrop', fn: parseBinanceAlpha },
-  { name: 'OKX Alpha', trigger: 'New OKX Boost X Launch Event', fn: parseOkxAlpha },
+  { name: 'OKX Alpha', trigger: 'Новий X Launch', fn: parseOkxAlpha },
   { name: 'Token Splash', trigger: 'New token splash:', fn: parseTsBybit },
   { name: 'Launchpool', trigger: 'Stake', fn: parseLaunchpoolAlerts },
   { name: 'Launchpool (New)', trigger: 'New Launchpool', fn: parseLaunchpoolNew },
@@ -380,149 +380,92 @@ function matchesTrigger(rawText, trigger) {
  * =========================
  */
 
-// OKX date line helper
 
 
-function parseClaimDateKyiv(lines) {
-  const claimLine =
-    lines.find((line) => /claim/i.test(line) && /\d{2}\.\d{2}\.\d{4}/.test(line)) ||
-    lines.find((line) => /X\s*Launch\s*Ends?/i.test(line) && /\d{2}\.\d{2}\.\d{4}/.test(line)) ||
-    null;
 
-  if (!claimLine) return null;
+// OKX — парсимо діапазон "Клейм" (час у UTC -> переводимо в Київ)
+function parseOkxClaimRangeKyiv(line) {
+  if (!line) return { startAt: null, endAt: null };
 
-  const m = claimLine.match(/(\d{2})\.(\d{2})\.(\d{4})\D+(\d{2}):(\d{2})/);
-  if (!m) return null;
+  // прибираємо лейбл "Клейм:" та маркер UTC
+  const cleaned = line
+    .replace(/^Клейм\s*:\s*/i, '')
+    .replace(/UTC/gi, '')
+    .trim();
 
-  const dd = Number(m[1]);
-  const mm = Number(m[2]);
-  const yyyy = Number(m[3]);
-  const HH = Number(m[4]);
-  const Min = Number(m[5]);
+  // формат дат: DD.MM HH:MM (рік відсутній) або DD.MM.YYYY HH:MM
+  const matches = [
+    ...cleaned.matchAll(/(\d{1,2})\.(\d{1,2})(?:\.(\d{4}))?\s+(\d{1,2}):(\d{2})/g),
+  ];
+  if (!matches.length) return { startAt: null, endAt: null };
 
-  const isoLike = `${yyyy}-${pad(mm)}-${pad(dd)}T${pad(HH)}:${pad(Min)}:00`;
+  const toIso = (m) => {
+    const day = Number(m[1]);
+    const month = Number(m[2]);
+    const year = m[3] ? Number(m[3]) : guessYear(month, day);
+    const time = `${pad(Number(m[4]))}:${m[5]}`;
+    return toIsoFromUtcToKyivParts({ year, month, day, time });
+  };
 
-  const dt = new Date(`${isoLike}Z`);
-  const fmt = new Intl.DateTimeFormat('en-US', {
-    timeZone: KYIV_TZ,
-    timeZoneName: 'shortOffset',
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-    second: '2-digit',
-    hour12: false,
-  });
-
-  const parts = fmt.formatToParts(dt);
-  const tzPart = parts.find((p) => p.type === 'timeZoneName')?.value;
-  if (!tzPart) return null;
-
-  const mo = tzPart.match(/GMT([+-]\d{1,2})/);
-  if (!mo) return null;
-
-  const offH = Number(mo[1]);
-  const offset = `${offH >= 0 ? '+' : '-'}${pad(Math.abs(offH))}:00`;
-
-  return `${isoLike}${offset}`;
+  const startAt = toIso(matches[0]);
+  const endAt = matches[1] ? toIso(matches[1]) : null;
+  return { startAt, endAt };
 }
 
-
-
-
-// OKX
+// OKX — канал t.me/okx_alert, тільки івенти "🆕 Новий X Launch"
 export function parseOkxAlpha(message, channel) {
+  void channel;
   const rawText = message.text || '';
 
-  const hasLegacyTrigger = matchesTrigger(rawText, channel?.trigger);
-  const hasNewOkxPattern = /\bX\s+Launch\b/i.test(normalizeTriggerText(rawText));
-
-  if (!hasLegacyTrigger && !hasNewOkxPattern) return [];
-
   const raw = decodeEntities(rawText);
+  // прибираємо всі емодзі та зайві пробіли з кожного рядка
   const lines = raw
     .split('\n')
     .map((l) => normalizeSpaces(stripEmoji(l)))
-    .filter(Boolean)
-    .filter((line) => !/^Go to Launch\b/i.test(line));
+    .filter(Boolean);
 
   if (!lines.length) return [];
 
-  const stripListPrefix = (line) => line.replace(/^[•·\-*\s]+/, '').trim();
-  const normalizedLines = lines.map(stripListPrefix);
+  // беремо лише пости, що починаються на "🆕 Новий X Launch"
+  if (!/^Новий\s+X\s+Launch\b/i.test(lines[0])) return [];
 
-  const launchLine =
-    normalizedLines.find((l) => /X\s+Launch/i.test(l) && !/Event/i.test(l)) || null;
+  // дістаємо значення рядка за лейблом (напр. "Назва:")
+  const findValue = (re) => {
+    const line = lines.find((l) => re.test(l));
+    if (!line) return null;
+    return normalizeSpaces(line.replace(re, '').trim());
+  };
 
-  const cleanVision = launchLine
-  ? normalizeSpaces(
-      stripEmoji(
-        launchLine.replace(/\bX\s+Launch\b/i, '')
-      )
-        .replace(/[⚡✨🔥🚀🎉⭐️🌟💥]+/gu, '')
-        .trim()
-    )
-  : null;
+  // 🏷 Назва -> TITLE
+  const title = findValue(/^Назва\s*:\s*/i);
+  if (!title) return [];
 
-const title = cleanVision
-  ? `${cleanVision} OKX Boost X Launch Event!`
-  : 'OKX Boost X Launch Event!';
-
-  const rewardsLine =
-    normalizedLines.find((l) => /^Total\s+Reward[s]?\s*:/i.test(l)) || null;
-  const poolLine =
-    normalizedLines.find((l) => /^Pool\s*:/i.test(l)) || null;
-  const rewardLine =
-    normalizedLines.find((l) => /^Reward\s*:/i.test(l)) || null;
-
-  let poolText = null;
+  // 🎁 Нагорода -> coin_quantity / coin_name
+  const rewardText = findValue(/^Нагорода\s*:\s*/i);
   let quantity = null;
   let token = null;
-
-  if (rewardsLine || poolLine || rewardLine) {
-    const sourceLine = poolLine || rewardsLine || rewardLine;
-    poolText = normalizeSpaces(
-      sourceLine.replace(/^(Total\s+Reward[s]?|Pool|Reward)\s*:\s*/i, '')
-    );
-
-    const parsed = parseQuantityAndToken(poolText);
+  if (rewardText) {
+    const parsed = parseQuantityAndToken(rewardText);
     quantity = parsed.quantity ?? null;
     token = parsed.token ?? null;
   }
 
-  const claimIso = parseClaimDateKyiv(normalizedLines);
-  if (!claimIso) return [];
+  // 💰 Клейм -> дата початку і кінця (переформатовуємо UTC -> Київ)
+  const claimLine = lines.find((l) => /^Клейм\s*:/i.test(l)) || null;
+  const { startAt, endAt } = parseOkxClaimRangeKyiv(claimLine);
+  if (!startAt) return [];
 
-  const requirements = normalizedLines
-    .filter((line) => /Min\.?\s*Boost\s*(Balance|Volume)\s*:/i.test(line))
-    .map((line) => normalizeSpaces(line.replace(/^[•\-\s]+/, '').trim()));
-
-  const claimLine =
-    normalizedLines.find((line) => /Claim Date\s*:/i.test(line)) || null;
-
-  const claimDescription = claimLine
-    ? normalizeSpaces(claimLine.replace(/^Claim Date\s*:\s*/i, '').trim())
-    : null;
-
-  const descriptionParts = [];
-  if (poolText) descriptionParts.push(`Pool: ${poolText}`);
-  if (requirements.length) {
-    descriptionParts.push(`Requirements: ${requirements.join(' • ')}`);
-  }
-  if (claimDescription) descriptionParts.push(`Claim Date: ${claimDescription}`);
-
-  const description = ensureDescription(descriptionParts.join('\n'));
+  // 👥 Учасників та 📊 Статус та 📅 Джоін — пропускаємо
 
   const source = 'okx_alpha';
-  const sourceKey = `OKX_ALPHA|${title}|${dayjs(claimIso).tz(KYIV_TZ).format('YYYY-MM-DD HH:mm')}`;
+  const sourceKey = `OKX_ALPHA|${title}|${dayjs(startAt).tz(KYIV_TZ).format('YYYY-MM-DD HH:mm')}`;
 
   return [
     {
       title,
-      description,
-      startAt: claimIso,
-      endAt: null,
+      description: null,
+      startAt,
+      endAt,
       coins: buildCoins(token, quantity),
       coin_name: token || null,
       coin_quantity: quantity,
