@@ -450,9 +450,9 @@ export function parseOkxAlpha(message, channel) {
     token = parsed.token ?? null;
   }
 
-  // 💰 Клейм -> дата початку і кінця (переформатовуємо UTC -> Київ)
+  // 💰 Клейм -> тільки дата початку (переформатовуємо UTC -> Київ)
   const claimLine = lines.find((l) => /^Клейм\s*:/i.test(l)) || null;
-  const { startAt, endAt } = parseOkxClaimRangeKyiv(claimLine);
+  const { startAt } = parseOkxClaimRangeKyiv(claimLine);
   if (!startAt) return [];
 
   // 👥 Учасників та 📊 Статус та 📅 Джоін — пропускаємо
@@ -465,7 +465,7 @@ export function parseOkxAlpha(message, channel) {
       title,
       description: null,
       startAt,
-      endAt,
+      endAt: null,
       coins: buildCoins(token, quantity),
       coin_name: token || null,
       coin_quantity: quantity,
