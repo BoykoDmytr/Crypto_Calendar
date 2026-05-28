@@ -9,6 +9,8 @@ import { createClient } from "@supabase/supabase-js";
 dayjs.extend(utc);
 dayjs.extend(timezone);
 
+const KYIV_TZ = "Europe/Kyiv";
+
 // 1) Composite list -> щоб знайти catalogId по назві
 const DEFAULT_COMPOSITE_URL =
   "https://www.binance.com/bapi/composite/v1/public/cms/article/list/query?type=1&pageNo=1&pageSize=50";
@@ -152,6 +154,182 @@ function parseAnnouncementPage(html) {
 }
 
 /**
+ * =========================
+ * Binance Tournaments: розбір кількох турнірних періодів зі сторінки анонсу
+ * =========================
+ */
+
+// "588,000" / "2,450" / "240" -> 588000 / 2450 / 240
+function parseNumber(str) {
+  if (str == null) return null;
+  const normalized = String(str).replace(/[\s,]/g, "");
+  const num = Number(normalized);
+  return Number.isFinite(num) ? num : null;
+}
+
+// MEXC лінк на ціну (формат, який автоматично розпізнає форма сайту)
+function buildMexcPriceLink(ticker) {
+  if (!ticker) return null;
+  const symbol = String(ticker).trim().toUpperCase();
+  if (!symbol) return null;
+  return `https://www.mexc.com/uk-UA/futures/${symbol}_USDT?lang=uk-UA&_from=search`;
+}
+
+/**
+ * Дістаємо тикер монети із заголовка анонсу.
+ * Приклад: "...Trade Zest Protocol (ZEST) and Share $200K..." -> ZEST
+ */
+function extractTickerFromTitle(title) {
+  if (!title) return null;
+  const matches = [...title.matchAll(/\(([A-Z0-9]{2,15})\)/g)];
+  // беремо останній валідний тикер у дужках (ігноруючи дати на кшталт (2026-05-26))
+  for (let i = matches.length - 1; i >= 0; i -= 1) {
+    const candidate = matches[i][1];
+    if (/^[A-Z][A-Z0-9]*$/.test(candidate)) return candidate;
+  }
+  return null;
+}
+
+/**
+ * Парсимо нагороди турніру:
+ * "The top 2,450 users ... will share 588,000 ZEST tokens equally (= 240 ZEST per user)."
+ */
+export function parseTournamentRewards(text) {
+  const topMatch = text.match(/top\s+([\d,]+)\s+users/i);
+  const poolMatch = text.match(
+    /share\s+([\d,]+)\s+([A-Z0-9]{2,15})\s+tokens?/i
+  );
+  const perUserMatch = text.match(
+    /\(\s*=\s*([\d,.]+)\s+([A-Z0-9]{2,15})\s+per\s+user\s*\)/i
+  );
+
+  const topRaw = topMatch ? topMatch[1] : null;
+  const poolRaw = poolMatch ? poolMatch[1] : null;
+  const perUserRaw = perUserMatch ? perUserMatch[1] : null;
+
+  const ticker =
+    (perUserMatch && perUserMatch[2]) ||
+    (poolMatch && poolMatch[2]) ||
+    null;
+
+  return {
+    topRaw, // "2,450" (для опису)
+    poolRaw, // "588,000" (для опису)
+    perUserRaw, // "240"
+    poolNum: parseNumber(poolRaw),
+    perUserNum: parseNumber(perUserRaw),
+    ticker: ticker ? ticker.toUpperCase() : null,
+  };
+}
+
+/**
+ * Парсимо кілька турнірних періодів (1st / 2nd / ...).
+ * Беремо тільки рядки виду:
+ * "1st ZEST Trading Competition Promotion Period: 2026-05-26 13:00 (UTC) to 2026-06-02 13:00 (UTC)"
+ * Рядки таблиці множників (без "(UTC)" біля кожної дати) НЕ матчаться.
+ */
+export function parseTournamentPeriods(text) {
+  const re =
+    /(\d+(?:st|nd|rd|th))\s+([A-Z0-9]{2,15})\s+Trading\s+Competition\s+Promotion\s+Period\s*:?\s*(\d{4}-\d{2}-\d{2})\s+(\d{2}:\d{2})\s*\(UTC\)\s*(?:to|-|–|—)\s*(\d{4}-\d{2}-\d{2})\s+(\d{2}:\d{2})\s*\(UTC\)/gi;
+
+  const periods = [];
+  const seen = new Set();
+  let m;
+  while ((m = re.exec(text)) !== null) {
+    const [, ordinal, ticker, sDate, sTime, eDate, eTime] = m;
+    const key = `${ordinal}|${ticker}|${eDate} ${eTime}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+
+    const startUtc = dayjs.utc(`${sDate} ${sTime}`, "YYYY-MM-DD HH:mm");
+    const endUtc = dayjs.utc(`${eDate} ${eTime}`, "YYYY-MM-DD HH:mm");
+    if (!startUtc.isValid() || !endUtc.isValid()) continue;
+
+    periods.push({
+      ordinal, // "1st"
+      ticker: ticker.toUpperCase(), // "ZEST"
+      startUtc,
+      endUtc,
+    });
+  }
+  return periods;
+}
+
+/**
+ * На основі анонсу будуємо 1+ подій (по одній на кожен турнірний період).
+ * Кожна подія готова для вставки в auto_events_pending.
+ */
+export function buildTournamentEvents({ html, title, officialLink }) {
+  const text = stripTags(html);
+  const periods = parseTournamentPeriods(text);
+  if (!periods.length) return [];
+
+  const rewards = parseTournamentRewards(text);
+  const titleTicker = extractTickerFromTitle(title);
+
+  return periods.map((period) => {
+    const ticker = rewards.ticker || period.ticker || titleTicker;
+
+    // Початок = очікувана роздача = дата завершення турніру + 2 дні, час 06:00 (Київ)
+    const endKyiv = period.endUtc.tz(KYIV_TZ);
+    const startKyiv = endKyiv
+      .add(2, "day")
+      .hour(6)
+      .minute(0)
+      .second(0)
+      .millisecond(0);
+
+    const eventTitle = `Нагорода за турнір ${period.ordinal} ${ticker}`;
+
+    // Опис за шаблоном з документа
+    const topPart = rewards.topRaw ? `Топ ${rewards.topRaw} ` : "";
+    const poolPart = rewards.poolRaw ? `${rewards.poolRaw} ${ticker}` : "";
+    const perUserPart = rewards.perUserRaw
+      ? ` (= ${rewards.perUserRaw} ${ticker} на користувача)`
+      : "";
+    const rewardLine =
+      topPart || poolPart
+        ? `${topPart}розділять порівну ${poolPart}${perUserPart}.`
+        : "";
+
+    const description = [
+      rewardLine,
+      `Дата закінчення турніру ${endKyiv.format(
+        "DD.MM.YYYY HH:mm"
+      )}. UPD: Нагороди останнім часом роздають через день, о 6-7 за Києвом. Стежу у боті Binance_Alpha_Competition`,
+    ]
+      .filter(Boolean)
+      .join("\n")
+      .trim();
+
+    // Дві монети: №1 — нагорода на користувача, №2 — фонд у тисячах
+    const coins = [];
+    if (rewards.perUserNum != null) {
+      coins.push({ name: ticker, quantity: rewards.perUserNum });
+    }
+    if (rewards.poolNum != null) {
+      coins.push({ name: ticker, quantity: rewards.poolNum / 1000 });
+    }
+
+    return {
+      title: eventTitle,
+      description: description || null,
+      start_at: startKyiv.toISOString(),
+      end_at: null,
+      timezone: "Kyiv",
+      type: "Binance Tournaments",
+      event_type_slug: "binance_tournament",
+      link: officialLink,
+      coin_name: ticker || null,
+      coin_quantity: rewards.perUserNum,
+      coin_price_link: buildMexcPriceLink(ticker),
+      tge_exchanges: [],
+      coins: coins.length ? JSON.stringify(coins) : null,
+    };
+  });
+}
+
+/**
  * Дедуп: title + start_at + link
  */
 async function insertIfMissing(supabase, payload) {
@@ -274,7 +452,25 @@ export default async function handler(req, res) {
       }
 
       const parsed = parseAnnouncementPage(pageHtml);
+      const officialLink = parsed.officialLink || officialUrl;
 
+      // ✅ Основний шлях: 1 анонс -> кілька подій (по турнірному періоду 1st/2nd/...)
+      const tournamentEvents = buildTournamentEvents({
+        html: pageHtml,
+        title: parsed.title,
+        officialLink,
+      });
+
+      if (tournamentEvents.length) {
+        for (const payload of tournamentEvents) {
+          const ok = await insertIfMissing(supabase, payload);
+          if (ok) inserted += 1;
+          else skipped += 1;
+        }
+        continue;
+      }
+
+      // Fallback: якщо періоди не розпізнались — стара логіка (1 подія, поля вручну)
       if (!parsed.title) {
         skipped += 1;
         continue;
@@ -295,7 +491,7 @@ export default async function handler(req, res) {
         timezone: "Kyiv",
         type: "Binance Tournaments",
         event_type_slug: "binance_tournament",
-        link: parsed.officialLink || officialUrl,
+        link: officialLink,
 
         // вручну заповниш
         coin_name: null,
