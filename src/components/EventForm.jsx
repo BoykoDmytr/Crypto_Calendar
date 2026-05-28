@@ -458,15 +458,17 @@ export default function EventForm({ onSubmit, loading, initial = {} }) {
       const time = (form.start_time || '').trim();
       const local = time ? `${date}T${time}` : `${date}T00:00`;
       payload.start_at = toISOorNull(local, form.timezone);
+      // Передаємо end_at завжди (null, якщо поле очищене) — щоб правка могла
+      // прибрати раніше задану дату кінця, а не просто «не змінювати» її.
       payload.end_at   = toISOorNull(form.end_at, form.timezone);
-      if (!payload.end_at) delete payload.end_at;
       delete payload.start_date;
       delete payload.start_time;
       delete payload.tge_exchanges;
     } else {
       payload.start_at = toISOorNull(form.start_at, form.timezone);
+      // Передаємо end_at завжди (null, якщо поле очищене) — щоб правка могла
+      // прибрати раніше задану дату кінця, а не просто «не змінювати» її.
       payload.end_at   = toISOorNull(form.end_at,   form.timezone);
-      if (!payload.end_at) delete payload.end_at;
       delete payload.start_date;
       delete payload.start_time;
       delete payload.tge_exchanges;
