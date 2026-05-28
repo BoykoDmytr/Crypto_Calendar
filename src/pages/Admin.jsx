@@ -667,7 +667,9 @@ const approveEdit = async (edit) => {
     }
   }
 
-  if (patch.end_at === '' || patch.end_at == null) delete patch.end_at;
+  // Порожній рядок трактуємо як очищення (null), щоб правка могла прибрати
+  // дату кінця. Явний null лишаємо — він обнулить end_at у події.
+  if (patch.end_at === '') patch.end_at = null;
 
   const touchesCoins =
     'coins' in patch ||
