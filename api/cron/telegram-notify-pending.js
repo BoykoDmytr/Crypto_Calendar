@@ -8,11 +8,13 @@
 
 import { createClient } from "@supabase/supabase-js";
 import dns from "node:dns";
+import { Agent, setGlobalDispatcher } from "undici";
 import { buildPost } from "../../scripts/lib/eventFormatting.js";
 
-// Force IPv4 first for DNS — Vercel fra1 → api.telegram.org over IPv6
-// frequently times out.
+// Force IPv4 — Vercel fra1 → api.telegram.org over IPv6 frequently hangs.
+// Reordering DNS alone isn't enough; pin the undici connector to family 4.
 dns.setDefaultResultOrder("ipv4first");
+setGlobalDispatcher(new Agent({ connect: { family: 4 } }));
 
 const TG_TIMEOUT_MS = 10_000;
 const SEND_DELAY_MS = 400;
