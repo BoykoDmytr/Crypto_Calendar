@@ -17,6 +17,7 @@ import dayjs from "dayjs";
 import utc from "dayjs/plugin/utc.js";
 import timezone from "dayjs/plugin/timezone.js";
 import dns from "node:dns";
+import { Agent, setGlobalDispatcher } from "undici";
 
 import {
   approvePendingEvent,
@@ -24,11 +25,14 @@ import {
 } from "../../scripts/lib/approveEvent.js";
 import { buildPost, esc } from "../../scripts/lib/eventFormatting.js";
 
-// Force IPv4 first for DNS lookups. Vercel fra1 advertises IPv6 but
-// api.telegram.org from that subnet often hangs on v6 → ETIMEDOUT after the
-// connect timeout. Node's fetch (built on undici) calls dns.lookup under the
-// hood, which respects this setting. No external package needed.
+// Force IPv4 for all outgoing fetch() calls. Vercel fra1 advertises IPv6 but
+// api.telegram.org from that subnet often hangs on v6 → the request is aborted
+// after TG_TIMEOUT_MS (AbortError). `dns.setDefaultResultOrder("ipv4first")`
+// only reorders records and still let v6 connections through, so we pin the
+// undici connector to family 4. `undici` is bundled with Node but must be an
+// explicit dependency to be resolvable in Vercel's bundle.
 dns.setDefaultResultOrder("ipv4first");
+setGlobalDispatcher(new Agent({ connect: { family: 4 } }));
 
 dayjs.extend(utc);
 dayjs.extend(timezone);
@@ -148,7 +152,11 @@ async function handleCallback(update) {
     .maybeSingle();
 
   if (trackErr || !trackRow) {
-    await answerCallback(cb.id, "Tracking row missing");
+    try {
+      await answerCallback(cb.id, "Tracking row missing");
+    } catch (err) {
+      console.error("[telegram-admin] answerCallback failed", err?.message);
+    }
     console.error("[telegram-admin] tracking lookup failed", trackErr?.message);
     return;
   }
