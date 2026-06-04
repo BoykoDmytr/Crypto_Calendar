@@ -8,13 +8,14 @@
 
 import { createClient } from "@supabase/supabase-js";
 import dns from "node:dns";
-import { Agent, setGlobalDispatcher } from "undici";
+import { Agent } from "undici";
 import { buildPost } from "../../scripts/lib/eventFormatting.js";
 
-// Force IPv4 — Vercel fra1 → api.telegram.org over IPv6 frequently hangs.
-// Reordering DNS alone isn't enough; pin the undici connector to family 4.
+// Force IPv4 for the Telegram API only (Vercel fra1 → api.telegram.org over
+// IPv6 frequently hangs). Reordering DNS isn't enough; pin the undici connector
+// to family 4 via a per-request dispatcher so Supabase networking is untouched.
 dns.setDefaultResultOrder("ipv4first");
-setGlobalDispatcher(new Agent({ connect: { family: 4 } }));
+const tgAgent = new Agent({ connect: { family: 4 } });
 
 const TG_TIMEOUT_MS = 10_000;
 const SEND_DELAY_MS = 400;
@@ -31,6 +32,7 @@ async function tgApi(token, method, body) {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
       signal: controller.signal,
+      dispatcher: tgAgent,
     });
     const json = await res.json().catch(() => ({}));
     if (!res.ok || !json.ok) {
