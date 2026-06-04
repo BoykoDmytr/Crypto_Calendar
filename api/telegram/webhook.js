@@ -17,7 +17,7 @@ import dayjs from "dayjs";
 import utc from "dayjs/plugin/utc.js";
 import timezone from "dayjs/plugin/timezone.js";
 import dns from "node:dns";
-import { Agent, setGlobalDispatcher } from "undici";
+import { Agent } from "undici";
 
 import {
   approvePendingEvent,
@@ -25,14 +25,16 @@ import {
 } from "../../scripts/lib/approveEvent.js";
 import { buildPost, esc } from "../../scripts/lib/eventFormatting.js";
 
-// Force IPv4 for all outgoing fetch() calls. Vercel fra1 advertises IPv6 but
+// Force IPv4 for the Telegram API only. Vercel fra1 advertises IPv6 but
 // api.telegram.org from that subnet often hangs on v6 → the request is aborted
 // after TG_TIMEOUT_MS (AbortError). `dns.setDefaultResultOrder("ipv4first")`
 // only reorders records and still let v6 connections through, so we pin the
-// undici connector to family 4. `undici` is bundled with Node but must be an
-// explicit dependency to be resolvable in Vercel's bundle.
+// undici connector to family 4. Scoped to a per-request `dispatcher` (passed to
+// the Telegram fetch below) rather than setGlobalDispatcher, so Supabase and
+// every other fetch keep their default networking. `undici` is bundled with
+// Node but must be an explicit dependency to resolve in Vercel's bundle.
 dns.setDefaultResultOrder("ipv4first");
-setGlobalDispatcher(new Agent({ connect: { family: 4 } }));
+const tgAgent = new Agent({ connect: { family: 4 } });
 
 dayjs.extend(utc);
 dayjs.extend(timezone);
@@ -76,6 +78,7 @@ async function tgApi(method, body) {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
       signal: controller.signal,
+      dispatcher: tgAgent,
     });
     const json = await res.json().catch(() => ({}));
     if (!res.ok || !json.ok) {
@@ -173,11 +176,39 @@ async function handleCallback(update) {
   }
 
   if (trackRow.status !== "awaiting") {
-    const by = trackRow.resolved_by_username
-      ? `@${trackRow.resolved_by_username}`
-      : "someone";
-    await answerCallback(cb.id, `Already ${trackRow.status} by ${by}`);
-    return;
+    // The row was already claimed terminal by a prior click. Normally that
+    // means the action completed — but if that earlier invocation died before
+    // finishing (e.g. the function froze right after the CAS claim), the
+    // pending row is still here and the claim is a phantom. Detect that by
+    // checking whether the pending row still exists; if so, recover by
+    // resetting to 'awaiting' and falling through to reprocess. Otherwise it
+    // is genuinely resolved.
+    const pendingTable =
+      source === "auto_pending" ? "auto_events_pending" : "events_pending";
+    const { data: stillPending } = await supabase
+      .from(pendingTable)
+      .select("id")
+      .eq("id", trackRow.pending_id)
+      .maybeSingle();
+
+    if (stillPending) {
+      await supabase
+        .from("telegram_admin_messages")
+        .update({
+          status: "awaiting",
+          resolved_at: null,
+          resolved_by_tg_id: null,
+          resolved_by_username: null,
+        })
+        .eq("id", trackRow.id);
+      // Continue into the normal claim+execute flow below.
+    } else {
+      const by = trackRow.resolved_by_username
+        ? `@${trackRow.resolved_by_username}`
+        : "someone";
+      await answerCallback(cb.id, `Already ${trackRow.status} by ${by}`);
+      return;
+    }
   }
 
   // Atomic claim: flip status to its terminal value (approved/rejected) only
@@ -548,11 +579,13 @@ export default async function handler(req, res) {
     return res.status(401).json({ ok: false, error: "bad_secret" });
   }
 
-  // Ack immediately so Telegram does not retry; process synchronously after
-  // (everything fits in well under the 60s function budget for the volumes
-  // we expect — at most a few events per minute).
-  res.status(200).json({ ok: true });
-
+  // Process the update BEFORE acking. On Vercel the instance is frozen the
+  // moment the HTTP response is flushed, so any `await` after res.json() may
+  // never run — symptom: 200 in ~60ms with "No outgoing requests" and the
+  // button just flashing white. Telegram's webhook budget is ~60s and our work
+  // is a few seconds (well under the 30s function limit), so we finish first,
+  // then ack. All errors are swallowed below so Telegram still gets its 200 and
+  // does not retry-storm.
   try {
     const update = req.body || {};
     if (update.callback_query) {
@@ -563,4 +596,6 @@ export default async function handler(req, res) {
   } catch (err) {
     console.error("[telegram-admin] webhook fatal", err);
   }
+
+  res.status(200).json({ ok: true });
 }
