@@ -12,6 +12,9 @@
     },
     "api/cron/telegram-broadcast.js": {
       "maxDuration": 60
+    },
+    "api/cron/claim-watcher.js": {
+      "maxDuration": 60
     }
   },
   "rewrites": [
@@ -32,6 +35,10 @@
     },
     {
       "path": "/api/cron/telegram-notify-pending",
+      "schedule": "*/5 * * * *"
+    },
+    {
+      "path": "/api/cron/claim-watcher",
       "schedule": "*/5 * * * *"
     }
   ],

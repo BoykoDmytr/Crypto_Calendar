@@ -1,0 +1,94 @@
+/* Community Claim Tracker — page-specific styles.
+   Uses the app's CSS variables (--text, --brand, --glass-*) so it themes
+   automatically in both light and dark. */
+
+.claims { font-size: 14px; }
+
+.claims-head { margin-bottom: 16px; }
+.claims-title { font-size: 1.5rem; font-weight: 800; letter-spacing: .2px; color: var(--text); }
+.claims-sub {
+  margin-top: 6px;
+  font-size: 0.85rem;
+  color: color-mix(in oklab, var(--text) 60%, transparent);
+  line-height: 1.5;
+}
+
+/* token tabs */
+.claim-tabs { display: flex; gap: 8px; flex-wrap: wrap; margin: 18px 0 20px; }
+.claim-tab {
+  display: flex; align-items: center; gap: 8px;
+  padding: 8px 14px; border-radius: 12px;
+  border: 1px solid var(--glass-border);
+  background: var(--glass-bg);
+  color: color-mix(in oklab, var(--text) 70%, transparent);
+  font-weight: 600; cursor: pointer;
+  backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+  transition: background .18s ease, color .18s ease, border-color .18s ease;
+}
+.claim-tab:hover { background: var(--glass-bg-strong); color: var(--text); }
+.claim-tab.on {
+  background: color-mix(in oklab, var(--brand) 16%, transparent);
+  border-color: color-mix(in oklab, var(--brand) 55%, transparent);
+  color: var(--text);
+}
+.claim-logo {
+  width: 22px; height: 22px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 11px; font-weight: 800; color: #fff;
+}
+
+/* live blinking dot */
+.claim-live-dot { width: 7px; height: 7px; border-radius: 50%; background: #f87171; animation: claimPulse 1.5s infinite; }
+@keyframes claimPulse { 0%,100%{opacity:1} 50%{opacity:.3} }
+
+/* next-unlock banner */
+.claim-next {
+  display: flex; justify-content: space-between; align-items: center;
+  gap: 14px; flex-wrap: wrap;
+  padding: 18px 20px; margin-bottom: 14px;
+}
+.claim-next .lab { font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: color-mix(in oklab, var(--text) 55%, transparent); margin-bottom: 5px; }
+.claim-next .d { font-size: 1.35rem; font-weight: 700; color: var(--text); }
+.claim-next .meta { font-size: 0.8rem; color: color-mix(in oklab, var(--text) 60%, transparent); margin-top: 3px; }
+.claim-next .amt { text-align: right; }
+.claim-next .amt .v { font-size: 1.35rem; font-weight: 700; color: #f59e0b; }
+
+.claim-badge { font-size: 11px; padding: 4px 11px; border-radius: 999px; font-weight: 700; white-space: nowrap; }
+.claim-badge--live { background: rgba(248,113,113,.14); color: #f87171; border: 1px solid rgba(248,113,113,.4); }
+.claim-badge--soon { background: rgba(245,158,11,.14); color: #f59e0b; border: 1px solid rgba(245,158,11,.4); }
+.claim-badge--done { background: rgba(52,211,153,.14); color: #34d399; border: 1px solid rgba(52,211,153,.35); }
+
+.claims-section-title {
+  font-size: 11px; letter-spacing: .1em; text-transform: uppercase;
+  color: color-mix(in oklab, var(--text) 55%, transparent);
+  margin: 22px 4px 10px;
+}
+
+/* campaign rows */
+.claim-row { padding: 15px 18px; margin-bottom: 9px; }
+.claim-row-top { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+.claim-row .date { font-size: 1rem; font-weight: 700; color: var(--text); }
+.claim-row .time { font-size: 0.75rem; color: color-mix(in oklab, var(--text) 55%, transparent); font-weight: 400; margin-left: 8px; }
+.claim-row .claimed { font-size: 1rem; font-weight: 700; text-align: right; color: var(--text); }
+.claim-row .claimed .of { color: color-mix(in oklab, var(--text) 50%, transparent); font-weight: 400; font-size: 0.8rem; }
+
+.claim-bar { height: 8px; background: color-mix(in oklab, var(--text) 10%, transparent); border-radius: 5px; overflow: hidden; border: 1px solid var(--glass-border); margin-top: 10px; }
+.claim-fill { height: 100%; border-radius: 5px; transition: width .4s ease; }
+
+.claim-row-sub { display: flex; justify-content: space-between; font-size: 0.75rem; color: color-mix(in oklab, var(--text) 60%, transparent); margin-top: 7px; flex-wrap: wrap; gap: 8px; }
+.claim-pct { font-weight: 700; }
+
+.claim-sources { margin-top: 8px; display: flex; gap: 12px; flex-wrap: wrap; }
+.claim-sources a { font-size: 0.72rem; color: var(--brand); text-decoration: none; }
+.claim-sources a:hover { text-decoration: underline; }
+
+/* excluded note */
+.claim-excluded { margin-top: 26px; padding: 16px 18px; }
+.claim-excluded h3 { font-size: 0.8rem; letter-spacing: .04em; text-transform: uppercase; color: color-mix(in oklab, var(--text) 60%, transparent); margin-bottom: 8px; }
+.claim-excluded-item { font-size: 0.8rem; color: color-mix(in oklab, var(--text) 70%, transparent); line-height: 1.5; margin-bottom: 8px; }
+.claim-excluded-item b { color: var(--text); }
+
+.claims-foot { color: color-mix(in oklab, var(--text) 50%, transparent); font-size: 0.72rem; margin-top: 26px; text-align: center; line-height: 1.7; }
+
+.claims-state { padding: 40px 0; text-align: center; color: color-mix(in oklab, var(--text) 60%, transparent); font-size: 0.9rem; }
+.claims-state--error { color: #f87171; }

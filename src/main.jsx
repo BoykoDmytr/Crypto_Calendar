@@ -11,6 +11,7 @@ import SuggestEdit from './pages/SuggestEdit';
 import AirdropTracker from './pages/AirdropTracker';
 import Gifts from './pages/Gifts';
 import Stats from './pages/Stats';
+import Claims from './pages/Claims';
 
 // ✅ Vercel Analytics + Speed Insights для будь-якого SPA
 import { inject } from '@vercel/analytics'
@@ -26,8 +27,9 @@ const root = document.documentElement;
 root.classList.add('dark');
 localStorage.setItem('theme', 'dark');
 
-ReactDOM.createRoot(document.getElementById('root')).render(<App />)
-
+// NOTE: a single root is mounted below via RouterProvider. (A second, stray
+// createRoot(<App/>) used to run here without a Router, which made Navbar's
+// useLocation() throw on every load — removed.)
 
 const router = createBrowserRouter([
   {
@@ -42,6 +44,7 @@ const router = createBrowserRouter([
       { path: 'airdrop', element: <AirdropTracker /> },
       { path: 'gifts', element: <Gifts /> },
       { path: 'stats', element: <Stats /> },
+      { path: 'claims', element: <Claims /> },
     ],
   },
 ]);

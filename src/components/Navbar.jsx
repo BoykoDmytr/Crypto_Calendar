@@ -53,6 +53,13 @@ export default function Navbar() {
               >
                 Івенти
               </Link>
+              <Link
+                className={linkClasses(is('/claims'))}
+                to="/claims"
+                aria-current={is('/claims') ? 'page' : undefined}
+              >
+                Клейми
+              </Link>
             </nav>
           </div>
         </div>

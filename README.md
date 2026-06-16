@@ -12,6 +12,7 @@
 - **Форма подачі та редагування** події (`/add`, `/suggest/:id`) із чергою модерації в Supabase.
 - **Адмін-панель** для апруву / реджекту подій із чернеткової черги.
 - **Airdrop tracker** (`/airdrop`) — прогрес клеймів конкретної кампанії на основі on-chain логів через RPC.
+- **Community Claim Tracker** (`/claims`) — календар клеймів спільноти (MEXC/BingX токени), де кожен розлок **верифікований on-chain** через Blockscout: точний час старту (UTC), скільки гаманців заклеймили, скільки роздано. On-chain watcher (Vercel Cron) оновлює дані сам. Деталі: [`docs/claim-tracker.md`](docs/claim-tracker.md).
 - **Price reaction** — автоматичний джоб, який рахує реакцію ціни після TGE й рендерить графіки на сторінці статистики.
 - **Інжестія з Telegram** — Vercel Cron щоп’ять хвилин підтягує пости з каналу у `auto_events_pending` та збагачує MCAP-дані з MEXC.
 - **Темна тема за замовчуванням**, адаптивний UI під мобайл, Vercel Analytics + Speed Insights у проді.
@@ -34,6 +35,7 @@
 | `/suggest/:id` | `SuggestEdit` | Запропонувати правки до існуючої події |
 | `/admin` | `Admin` | Модерація черги (закрита) |
 | `/airdrop` | `AirdropTracker` | Прогрес клеймів аірдропу |
+| `/claims` | `Claims` | On-chain верифікований календар клеймів спільноти |
 | `/stats` | `Stats` | Реакція ціни після TGE |
 | `/gifts` | `Gifts` | Архів розіграшів |
 
@@ -155,6 +157,7 @@ ADMIN_BOT_CHAT_ID=...
 - крони:
   - `*/5 * * * *` — `/api/cron/telegram-scrape`
   - `0 3 * * *` — `/api/cron/delete-old-events`
+  - `*/5 * * * *` — `/api/cron/claim-watcher` (on-chain клейм-watcher → `claim_events` + Telegram)
 
 Supabase Edge Functions (`dropstab-circ`, `price-reaction-cron`) деплояться окремо через Supabase CLI:
 
