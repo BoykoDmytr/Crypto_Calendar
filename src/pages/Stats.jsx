@@ -3,7 +3,6 @@ import PriceReactionCard from '../components/PriceReactionCard';
 import {
   fetchCompletedEvents,
   fetchStatsTypeFilters,
-  triggerPriceReactionJob,
 } from '../lib/statsApi';
 import { supabase } from '../lib/supabase';
 
@@ -205,7 +204,18 @@ export default function Stats() {
     setJobError(null);
     setJobInfo('');
     try {
-      const summary = await triggerPriceReactionJob();
+      // Capture runs server-side (service-role) in the price-reaction-cron Edge
+      // Function. The browser only triggers it; it may no longer write
+      // event_price_reaction directly (locked down by RLS).
+      const { data, error } = await supabase.functions.invoke('price-reaction-cron');
+      if (error) throw error;
+      const summary = {
+        processed: data?.processed ?? 0,
+        inserted: data?.inserted ?? 0,
+        updated: data?.updated ?? 0,
+        skipped: data?.skipped ?? 0,
+        errors: data?.errors ?? 0,
+      };
       setJobInfo(
         `Скан завершено: опрацьовано ${summary.processed}, нових ${summary.inserted}, ` +
         `оновлено ${summary.updated}, пропущено ${summary.skipped}.` +

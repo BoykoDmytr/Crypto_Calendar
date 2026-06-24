@@ -1,5 +1,4 @@
 /* eslint-env node */
-/* global process */
 
 import { run } from "../../scripts/telegram-broadcast.js";
 import { isAuthorizedCron, rejectCron } from "../../scripts/lib/cronAuth.js";
