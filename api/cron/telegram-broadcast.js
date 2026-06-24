@@ -1,12 +1,13 @@
 /* eslint-env node */
-/* global process */
 
 import { run } from "../../scripts/telegram-broadcast.js";
+import { isAuthorizedCron, rejectCron } from "../../scripts/lib/cronAuth.js";
 
-// No auth: this endpoint only reads events_approved and posts to a fixed
-// Telegram chat. Dedup via tg_posted_at means duplicate calls are no-ops.
-// Vercel Cron user-agent is "vercel-cron/1.0" if you ever want to log it.
-export default async function handler(_req, res) {
+// Requires a valid CRON_SECRET (Vercel Cron sends it automatically). Even though
+// the work is idempotent (dedup via tg_posted_at), leaving it open lets anyone
+// force Telegram API traffic and hit rate limits.
+export default async function handler(req, res) {
+  if (!isAuthorizedCron(req)) return rejectCron(res);
   try {
     const summary = await run();
     return res.status(200).json({ ok: true, ...summary });

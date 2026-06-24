@@ -319,8 +319,18 @@ function TypeRow({ t, onSave, onDelete, moveType, isFirst, isLast }) {
 export default function Admin() {
   const location = useLocation();
   const focusId = new URLSearchParams(location.search).get('focus') || null;
+
+  // ===== AUTH state (Supabase Auth) =====
+  // `ok` is true ONLY for a signed-in user that is also listed in public.admins.
+  // It is what gates the whole panel; the database (RLS) independently enforces
+  // the same thing, so a tampered `ok` still can't read or write admin data.
+  const [email, setEmail] = useState('');
   const [pass, setPass] = useState('');
   const [ok, setOk] = useState(false);
+  const [authReady, setAuthReady] = useState(false);
+  const [signingIn, setSigningIn] = useState(false);
+  const [authError, setAuthError] = useState('');
+  const [signedInNotAdmin, setSignedInNotAdmin] = useState(false);
 
   const [autoPending, setAutoPending] = useState([]);
   const [pending, setPending] = useState([]);
@@ -374,6 +384,60 @@ export default function Admin() {
       ? filteredApproved
       : filteredApproved.slice(0, approvedLimit);
   const statsVisible = showAllStats ? stats : stats.slice(0, statsLimit);
+
+  // Wire Supabase Auth. The session JWT is what RLS uses to authorise admin
+  // writes; `is_admin` is a SECURITY DEFINER RPC that reports whether the
+  // signed-in user is in public.admins.
+  useEffect(() => {
+    let active = true;
+
+    const evaluate = async (session) => {
+      if (!session) {
+        if (!active) return;
+        setOk(false);
+        setSignedInNotAdmin(false);
+        setAuthReady(true);
+        return;
+      }
+      const { data, error } = await supabase.rpc('is_admin');
+      if (!active) return;
+      const admin = !error && data === true;
+      setOk(admin);
+      setSignedInNotAdmin(!admin);
+      setAuthReady(true);
+    };
+
+    supabase.auth.getSession().then(({ data }) => evaluate(data.session));
+    const { data: sub } = supabase.auth.onAuthStateChange((_event, session) => {
+      setAuthReady(false);
+      evaluate(session);
+    });
+
+    return () => {
+      active = false;
+      sub.subscription.unsubscribe();
+    };
+  }, []);
+
+  const signIn = async () => {
+    if (signingIn) return;
+    setSigningIn(true);
+    setAuthError('');
+    const { error } = await supabase.auth.signInWithPassword({
+      email: email.trim(),
+      password: pass,
+    });
+    setSigningIn(false);
+    if (error) setAuthError(error.message || 'Помилка входу');
+    // onAuthStateChange re-evaluates admin status and flips `ok`.
+  };
+
+  const signOut = async () => {
+    await supabase.auth.signOut();
+    setOk(false);
+    setSignedInNotAdmin(false);
+    setPass('');
+  };
 
   useEffect(() => {
     if (ok) refresh();
@@ -864,24 +928,48 @@ const payload = {
     );
   };
 
-  // ===== ЛОГІН =====
+  // ===== ЛОГІН (Supabase Auth) =====
   if (!ok) {
     return (
       <div className="max-w-sm mx-auto">
         <h1 className="text-xl font-semibold mb-2">Вхід в адмін-панель</h1>
-        <div className="card p-4">
+        <div className="card p-4 space-y-3">
           <input
             autoFocus
+            type="email"
+            className="input"
+            placeholder="Email"
+            autoComplete="username"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter') signIn(); }}
+          />
+          <input
             type="password"
             className="input"
             placeholder="Пароль"
+            autoComplete="current-password"
             value={pass}
             onChange={(e) => setPass(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter') signIn(); }}
           />
-          <button className="btn w-full mt-3" onClick={() => setOk(pass === import.meta.env.VITE_ADMIN_PASS)}>
-            Увійти
+          <button
+            className="btn w-full"
+            onClick={signIn}
+            disabled={signingIn || !authReady}
+          >
+            {signingIn ? 'Входимо…' : 'Увійти'}
           </button>
-          <p className="text-xs text-gray-500 mt-2">Пароль знає лише адміністратор.</p>
+          {authError && <p className="text-xs text-red-600">{authError}</p>}
+          {signedInNotAdmin && !authError && (
+            <div className="text-xs text-red-600">
+              Цей акаунт не має прав адміністратора.
+              <button className="underline ml-1" onClick={signOut}>Вийти</button>
+            </div>
+          )}
+          <p className="text-xs text-gray-500">
+            Доступ лише для адміністраторів (автентифікація через Supabase Auth).
+          </p>
         </div>
       </div>
     );
@@ -904,6 +992,9 @@ const payload = {
             </Link>
             <button className="btn-secondary px-3 py-2 rounded-xl" onClick={refresh}>
               Оновити
+            </button>
+            <button className="btn-secondary px-3 py-2 rounded-xl" onClick={signOut}>
+              Вийти
             </button>
           </div>
         </div>

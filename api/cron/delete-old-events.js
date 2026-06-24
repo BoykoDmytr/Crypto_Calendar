@@ -4,6 +4,7 @@
 import dayjs from "dayjs";
 import utc from "dayjs/plugin/utc.js";
 import { createClient } from "@supabase/supabase-js";
+import { isAuthorizedCron, rejectCron } from "../../scripts/lib/cronAuth.js";
 
 dayjs.extend(utc);
 
@@ -28,13 +29,16 @@ const KEEP_EVENT_TYPE_SLUGS = [
 
 export default async function handler(req, res) {
   try {
-    const envSecret = process.env.DELETE_OLD_EVENTS_SECRET;
-    const providedSecret =
-      req?.query?.secret ||
-      req.headers?.authorization?.replace(/^Bearer /, "");
-
-    if (envSecret && providedSecret !== envSecret) {
-      return res.status(401).json({ ok: false, error: "Unauthorized" });
+    // Fail CLOSED. The previous check only ran `if (envSecret)`, so an unset
+    // DELETE_OLD_EVENTS_SECRET left this bulk-delete endpoint open to anyone.
+    // Accept CRON_SECRET (sent automatically by Vercel Cron) or the legacy
+    // per-endpoint secret; reject when neither is configured or matches.
+    if (
+      !isAuthorizedCron(req, {
+        extraSecrets: [process.env.DELETE_OLD_EVENTS_SECRET],
+      })
+    ) {
+      return rejectCron(res);
     }
 
     const supabaseUrl =
