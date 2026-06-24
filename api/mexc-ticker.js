@@ -1,4 +1,9 @@
 export default async function handler(req, res) {
+  if (req.method && req.method !== 'GET' && req.method !== 'HEAD') {
+    res.setHeader('Allow', 'GET, HEAD');
+    return res.status(405).json({ ok: false, error: 'Method not allowed' });
+  }
+
   const { symbol, market = 'spot' } = req.query || {};
 
   if (!symbol || typeof symbol !== 'string') {
@@ -7,6 +12,14 @@ export default async function handler(req, res) {
 
   const m = market === 'futures' ? 'futures' : 'spot';
   const sym = symbol.trim().toUpperCase();
+
+  // This endpoint proxies to MEXC with `sym` interpolated into the request URL.
+  // The host is fixed and the value is encodeURIComponent'd, but we still pin it
+  // to a strict ticker shape so it can't be used to smuggle odd inputs or
+  // inflate upstream traffic with arbitrary junk.
+  if (!/^[A-Z0-9_]{2,20}$/.test(sym)) {
+    return res.status(400).json({ ok: false, error: 'Invalid symbol' });
+  }
 
   let url = '';
   let fallbackUrl = '';

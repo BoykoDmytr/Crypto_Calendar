@@ -121,7 +121,11 @@ export function esc(s) {
   return String(s)
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;");
+    .replace(/>/g, "&gt;")
+    // Also escape quotes: esc() output is used inside attribute values too
+    // (e.g. <a href="...">), where an unescaped " would break out of the
+    // attribute and let a crafted link inject extra markup into the post.
+    .replace(/"/g, "&quot;");
 }
 
 // ---------------------------------------------------------------------------

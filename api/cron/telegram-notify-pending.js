@@ -10,6 +10,7 @@ import { createClient } from "@supabase/supabase-js";
 import dns from "node:dns";
 import { Agent } from "undici";
 import { buildPost } from "../../scripts/lib/eventFormatting.js";
+import { isAuthorizedCron, rejectCron } from "../../scripts/lib/cronAuth.js";
 
 // Force IPv4 for the Telegram API only (Vercel fra1 → api.telegram.org over
 // IPv6 frequently hangs). Reordering DNS isn't enough; pin the undici connector
@@ -182,7 +183,8 @@ export async function run() {
   return summary;
 }
 
-export default async function handler(_req, res) {
+export default async function handler(req, res) {
+  if (!isAuthorizedCron(req)) return rejectCron(res);
   try {
     const summary = await run();
     return res.status(200).json({ ok: true, ...summary });
