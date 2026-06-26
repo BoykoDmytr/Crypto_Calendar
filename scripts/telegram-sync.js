@@ -931,15 +931,31 @@ function parseMerlinNumber(str) {
 }
 
 async function fetchBinanceAnnouncementHtml(url) {
+  // Binance blocks obvious bot UAs (returns a ~2KB stub), so pose as a real
+  // desktop browser with the full set of navigation headers.
   const res = await fetch(url, {
     headers: {
-      'user-agent': 'Mozilla/5.0 (compatible; CryptoCalendarBot/1.0)',
+      'user-agent':
+        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+      accept:
+        'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
       'accept-language': 'en-US,en;q=0.9',
-      accept: 'text/html,application/xhtml+xml',
+      'upgrade-insecure-requests': '1',
+      'sec-ch-ua': '"Chromium";v="124", "Google Chrome";v="124", "Not:A-Brand";v="99"',
+      'sec-ch-ua-mobile': '?0',
+      'sec-ch-ua-platform': '"Windows"',
+      'sec-fetch-dest': 'document',
+      'sec-fetch-mode': 'navigate',
+      'sec-fetch-site': 'none',
+      'sec-fetch-user': '?1',
     },
   });
+  const html = await res.text();
+  console.log(
+    `[binance-tournament] fetch ${url} -> status ${res.status}, ${html.length}b`
+  );
   if (!res.ok) throw new Error(`Failed to fetch announcement ${url}: ${res.status}`);
-  return await res.text();
+  return html;
 }
 
 // 1) Binance Alpha Trading Competition.
