@@ -939,9 +939,32 @@ function extractBinanceArticleCode(url) {
   return m2 ? m2[1] : null;
 }
 
+// Binance's CMS body is a rich-text JSON AST of nodes, e.g.
+// {"node":"text","text":"594,000 KGEN tokens "}, so phrases are split across
+// many text nodes. Concatenate all "text" values back into readable prose so
+// the reward/period regexes see contiguous sentences. Falls back to the raw
+// string if it isn't that JSON shape (already HTML/plain text).
+export function binanceBodyToText(body) {
+  const s = String(body || '');
+  if (/"text"\s*:\s*"/.test(s)) {
+    const parts = [];
+    const re = /"text"\s*:\s*"((?:[^"\\]|\\.)*)"/g;
+    let m;
+    while ((m = re.exec(s)) !== null) {
+      try {
+        parts.push(JSON.parse(`"${m[1]}"`));
+      } catch {
+        parts.push(m[1]);
+      }
+    }
+    if (parts.length) return parts.join(' ');
+  }
+  return s;
+}
+
 // The announcement HTML page sits behind an anti-bot wall (HTTP 202 challenge),
 // so read the article body from Binance's CMS detail JSON endpoint instead.
-// Returns { title, body } (body is article HTML) or null. Logs each attempt.
+// Returns { title, body } (body is readable article text) or null. Logs attempts.
 async function fetchBinanceAnnouncementContent(url) {
   const code = extractBinanceArticleCode(url);
   if (!code) {
@@ -978,7 +1001,7 @@ async function fetchBinanceAnnouncementContent(url) {
         continue;
       }
       const data = json?.data || {};
-      const body = data.body || data.content || '';
+      const body = binanceBodyToText(data.body || data.content || '');
       if (body) return { title: data.title || '', body };
     } catch (e) {
       console.warn('[binance-tournament] detail-api error', apiUrl, e?.message || e);
