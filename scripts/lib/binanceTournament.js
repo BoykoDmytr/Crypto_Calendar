@@ -26,6 +26,25 @@ export function stripTags(html) {
     .trim();
 }
 
+// Binance announcement detail pages are a client-rendered SPA: a plain fetch
+// returns the shell with the article text embedded as JSON in a <script>
+// (e.g. __APP_DATA), not as visible <h1>/<p> markup. stripTags() drops scripts,
+// so we also build a second view that KEEPS script/JSON text (with common JSON
+// escapes decoded) and search both. SSR'd pages still match via the visible part.
+export function htmlToSearchText(html) {
+  const raw = String(html || "");
+  const visible = stripTags(raw);
+  const embedded = raw
+    .replace(/\\u002[fF]/g, "/")
+    .replace(/\\\//g, "/")
+    .replace(/\\"/g, '"')
+    .replace(/\\n/g, " ")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  return `${visible}\n${embedded}`;
+}
+
 // "588,000" / "2,450" / "240" -> 588000 / 2450 / 240
 function parseNumber(str) {
   if (str == null) return null;
@@ -122,7 +141,7 @@ export function parseTournamentPeriods(text) {
  * @param {string} args.officialLink URL of the Binance Announcement
  */
 export function buildTournamentEvents({ html, officialLink }) {
-  const text = stripTags(html);
+  const text = htmlToSearchText(html);
   const periods = parseTournamentPeriods(text);
   if (!periods.length) return [];
 

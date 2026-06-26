@@ -954,17 +954,24 @@ export async function parseBinanceTradingCompetition(message) {
   const annUrl =
     links.find((u) => /binance\.com\/[^\s"]*\/announcement\/detail\//i.test(u)) ||
     links.find((u) => /binance\.com/i.test(u));
-  if (!annUrl) return [];
+  if (!annUrl) {
+    console.warn('[binance-tournament] no announcement URL in post links:', links);
+    return [];
+  }
 
   let html;
   try {
     html = await fetchBinanceAnnouncementHtml(annUrl);
   } catch (e) {
-    console.warn('Binance announcement fetch failed', annUrl, e?.message || e);
+    console.warn('[binance-tournament] announcement fetch failed', annUrl, e?.message || e);
     return [];
   }
 
-  return buildTournamentEvents({ html, officialLink: annUrl });
+  const events = buildTournamentEvents({ html, officialLink: annUrl });
+  console.log(
+    `[binance-tournament] ${annUrl} -> html ${html.length}b, ${events.length} event(s)`
+  );
+  return events;
 }
 
 // 2) Bybit TokenSplash. All data is in the post text.
