@@ -7,6 +7,7 @@ import dayjs from 'dayjs';
 import utc from 'dayjs/plugin/utc.js';
 import timezone from 'dayjs/plugin/timezone.js';
 import { getDropstabCircCached } from '../src/utils/dropstabCache.js';
+import { buildTournamentEvents } from './lib/binanceTournament.js';
 
 dayjs.extend(utc);
 dayjs.extend(timezone);
@@ -223,7 +224,24 @@ const CHANNELS = {
     trigger: null,
     parser: parsePoolAlerts,
   },
+  // merlin bot — t.me/CEXpromo. One channel, three activities dispatched by
+  // trigger phrase inside parseMerlinCex (Binance Tournaments / TS Bybit / CandyBomb).
+  CEXpromo: {
+    username: 'CEXpromo',
+    name: 'Merlin CEX Promo',
+    trigger: null,
+    parser: parseMerlinCex,
+  },
 };
+
+// Slugs that go to the moderation queue (auto_events_pending) instead of
+// straight to events_approved.
+const PENDING_SLUGS = new Set([
+  'launchpool',
+  'binance-tournaments',
+  'ts-bybit',
+  'candybomb',
+]);
 
 // Fallback list якщо захочеш додати загальні парсери пізніше
 const ALL_PARSERS = [
@@ -897,6 +915,180 @@ export function parseTsBybit(message, channel) {
 
 /**
  * =========================
+ * merlin bot (t.me/CEXpromo): Binance Tournaments / TS Bybit / CandyBomb
+ * =========================
+ *
+ * One channel, three post formats. parseMerlinCex routes by trigger phrase.
+ * Note: TS Bybit posts say "Trade Competition", Binance says "Trading
+ * Competition" — so the Binance trigger does not collide with TS Bybit.
+ */
+
+// "10,000,000.00" / "2,000.00" / "292000" -> 10000000 / 2000 / 292000
+function parseMerlinNumber(str) {
+  if (str == null) return null;
+  const n = Number(String(str).replace(/,/g, ''));
+  return Number.isFinite(n) ? n : null;
+}
+
+async function fetchBinanceAnnouncementHtml(url) {
+  const res = await fetch(url, {
+    headers: {
+      'user-agent': 'Mozilla/5.0 (compatible; CryptoCalendarBot/1.0)',
+      'accept-language': 'en-US,en;q=0.9',
+      accept: 'text/html,application/xhtml+xml',
+    },
+  });
+  if (!res.ok) throw new Error(`Failed to fetch announcement ${url}: ${res.status}`);
+  return await res.text();
+}
+
+// 1) Binance Alpha Trading Competition.
+// Merlin post carries only the headline + a link to the official Binance
+// Announcement; the tournament periods/rewards live on that page, so we follow
+// the link and parse the page HTML (no API).
+export async function parseBinanceTradingCompetition(message) {
+  const rawText = message.text || '';
+  if (!/trading\s+competition/i.test(rawText)) return [];
+
+  const links = Array.isArray(message.links) ? message.links : [];
+  const annUrl =
+    links.find((u) => /binance\.com\/[^\s"]*\/announcement\/detail\//i.test(u)) ||
+    links.find((u) => /binance\.com/i.test(u));
+  if (!annUrl) return [];
+
+  let html;
+  try {
+    html = await fetchBinanceAnnouncementHtml(annUrl);
+  } catch (e) {
+    console.warn('Binance announcement fetch failed', annUrl, e?.message || e);
+    return [];
+  }
+
+  return buildTournamentEvents({ html, officialLink: annUrl });
+}
+
+// 2) Bybit TokenSplash. All data is in the post text.
+export function parseBybitTokenSplashMerlin(message) {
+  const rawText = message.text || '';
+  if (!/tokensplash/i.test(rawText)) return [];
+
+  const decoded = decodeEntities(rawText);
+
+  // ticker from "ByBit TokenSplash CAP"
+  const headMatch = decoded.match(/TokenSplash\s+\$?([A-Z0-9]{2,15})/i);
+  const ticker = headMatch ? headMatch[1].toUpperCase() : null;
+  if (!ticker) return [];
+
+  // Pools labelled "Pool: <num> $TICKER". The "$" right after the number
+  // excludes the "Total Prize Pool: $10,000,000.00" USD line (where "$" comes
+  // before the number). Coin 1 = New Users Pool + Trade Competition Pool.
+  const poolMatches = [...decoded.matchAll(/Pool:\s*([\d.,]+)\s*\$/gi)]
+    .map((m) => parseMerlinNumber(m[1]))
+    .filter((n) => Number.isFinite(n));
+  const totalPool = poolMatches.length
+    ? poolMatches.reduce((a, b) => a + b, 0)
+    : null;
+
+  // Coin 2 = New Users Rewards.
+  const rewardsMatch = decoded.match(/Rewards:\s*([\d.,]+)\s*\$/i);
+  const rewards = rewardsMatch ? parseMerlinNumber(rewardsMatch[1]) : null;
+
+  // Date from "Deadline: YYYY-MM-DD ..."; time is always 12:00 Kyiv per spec.
+  const dl = decoded.match(/Deadline:\s*(\d{4})-(\d{2})-(\d{2})/i);
+  if (!dl) return [];
+  const startAt = toIsoFromKyivDate({
+    year: Number(dl[1]),
+    month: Number(dl[2]),
+    day: Number(dl[3]),
+    time: '12:00',
+  });
+  if (!startAt) return [];
+
+  const mexc = buildMexcExchangeLink(ticker);
+  const coins = [];
+  if (totalPool != null) coins.push({ name: ticker, quantity: totalPool, price_link: mexc });
+  if (rewards != null) coins.push({ name: ticker, quantity: rewards, price_link: mexc });
+
+  return [{
+    title: `ByBit TokenSplash ${ticker}`,
+    description: null,
+    startAt,
+    endAt: null,
+    timezone: 'Kyiv',
+    type: 'TS Bybit',
+    event_type_slug: 'ts-bybit',
+    coins: coins.length ? JSON.stringify(coins) : null,
+    coin_name: ticker,
+    coin_quantity: totalPool,
+    coin_price_link: mexc,
+    omitLink: true,
+    source: 'ts_bybit_cex',
+    source_key: `TS_BYBIT_CEX|${ticker}|${dl[1]}-${dl[2]}-${dl[3]}`,
+  }];
+}
+
+// 3) Bitget CandyBomb. All data is in the post text.
+export function parseCandyBomb(message) {
+  const rawText = message.text || '';
+  if (!/candybomb/i.test(rawText)) return [];
+
+  const decoded = decodeEntities(rawText);
+
+  // ticker from "Bitget CandyBomb: NES"
+  const headMatch = decoded.match(/CandyBomb:\s*\$?([A-Z0-9]{2,15})/i);
+  const ticker = headMatch ? headMatch[1].toUpperCase() : null;
+  if (!ticker) return [];
+
+  // Date + time from "Airdrop Time: YYYY-MM-DD HH:MM:SS" (treated as Kyiv).
+  const at = decoded.match(/Airdrop\s*Time:\s*(\d{4})-(\d{2})-(\d{2})\s+(\d{2}):(\d{2})/i);
+  if (!at) return [];
+  const startAt = toIsoFromKyivDate({
+    year: Number(at[1]),
+    month: Number(at[2]),
+    day: Number(at[3]),
+    time: `${at[4]}:${at[5]}`,
+  });
+  if (!startAt) return [];
+
+  // Coin 1 = Total Allocation.
+  const allocMatch = decoded.match(/Total\s*Allocation:\s*([\d.,]+)\s*([A-Z0-9]{2,15})/i);
+  const quantity = allocMatch ? parseMerlinNumber(allocMatch[1]) : null;
+
+  const mexc = buildMexcExchangeLink(ticker);
+  const coins = quantity != null ? [{ name: ticker, quantity, price_link: mexc }] : null;
+
+  return [{
+    title: `Bitget CandyBomb: ${ticker}`,
+    description: null,
+    startAt,
+    endAt: null,
+    timezone: 'Kyiv',
+    type: 'CandyBomb',
+    event_type_slug: 'candybomb',
+    coins: coins ? JSON.stringify(coins) : null,
+    coin_name: ticker,
+    coin_quantity: quantity,
+    coin_price_link: mexc,
+    omitLink: true,
+    source: 'candybomb_cex',
+    source_key: `CANDYBOMB_CEX|${ticker}|${at[1]}-${at[2]}-${at[3]}`,
+  }];
+}
+
+// Dispatcher for the merlin channel: route a post to the right parser by its
+// trigger phrase. Check "Trading Competition" before "TokenSplash" so the
+// Binance branch wins for tournament posts.
+export async function parseMerlinCex(message, channel) {
+  void channel;
+  const text = message.text || '';
+  if (/trading\s+competition/i.test(text)) return parseBinanceTradingCompetition(message);
+  if (/tokensplash/i.test(text)) return parseBybitTokenSplashMerlin(message);
+  if (/candybomb/i.test(text)) return parseCandyBomb(message);
+  return [];
+}
+
+/**
+ * =========================
  * SUPABASE: insert/upsert + state
  * =========================
  */
@@ -1127,11 +1319,21 @@ function extractPostsFromHtml(channel, html) {
     const textHtml = textMatch ? textMatch[1] : '';
     const text = decodeEntities(stripHtml(textHtml));
 
+    // Telegram renders embedded URLs as <a href="…">…</a>; stripHtml drops them,
+    // so capture the raw hrefs here (needed to follow the Binance Announcement link).
+    const links = [];
+    const linkRe = /<a\b[^>]*href="([^"]+)"/gi;
+    let lm;
+    while ((lm = linkRe.exec(textHtml)) !== null) {
+      links.push(decodeEntities(lm[1]));
+    }
+
     posts.push({
       id,
       text,
       dateIso: datetime,
       username: channel,
+      links,
     });
   }
 
@@ -1179,6 +1381,7 @@ export async function run() {
       const msg = {
         id: p.id,
         text: p.text,
+        links: p.links || [],
         // для fallback: unix seconds
         date: p.dateIso ? Math.floor(new Date(p.dateIso).getTime() / 1000) : null,
         username: channel,
@@ -1187,7 +1390,7 @@ export async function run() {
 
       let parsedEvents = [];
       try {
-        parsedEvents = cfg.parser(msg, cfg) || [];
+        parsedEvents = (await cfg.parser(msg, cfg)) || [];
       } catch (e) {
         console.warn('Parser error', channel, e?.message || e);
         continue;
@@ -1197,7 +1400,7 @@ export async function run() {
         // fallback cycle (на випадок якщо канал зміниться)
         for (const p2 of ALL_PARSERS) {
           try {
-            const res = p2.fn(msg, { trigger: p2.trigger }) || [];
+            const res = (await p2.fn(msg, { trigger: p2.trigger })) || [];
             if (res.length) {
               parsedEvents = res;
               break;
@@ -1230,7 +1433,7 @@ export async function run() {
           end_at: ev.endAt || null,
           timezone: ev.timezone || 'Kyiv',
           type: ev.type,
-          link: null,
+          link: ev.omitLink ? null : (ev.link || null),
           coins: ev.coins || null,
           coin_name: ev.coin_name || null,
           coin_quantity: ev.coin_quantity ?? null,
@@ -1240,11 +1443,12 @@ export async function run() {
           event_type_slug: ev.event_type_slug,
         };
 
-        // ✅ Launchpool лишаємо в auto_events_pending, все інше — одразу в events_approved
-        const isLaunchpool = payload.event_type_slug === 'launchpool';
+        // ✅ Pending черга (модерація): launchpool + merlin-типи (CEXpromo).
+        //    Усе інше — одразу в events_approved.
+        const goesToPending = PENDING_SLUGS.has(payload.event_type_slug);
         const isBinanceAlpha = payload.event_type_slug === 'binance-alpha';
 
-        const targetTable = isLaunchpool ? 'auto_events_pending' : 'events_approved';
+        const targetTable = goesToPending ? 'auto_events_pending' : 'events_approved';
         // ✅ AUTO MCAP ENRICH: тільки для events_approved (не для launchpool pending)
         if (targetTable === 'events_approved') {
           await enrichApprovedWithMcap(
@@ -1266,7 +1470,7 @@ export async function run() {
           let approvedErr = null;
 
           // Для Binance Alpha робимо “вікно” по часу (щоб не плодити дублікати)
-          if (!isLaunchpool && isBinanceAlpha && payload.coin_name) {
+          if (!goesToPending && isBinanceAlpha && payload.coin_name) {
             const window = buildStartAtWindow(payload.start_at, 5);
             if (window) {
               const { data, error } = await supabase
@@ -1288,7 +1492,7 @@ export async function run() {
           }
 
           // fallback exact match (або якщо не binance-alpha)
-          if (!approvedErr && (!approved || approved.length === 0) && !isLaunchpool) {
+          if (!approvedErr && (!approved || approved.length === 0) && !goesToPending) {
             const { data, error } = await supabase
               .from('events_approved')
               .select(baseSelect)
@@ -1301,8 +1505,8 @@ export async function run() {
             approvedErr = error;
           }
 
-          // Якщо вже є схвалена подія — для НЕ-launchpool створюємо edits_pending, або пропускаємо
-          if (!isLaunchpool && !approvedErr && approved && approved.length) {
+          // Якщо вже є схвалена подія — для НЕ-pending створюємо edits_pending, або пропускаємо
+          if (!goesToPending && !approvedErr && approved && approved.length) {
             const existing = approved[0];
 
             // визначаємо відмінності
@@ -1346,8 +1550,8 @@ export async function run() {
               skipped++;
             }
           } else {
-            // ✅ Немає existing approved (або це launchpool) — робимо upsert у потрібну таблицю
-            if (isLaunchpool) {
+            // ✅ Немає existing approved (або це pending-тип) — upsert у потрібну таблицю
+            if (goesToPending) {
               const r =
                 isBinanceAlpha && payload.coin_name
                   ? await upsertPendingByCoinWindow(supabase, payload, 3)
