@@ -930,32 +930,61 @@ function parseMerlinNumber(str) {
   return Number.isFinite(n) ? n : null;
 }
 
-async function fetchBinanceAnnouncementHtml(url) {
-  // Binance blocks obvious bot UAs (returns a ~2KB stub), so pose as a real
-  // desktop browser with the full set of navigation headers.
-  const res = await fetch(url, {
-    headers: {
-      'user-agent':
-        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
-      accept:
-        'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
-      'accept-language': 'en-US,en;q=0.9',
-      'upgrade-insecure-requests': '1',
-      'sec-ch-ua': '"Chromium";v="124", "Google Chrome";v="124", "Not:A-Brand";v="99"',
-      'sec-ch-ua-mobile': '?0',
-      'sec-ch-ua-platform': '"Windows"',
-      'sec-fetch-dest': 'document',
-      'sec-fetch-mode': 'navigate',
-      'sec-fetch-site': 'none',
-      'sec-fetch-user': '?1',
-    },
-  });
-  const html = await res.text();
-  console.log(
-    `[binance-tournament] fetch ${url} -> status ${res.status}, ${html.length}b`
-  );
-  if (!res.ok) throw new Error(`Failed to fetch announcement ${url}: ${res.status}`);
-  return html;
+// Extract the CMS article code from a Binance announcement URL,
+// e.g. https://www.binance.com/en/support/announcement/detail/<code>
+function extractBinanceArticleCode(url) {
+  const m = String(url || '').match(/announcement\/detail\/([A-Za-z0-9]+)/i);
+  if (m) return m[1];
+  const m2 = String(url || '').match(/announcement\/(?:[^/?#]*-)?([0-9a-f]{16,})/i);
+  return m2 ? m2[1] : null;
+}
+
+// The announcement HTML page sits behind an anti-bot wall (HTTP 202 challenge),
+// so read the article body from Binance's CMS detail JSON endpoint instead.
+// Returns { title, body } (body is article HTML) or null. Logs each attempt.
+async function fetchBinanceAnnouncementContent(url) {
+  const code = extractBinanceArticleCode(url);
+  if (!code) {
+    console.warn('[binance-tournament] no article code in', url);
+    return null;
+  }
+
+  const headers = {
+    'user-agent':
+      'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+    accept: 'application/json, text/plain, */*',
+    'accept-language': 'en-US,en;q=0.9',
+    clienttype: 'web',
+    lang: 'en',
+  };
+
+  const candidates = [
+    `https://www.binance.com/bapi/composite/v1/public/cms/article/detail/query?articleCode=${encodeURIComponent(code)}`,
+    `https://www.binance.com/bapi/apex/v1/public/apex/cms/article/detail/query?articleCode=${encodeURIComponent(code)}`,
+  ];
+
+  for (const apiUrl of candidates) {
+    try {
+      const res = await fetch(apiUrl, { headers });
+      const text = await res.text();
+      console.log(
+        `[binance-tournament] detail-api -> status ${res.status}, ${text.length}b (${apiUrl})`
+      );
+      if (!res.ok) continue;
+      let json;
+      try {
+        json = JSON.parse(text);
+      } catch {
+        continue;
+      }
+      const data = json?.data || {};
+      const body = data.body || data.content || '';
+      if (body) return { title: data.title || '', body };
+    } catch (e) {
+      console.warn('[binance-tournament] detail-api error', apiUrl, e?.message || e);
+    }
+  }
+  return null;
 }
 
 // 1) Binance Alpha Trading Competition.
@@ -975,17 +1004,24 @@ export async function parseBinanceTradingCompetition(message) {
     return [];
   }
 
-  let html;
+  let content;
   try {
-    html = await fetchBinanceAnnouncementHtml(annUrl);
+    content = await fetchBinanceAnnouncementContent(annUrl);
   } catch (e) {
-    console.warn('[binance-tournament] announcement fetch failed', annUrl, e?.message || e);
+    console.warn('[binance-tournament] detail fetch failed', annUrl, e?.message || e);
+    return [];
+  }
+  if (!content) {
+    console.warn('[binance-tournament] no content from detail endpoint for', annUrl);
     return [];
   }
 
+  // Article title carries the (TICKER); prepend it as <h1> so the parser can
+  // recover the ticker even when the body markup omits it.
+  const html = `<h1>${content.title || ''}</h1>${content.body || ''}`;
   const events = buildTournamentEvents({ html, officialLink: annUrl });
   console.log(
-    `[binance-tournament] ${annUrl} -> html ${html.length}b, ${events.length} event(s)`
+    `[binance-tournament] ${annUrl} -> body ${(content.body || '').length}b, ${events.length} event(s)`
   );
   return events;
 }
