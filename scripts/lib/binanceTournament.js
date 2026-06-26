@@ -31,15 +31,28 @@ export function stripTags(html) {
 // (e.g. __APP_DATA), not as visible <h1>/<p> markup. stripTags() drops scripts,
 // so we also build a second view that KEEPS script/JSON text (with common JSON
 // escapes decoded) and search both. SSR'd pages still match via the visible part.
+function decodeEntities(s) {
+  return String(s || "")
+    .replace(/&nbsp;|&#0*160;|&#x0*a0;/gi, " ")
+    .replace(/&amp;/gi, "&")
+    .replace(/&lt;/gi, "<")
+    .replace(/&gt;/gi, ">")
+    .replace(/&quot;/gi, '"')
+    .replace(/&#0*39;|&apos;/gi, "'")
+    .replace(/\u00a0/g, " ");
+}
+
 export function htmlToSearchText(html) {
   const raw = String(html || "");
-  const visible = stripTags(raw);
-  const embedded = raw
-    .replace(/\\u002[fF]/g, "/")
-    .replace(/\\\//g, "/")
-    .replace(/\\"/g, '"')
-    .replace(/\\n/g, " ")
-    .replace(/<[^>]+>/g, " ")
+  const visible = decodeEntities(stripTags(raw));
+  const embedded = decodeEntities(
+    raw
+      .replace(/\\u002[fF]/g, "/")
+      .replace(/\\\//g, "/")
+      .replace(/\\"/g, '"')
+      .replace(/\\n/g, " ")
+      .replace(/<[^>]+>/g, " ")
+  )
     .replace(/\s+/g, " ")
     .trim();
   return `${visible}\n${embedded}`;
@@ -83,11 +96,24 @@ export function extractTickerFromTitle(title) {
  * "The top 2,200 users ... will share 594,000 KGEN tokens equally (= 270 KGEN per user)."
  */
 export function parseTournamentRewards(text) {
-  const topMatch = text.match(/top\s+([\d,]+)\s+users/i);
-  const poolMatch = text.match(/share\s+([\d,]+)\s+([A-Z0-9]{2,15})\s+tokens?/i);
+  const topMatch = text.match(/top\s+([\d,]+)\s+(?:users|participants|traders)/i);
+
+  // per-user reward: "(= 270 KGEN per user)" — tolerate optional $ and spacing.
   const perUserMatch = text.match(
-    /\(\s*=\s*([\d,.]+)\s+([A-Z0-9]{2,15})\s+per\s+user\s*\)/i
+    /\(\s*=?\s*([\d,.]+)\s*\$?([A-Z0-9]{2,15})\s+per\s+user\s*\)/i
   );
+
+  // prize pool — wording varies across announcements:
+  //   "share 594,000 KGEN tokens equally", "share a total of 594,000 $KGEN",
+  //   "594,000 KGEN tokens equally", etc. Try strict→loose, anchored to "share".
+  const poolMatch =
+    text.match(
+      /share\s+(?:a\s+total\s+of\s+|up\s+to\s+)?([\d,]+)\s*\$?([A-Z0-9]{2,15})\s+tokens?/i
+    ) ||
+    text.match(/([\d,]{3,})\s*\$?([A-Z0-9]{2,15})\s+tokens?\s+equally/i) ||
+    text.match(
+      /share\s+(?:a\s+total\s+of\s+|up\s+to\s+)?([\d,]+)\s*\$?([A-Z0-9]{2,15})\b/i
+    );
 
   const topRaw = topMatch ? topMatch[1] : null;
   const poolRaw = poolMatch ? poolMatch[1] : null;
@@ -146,6 +172,18 @@ export function buildTournamentEvents({ html, officialLink }) {
   if (!periods.length) return [];
 
   const rewards = parseTournamentRewards(text);
+
+  // Diagnostic: if the pool/per-user numbers didn't parse, log the actual
+  // wording around "per user" so the regex can be tuned to this announcement.
+  if (rewards.poolNum == null || rewards.perUserNum == null) {
+    const i = text.search(/per\s+user/i);
+    const snippet =
+      i >= 0 ? text.slice(Math.max(0, i - 240), i + 40) : text.slice(0, 280);
+    console.log(
+      `[binance-tournament] rewards: top=${rewards.topRaw} pool=${rewards.poolRaw} perUser=${rewards.perUserRaw} ticker=${rewards.ticker} | ...${snippet}...`
+    );
+  }
+
   const h1 = String(html || "").match(/<h1[^>]*>([\s\S]*?)<\/h1>/i);
   const titleTicker = extractTickerFromTitle(h1 ? stripTags(h1[1]) : null);
 

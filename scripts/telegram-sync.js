@@ -1476,6 +1476,7 @@ export async function run() {
       }
 
       for (const ev of parsedEvents) {
+       try {
         if (!ev?.title || !ev?.startAt || !ev?.type || !ev?.event_type_slug) {
           skipped++;
           continue;
@@ -1650,6 +1651,16 @@ export async function run() {
             if (insErr) throw insErr;
             inserted++;
           }
+        }
+       } catch (evErr) {
+          // One bad event must not 500 the whole cron or stall the cursor.
+          console.error(
+            '[scrape] event processing failed',
+            channel,
+            ev?.title,
+            evErr?.message || evErr
+          );
+          skipped++;
         }
       }
     }
