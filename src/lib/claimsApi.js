@@ -1,8 +1,10 @@
-import { supabase } from './supabase';
+import { supaRoma as supabase } from './supabaseRoma';
 
 // Community Claim Tracker — read layer.
 // Reads the claim_* tables (RLS allows anonymous SELECT). Writes are done
 // only by the on-chain watcher with the service-role key (see api/cron/claim-watcher.js).
+// ВАЖЛИВО: claim_* живуть у romasya06 (jtskeszumqapfjhpyevq), а НЕ в продакшн-базі
+// календаря — тому тут клієнт supaRoma, інакше /claims у проді падає.
 
 const TOKEN_SELECT = `
   id, symbol, name, project, coingecko_slug, is_community_claim, cadence, status, notes,
