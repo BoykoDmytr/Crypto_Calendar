@@ -7,6 +7,7 @@ import {
 } from '../lib/okxApi'
 import { supaRoma } from '../lib/supabaseRoma'
 import OkxProfitCalculator from '../components/OkxProfitCalculator'
+import Claims from './Claims'
 import './Live.css'
 
 const fmt = new Intl.NumberFormat('uk-UA', { maximumFractionDigits: 0 })
@@ -85,6 +86,7 @@ function Sparkline({ points }) {
 }
 
 export default function Live() {
+  const [tab, setTab] = useState('okx')
   const [campaigns, setCampaigns] = useState([])
   const [feeTiers, setFeeTiers] = useState([])
   const [history, setHistory] = useState([])
@@ -215,40 +217,63 @@ export default function Live() {
         LIVE {anyLive && <span className="live-pulse" />}
       </div>
       <div className="live-sub">
-        Живий трекінг обсягів OKX-турнірів. Дані оновлюються автоматично, без рефрешу.
+        Живий трекінг: обсяги OKX-турнірів і on-chain клейми. Дані оновлюються
+        автоматично, без рефрешу.
       </div>
 
-      {loading && <div className="live-state">Завантаження турнірів…</div>}
-      {error && <div className="live-state live-state--error">Помилка: {error}</div>}
-      {!loading && !error && campaigns.length === 0 && (
-        <div className="live-state">Поки що немає відстежуваних турнірів.</div>
-      )}
+      <div className="live-tabs">
+        <button className={`live-tab ${tab === 'okx' ? 'on' : ''}`} onClick={() => setTab('okx')}>
+          <span className="live-tab-logo" style={{ background: '#fff', color: '#000' }}>O</span>
+          OKX Турніри
+          {anyLive && <span className="live-pulse live-pulse--sm" />}
+        </button>
+        <button className={`live-tab ${tab === 'claims' ? 'on' : ''}`} onClick={() => setTab('claims')}>
+          <span className="live-tab-logo" style={{ background: '#7c3aed', color: '#fff' }}>К</span>
+          Клейми
+        </button>
+        <button className="live-tab off" type="button" tabIndex={-1} aria-disabled="true">
+          <span className="live-tab-logo" style={{ background: '#f0b90b', color: '#000' }}>B</span>
+          Binance Hodler · скоро
+        </button>
+      </div>
 
-      {!loading && !error && selected && (
+      {tab === 'claims' && <Claims />}
+
+      {tab === 'okx' && (
         <>
-          <div className="live-section-title">
-            OKX Турніри · {liveCount ? `${liveCount} активн${liveCount === 1 ? 'ий' : 'і'}` : 'немає активних'}
+          {loading && <div className="live-state">Завантаження турнірів…</div>}
+          {error && <div className="live-state live-state--error">Помилка: {error}</div>}
+          {!loading && !error && campaigns.length === 0 && (
+            <div className="live-state">Поки що немає відстежуваних турнірів.</div>
+          )}
+
+          {!loading && !error && selected && (
+            <>
+              <div className="live-section-title">
+                OKX Турніри · {liveCount ? `${liveCount} активн${liveCount === 1 ? 'ий' : 'і'}` : 'немає активних'}
+              </div>
+
+              <SelectedPanel campaign={selected} history={history} now={now} />
+
+              {others.map((c) => (
+                <MiniRow key={c.id} campaign={c} now={now} onSelect={() => setSelectedId(c.id)} />
+              ))}
+
+              <OkxProfitCalculator
+                campaign={selected}
+                liveVolume={selected.okx_volume?.total_volume ?? null}
+                feeTiers={feeTiers}
+              />
+            </>
+          )}
+
+          <div className="live-foot">
+            Обсяги — зі сторінок кампаній OKX (оновлення ~30–60 с)
+            <br />
+            Сторінка доступна лише за прямим URL. Не є фінансовою порадою.
           </div>
-
-          <SelectedPanel campaign={selected} history={history} now={now} />
-
-          {others.map((c) => (
-            <MiniRow key={c.id} campaign={c} now={now} onSelect={() => setSelectedId(c.id)} />
-          ))}
-
-          <OkxProfitCalculator
-            campaign={selected}
-            liveVolume={selected.okx_volume?.total_volume ?? null}
-            feeTiers={feeTiers}
-          />
         </>
       )}
-
-      <div className="live-foot">
-        Обсяги — зі сторінок кампаній OKX (оновлення ~30–60 с)
-        <br />
-        Сторінка доступна лише за прямим URL. Не є фінансовою порадою.
-      </div>
     </div>
   )
 }
