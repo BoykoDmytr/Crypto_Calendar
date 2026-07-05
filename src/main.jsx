@@ -12,6 +12,7 @@ import AirdropTracker from './pages/AirdropTracker';
 import Gifts from './pages/Gifts';
 import Stats from './pages/Stats';
 import Claims from './pages/Claims';
+import Live from './pages/Live';
 
 // ✅ Vercel Analytics + Speed Insights для будь-якого SPA
 import { inject } from '@vercel/analytics'
@@ -45,6 +46,8 @@ const router = createBrowserRouter([
       { path: 'gifts', element: <Gifts /> },
       { path: 'stats', element: <Stats /> },
       { path: 'claims', element: <Claims /> },
+      { path: 'live', element: <Live /> }, // прихована сторінка — без лінка в навбарі
+
     ],
   },
 ]);

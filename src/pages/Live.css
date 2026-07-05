@@ -1,0 +1,200 @@
+/* Прихована сторінка /live — стиль звірено з Claims.css + Stats-панелями */
+.live { font-size: 14px; }
+.live .num { font-variant-numeric: tabular-nums; }
+.live .muted { color: color-mix(in oklab, var(--text) 55%, transparent); }
+
+.live-title {
+  font-size: 1.5rem; font-weight: 800;
+  display: flex; align-items: center; gap: 10px;
+}
+.live-sub {
+  font-size: 0.85rem; line-height: 1.5;
+  color: color-mix(in oklab, var(--text) 60%, transparent);
+  margin: 6px 0 16px;
+}
+.live-pulse {
+  width: 9px; height: 9px; border-radius: 50%; background: #f87171;
+  display: inline-block; animation: livePulse 1.5s ease-in-out infinite;
+}
+.live-pulse--sm { width: 7px; height: 7px; }
+@keyframes livePulse { 0%, 100% { opacity: 1; } 50% { opacity: .3; } }
+@media (prefers-reduced-motion: reduce) { .live-pulse { animation: none; } }
+
+/* таби розділів (як claim-tab) */
+.live-tabs { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 16px; }
+.live-tab {
+  display: inline-flex; align-items: center; gap: 8px;
+  padding: 8px 14px; border-radius: 12px; font-weight: 600; font-size: 13px;
+  cursor: pointer; color: var(--text);
+  background: var(--glass-bg); border: 1px solid var(--glass-border);
+  backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+}
+.live-tab.on {
+  background: color-mix(in oklab, var(--brand) 16%, transparent);
+  border-color: color-mix(in oklab, var(--brand) 55%, transparent);
+}
+.live-tab.off { opacity: .45; cursor: default; }
+.live-tab-logo {
+  width: 22px; height: 22px; border-radius: 50%;
+  display: inline-flex; align-items: center; justify-content: center;
+  font-size: 11px; font-weight: 800;
+}
+
+.live-section-title {
+  font-size: 11px; text-transform: uppercase; letter-spacing: .1em; font-weight: 600;
+  color: color-mix(in oklab, var(--text) 55%, transparent); margin: 22px 0 10px;
+}
+
+/* бейджі статусів (як claim-badge) */
+.live-badge { font-size: 11px; padding: 4px 11px; border-radius: 999px; font-weight: 700; white-space: nowrap; }
+.live-badge--live { background: rgba(248,113,113,.14); color: #f87171; border: 1px solid rgba(248,113,113,.4); }
+.live-badge--soon { background: rgba(245,158,11,.14); color: #f59e0b; border: 1px solid rgba(245,158,11,.4); }
+.live-badge--done { background: rgba(52,211,153,.14); color: #34d399; border: 1px solid rgba(52,211,153,.4); }
+
+/* головна панель турніру */
+.live-panel { padding: 18px 20px; margin-bottom: 10px; }
+.live-panel-top { display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; flex-wrap: wrap; }
+.live-panel-name { display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 1.02rem; }
+.live-coin-logo {
+  width: 30px; height: 30px; border-radius: 50%; flex-shrink: 0;
+  display: inline-flex; align-items: center; justify-content: center;
+  font-weight: 800; font-size: 13px; color: #fff;
+}
+.live-panel-label {
+  font-size: 11px; text-transform: uppercase; letter-spacing: .08em;
+  color: color-mix(in oklab, var(--text) 55%, transparent); margin-top: 16px;
+}
+.live-panel-volume { font-size: 2rem; font-weight: 800; letter-spacing: .3px; line-height: 1.15; }
+.live-panel-volume small { font-size: 1rem; font-weight: 700; color: color-mix(in oklab, var(--text) 65%, transparent); }
+.live-panel-wait { font-size: .95rem; font-weight: 600; margin-top: 4px; color: color-mix(in oklab, var(--text) 70%, transparent); }
+.live-spark { margin-top: 14px; }
+.live-panel-meta { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-top: 14px; }
+@media (max-width: 520px) { .live-panel-meta { grid-template-columns: repeat(2, 1fr); } }
+.live-panel-meta .cell {
+  background: var(--glass-bg); border: 1px solid var(--glass-border);
+  border-radius: 12px; padding: 9px 12px;
+}
+.live-panel-meta .k {
+  font-size: 10.5px; text-transform: uppercase; letter-spacing: .08em;
+  color: color-mix(in oklab, var(--text) 50%, transparent);
+}
+.live-panel-meta .v { font-weight: 700; font-size: .95rem; margin-top: 2px; }
+.live-panel-foot { display: flex; justify-content: space-between; align-items: center; gap: 10px; margin-top: 14px; flex-wrap: wrap; }
+.live-upd { font-size: .75rem; color: color-mix(in oklab, var(--text) 50%, transparent); }
+
+/* компактні рядки інших турнірів */
+.live-mini { padding: 13px 16px; display: flex; align-items: center; gap: 12px; margin-bottom: 9px; cursor: pointer; width: 100%; text-align: left; color: var(--text); }
+.live-mini:hover { filter: brightness(1.06); }
+.live-mini .grow { flex: 1; min-width: 0; }
+.live-mini .nm { font-weight: 700; font-size: .95rem; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.live-mini .sb { font-size: .75rem; color: color-mix(in oklab, var(--text) 55%, transparent); margin-top: 2px; }
+.live-mini .vol { font-weight: 700; font-size: 1rem; text-align: right; }
+.live-mini .vol small { display: block; font-size: .72rem; font-weight: 500; color: color-mix(in oklab, var(--text) 50%, transparent); }
+
+.live-state { font-size: .9rem; color: color-mix(in oklab, var(--text) 60%, transparent); padding: 18px 4px; }
+.live-state--error { color: #f87171; }
+.live-foot {
+  text-align: center; font-size: .72rem; line-height: 1.7; margin-top: 28px;
+  color: color-mix(in oklab, var(--text) 50%, transparent);
+}
+
+/* ===== калькулятор (indigo-панель у мові Stats) ===== */
+.okxcalc {
+  border-radius: 16px; padding: 18px; color: #fff; margin-top: 14px;
+  border: 1px solid rgba(255,255,255,.1);
+  background: linear-gradient(135deg, #161d3d 0%, #101735 50%, #0b1127 100%);
+  box-shadow: 0 10px 30px rgba(10,16,38,.35);
+}
+.okxcalc .muted { color: rgba(255,255,255,.5); }
+.okxcalc-title { font-weight: 800; font-size: 1.15rem; margin-bottom: 12px; }
+.okxcalc-estline {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  font-size: .8rem; color: rgba(255,255,255,.7); margin-bottom: 12px;
+}
+.okxcalc-est {
+  width: 140px; padding: 6px 10px; border-radius: 8px; font-size: 13px; color: #fff;
+  background: #121a38; border: 1px solid rgba(255,255,255,.1); outline: none;
+}
+.okxcalc-inputs { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+@media (max-width: 560px) { .okxcalc-inputs { grid-template-columns: 1fr; } }
+.okxcalc-label {
+  font-size: 11px; text-transform: uppercase; letter-spacing: .06em;
+  color: rgba(255,255,255,.65); margin-bottom: 6px; display: block;
+}
+.okxcalc-select {
+  width: 100%; padding: 9px 12px; border-radius: 10px; font-size: 14px; color: #fff;
+  background: #121a38; border: 1px solid rgba(255,255,255,.1); outline: none;
+}
+.okxcalc-select:focus { border-color: rgba(165,180,252,.7); }
+.okxcalc-seg { display: flex; border-radius: 10px; overflow: hidden; border: 1px solid rgba(255,255,255,.12); }
+.okxcalc-seg button {
+  flex: 1; padding: 9px 4px; font-size: 12.5px; font-weight: 600;
+  background: rgba(255,255,255,.04); color: rgba(255,255,255,.7);
+  border: none; cursor: pointer;
+}
+.okxcalc-seg button + button { border-left: 1px solid rgba(255,255,255,.12); }
+.okxcalc-seg button.on { background: rgba(129,140,248,.3); color: #e0e7ff; }
+.okxcalc-rbfield { grid-column: 1 / -1; }
+.okxcalc-rbrow { display: flex; gap: 7px; flex-wrap: wrap; }
+.okxcalc-rbchip {
+  padding: 7px 12px; border-radius: 9999px; font-size: 12px; font-weight: 600;
+  border: 1px solid rgba(255,255,255,.15); background: rgba(255,255,255,.05);
+  color: rgba(255,255,255,.75); cursor: pointer;
+}
+.okxcalc-rbchip.on { border-color: rgba(52,211,153,.6); background: rgba(52,211,153,.15); color: #6ee7b7; }
+.okxcalc-rbchip.lock { cursor: default; }
+.okxcalc-rbchip.dash { border-style: dashed; }
+.okxcalc-feeline { grid-column: 1 / -1; font-size: .78rem; color: rgba(255,255,255,.55); }
+.okxcalc-feeline b { color: rgba(255,255,255,.85); }
+.okxcalc-volhead { display: flex; justify-content: space-between; align-items: baseline; margin-top: 16px; }
+.okxcalc-volval { font-size: 1.25rem; font-weight: 800; }
+.okxcalc-range {
+  width: 100%; margin: 10px 0 4px; appearance: none; -webkit-appearance: none;
+  height: 6px; border-radius: 4px; background: rgba(255,255,255,.12); outline: none;
+}
+.okxcalc-range::-webkit-slider-thumb {
+  appearance: none; -webkit-appearance: none; width: 20px; height: 20px; border-radius: 50%;
+  background: var(--brand); border: 3px solid #fff; cursor: pointer;
+  box-shadow: 0 0 16px rgba(59,130,246,.8);
+}
+.okxcalc-range::-moz-range-thumb {
+  width: 14px; height: 14px; border-radius: 50%;
+  background: var(--brand); border: 3px solid #fff; cursor: pointer;
+  box-shadow: 0 0 16px rgba(59,130,246,.8);
+}
+.okxcalc-curvebox {
+  margin-top: 10px; border-radius: 12px; padding: 10px 10px 4px;
+  border: 1px solid rgba(255,255,255,.08); background: rgba(0,0,0,.18);
+}
+.okxcalc-legend { display: flex; gap: 14px; flex-wrap: wrap; font-size: .72rem; color: rgba(255,255,255,.55); padding: 4px 4px 6px; }
+.okxcalc-legend i { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 5px; box-sizing: border-box; }
+.okxcalc-result {
+  margin-top: 16px; border-radius: 14px; padding: 16px 18px;
+  background: linear-gradient(135deg, #0d1a2d 0%, #0e1528 50%, #091020 100%);
+  border: 1px solid rgba(103,232,249,.2);
+}
+.okxcalc-reslabel { font-size: 11px; text-transform: uppercase; letter-spacing: .1em; color: rgba(255,255,255,.55); }
+.okxcalc-resbig { font-size: 2.1rem; font-weight: 800; line-height: 1.15; margin: 2px 0; }
+.okxcalc-resbig.pos { color: #34d399; text-shadow: 0 0 30px rgba(52,211,153,.35); }
+.okxcalc-resbig.neg { color: #f87171; text-shadow: 0 0 30px rgba(248,113,113,.35); }
+.okxcalc-roi { font-size: .85rem; font-weight: 700; }
+.okxcalc-kvs { margin-top: 12px; }
+.okxcalc-kv {
+  display: flex; justify-content: space-between; font-size: .82rem; padding: 5.5px 0;
+  border-bottom: 1px dashed rgba(255,255,255,.08);
+}
+.okxcalc-kv:last-child { border-bottom: none; }
+.okxcalc-kv .k { color: rgba(255,255,255,.6); }
+.okxcalc-kv .v { font-weight: 600; }
+.okxcalc-hints { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
+.okxcalc-hint {
+  font-size: .74rem; font-weight: 600; padding: 6px 11px; border-radius: 9999px;
+  background: rgba(255,255,255,.06); border: 1px solid rgba(255,255,255,.12); color: rgba(255,255,255,.8);
+}
+.okxcalc-hint.opt { background: rgba(245,158,11,.12); border-color: rgba(245,158,11,.4); color: #fbbf24; }
+.okxcalc-warn {
+  margin-top: 14px; border-radius: 10px; padding: 10px 14px;
+  font-size: .78rem; line-height: 1.55;
+  background: rgba(245,158,11,.1); border: 1px solid rgba(245,158,11,.3); color: #fde68a;
+}
+.okxcalc-warn.red { background: rgba(248,113,113,.1); border-color: rgba(248,113,113,.35); color: #fecaca; }
