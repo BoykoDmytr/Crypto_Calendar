@@ -70,6 +70,8 @@
 /* ⓘ-підказка біля лейбла ефективного обсягу (пояснює зважування коефіцієнтами) */
 .live-info { margin-left: 6px; cursor: help; opacity: .6; font-size: 11px; vertical-align: middle; }
 .live-info:hover { opacity: 1; }
+/* другий рядок під сирим обсягом: ефективний (залік нагород OKX) */
+.live-effline { font-size: .78rem; font-weight: 600; margin-top: 2px; color: color-mix(in oklab, var(--text) 55%, transparent); }
 
 /* Flash Earn калькулятор: блок оптимальної стратегії + чипи днів з коефіцієнтами */
 .fecalc-strategy {

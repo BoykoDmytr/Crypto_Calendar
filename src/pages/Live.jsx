@@ -230,7 +230,11 @@ export default function Live() {
         // тримаємо глибину ≥24 год (для дельти «за 1 день»); realtime додає точки
         // частіше за БД-історію → дельти стають точнішими під час живої сесії
         setHistory((h) =>
-          [...h, { total_volume: row.total_volume, observed_at: row.updated_at }].slice(-360),
+          [...h, {
+            total_volume: row.total_volume,
+            raw_volume: row.raw_volume ?? null,
+            observed_at: row.updated_at,
+          }].slice(-360),
         )
       }
     })
@@ -369,19 +373,40 @@ function SelectedPanel({ campaign, history, now }) {
   const flash = isFlashEarn(campaign)
   const tokenReward = isTokenReward(campaign)
   const vol = campaign.okx_volume
-  const rawVolume = vol?.total_volume != null ? Number(vol.total_volume) : null
-  // flash-earn: монотонний прогрес (див. monotonicProgress) — ховаємо дипи перерахунку
-  // OKX, але показуємо реальне зростання. Кампанії клампимо лишень flash, бо вони й так
-  // монотонні (а хибний high-глюк парсингу кампанії не має «залипати»).
-  const histView = flash ? monotonicProgress(history) : history
-  const progLast = histView.length ? Number(histView[histView.length - 1].total_volume) : null
-  const rawLast = history.length ? Number(history[history.length - 1].total_volume) : null
-  // поточний живий кадр може бути свіжішим за останню точку історії — додаємо лише
-  // додатний приріст відносно останнього сирого значення
-  const volume =
-    flash && rawVolume != null && progLast != null && rawLast != null
-      ? progLast + Math.max(0, rawVolume - rawLast)
-      : rawVolume
+  const effVolume = vol?.total_volume != null ? Number(vol.total_volume) : null // ефективний (залік нагород OKX)
+  const rawTraded = vol?.raw_volume != null ? Number(vol.raw_volume) : null // СИРИЙ наторгований (оцінка поллера)
+  // flash-earn: головне число і графік — СИРИЙ обсяг (скільки реально накрутили;
+  // поллер відновлює його з приростів ефективного, ділячи на коефіцієнти нагород —
+  // монотонний за побудовою). Фолбек, поки поллер ще не порахував raw: монотонний
+  // ефективний (стара поведінка).
+  const rawHist = flash
+    ? history
+        .filter((p) => p.raw_volume != null)
+        .map((p) => ({ observed_at: p.observed_at, total_volume: p.raw_volume }))
+    : null
+  // сирий «зараз»: свіжий знімок okx_volume, або остання точка сирої історії
+  const rawNow =
+    rawTraded != null
+      ? rawTraded
+      : rawHist && rawHist.length
+        ? Number(rawHist[rawHist.length - 1].total_volume)
+        : null
+  const showingRaw = flash && rawNow != null // показуємо сирий обсяг (не фолбек-ефективний)
+  const histView = flash ? (rawHist.length ? rawHist : monotonicProgress(history)) : history
+  let volume
+  if (!flash) {
+    volume = effVolume
+  } else if (showingRaw) {
+    volume = rawNow
+  } else {
+    // фолбек (raw ще не пораховано): монотонний ефективний + живий приріст
+    const progLast = histView.length ? Number(histView[histView.length - 1].total_volume) : null
+    const effLast = history.length ? Number(history[history.length - 1].total_volume) : null
+    volume =
+      effVolume != null && progLast != null && effLast != null
+        ? progLast + Math.max(0, effVolume - effLast)
+        : effVolume
+  }
   // Пул нагород: USDT-турніри → share_pool/prize_pool; токен-приз (MON/RE) → prize_pool/coin_amount
   const pool = Number(campaign.share_pool ?? campaign.prize_pool ?? campaign.coin_amount ?? 0)
   const poolCur = tokenReward ? rewardCur(campaign) : 'USDT'
@@ -392,9 +417,8 @@ function SelectedPanel({ campaign, history, now }) {
   const rewardUsd = tokenReward && rQty && tPrice ? rQty * tPrice : null
   const left = timeLeft(campaign.end_at, now)
   // Нагорода за 100K обсягу (розмивання пулу) — у валюті пулу. Спираємось на СПРАВЖНІЙ
-  // ефективний обсяг (rawVolume), а не на монотонний дисплей: це реальний знаменник
-  // формули нагороди, тож оцінка не «пливе» вгору від акумуляції дипів.
-  const per100k = rawVolume != null && pool ? (pool * 100_000) / (rawVolume + 100_000) : null
+  // ефективний обсяг (effVolume): це реальний знаменник формули нагороди.
+  const per100k = effVolume != null && pool ? (pool * 100_000) / (effVolume + 100_000) : null
 
   // Приріст обсягу за кілька вікон — «темп накрутки». Рахуємо з історії через
   // інтерполяцію на (now − вікно); показуємо лише вікна, для яких історія вже
@@ -424,11 +448,15 @@ function SelectedPanel({ campaign, history, now }) {
       </div>
 
       <div className="live-panel-label">
-        {flash ? 'Ефективний обсяг (залік нагород)' : 'Загальний обсяг турніру'}
+        {flash ? (showingRaw ? 'Наторговано (сирий обсяг · оцінка)' : 'Ефективний обсяг (залік нагород)') : 'Загальний обсяг турніру'}
         {flash && (
           <span
             className="live-info"
-            title="Це ЗВАЖЕНИЙ обсяг для розподілу нагород, а не сирий обсяг торгів. OKX множить обсяг на коефіцієнти: день 1 ×1.8 → день 11 ×1.0, пара RE ×1.1. Тому число більше за реально наторговане (≈ у 1.5–1.8 раза). OKX періодично перераховує (знімає недопустимий обсяг) — тут показуємо монотонно."
+            title={
+              showingRaw
+                ? 'Скільки реально наторгували учасники. OKX віддає лише ЕФЕКТИВНИЙ (зважений) обсяг — ми відновлюємо сирий з його приростів, ділячи на коефіцієнти нагород (день ×1.8→×1.0, пара ×1.1, дні активності ×1.0-1.3). Оцінка, похибка ~±10-15%. Ефективний обсяг — рядком нижче.'
+                : 'Це ЗВАЖЕНИЙ обсяг для розподілу нагород, а не сирий обсяг торгів. OKX множить обсяг на коефіцієнти: день 1 ×1.8 → день 11 ×1.0, пара RE ×1.1.'
+            }
           >
             ⓘ
           </span>
@@ -439,6 +467,11 @@ function SelectedPanel({ campaign, history, now }) {
           <div className="live-panel-volume num">
             {fmt.format(Math.round(volume))} <small>{vol?.currency || 'USDT'}</small>
           </div>
+          {showingRaw && effVolume != null && (
+            <div className="live-effline num">
+              залік нагород (ефективний): {fmt.format(Math.round(effVolume))} USDT
+            </div>
+          )}
           {deltas.length > 0 && (
             <div className="live-deltas">
               <span className="live-deltas-cap">приріст:</span>
@@ -510,7 +543,13 @@ function SelectedPanel({ campaign, history, now }) {
 function MiniRow({ campaign, now, onSelect }) {
   const state = campaignState(campaign, now)
   const vol = campaign.okx_volume
-  const volume = vol?.total_volume != null ? Number(vol.total_volume) : null
+  // flash-earn: показуємо СИРИЙ наторгований (оцінка), фолбек — ефективний
+  const volume =
+    isFlashEarn(campaign) && vol?.raw_volume != null
+      ? Number(vol.raw_volume)
+      : vol?.total_volume != null
+        ? Number(vol.total_volume)
+        : null
   const left = timeLeft(campaign.end_at, now)
   const rQty = rewardQty(campaign)
   const rCur = rewardCur(campaign)
