@@ -4,4 +4,4 @@ dist
 .env.*
 .vercel
 .vscode
-test.js
+test.js.claude/

@@ -20,8 +20,44 @@ function compact(v) {
   return fmt.format(Math.round(x))
 }
 
-const LOGO_COLORS = { TAO: '#2563eb', CARDS: '#d8602e', NES: '#7c3aed' }
+const LOGO_COLORS = { TAO: '#2563eb', CARDS: '#d8602e', NES: '#7c3aed', MON: '#0ea5e9', RE: '#10b981' }
 const logoColor = (sym) => LOGO_COLORS[sym] || '#475569'
+
+// Flash Earn trade-to-earn (RE тощо) — інша механіка: пропорційна роздача токенів,
+// без комісій/VIP. Тому для них ховаємо калькулятор прибутку і USDT-специфічні поля.
+const isFlashEarn = (c) => /\/flash-earn\//i.test(c?.page_url || '')
+
+// Вікна приросту обсягу (показуємо «темп накрутки», а не лише суму).
+const DELTA_WINDOWS = [
+  { key: '5m', ms: 5 * 60_000, label: '5 хв' },
+  { key: '10m', ms: 10 * 60_000, label: '10 хв' },
+  { key: '30m', ms: 30 * 60_000, label: '30 хв' },
+  { key: '1h', ms: 60 * 60_000, label: '1 год' },
+  { key: '1d', ms: 24 * 60 * 60_000, label: '1 день' },
+]
+
+// Обсяг у момент t (мс) — лінійна інтерполяція між сусідніми точками історії
+// (history відсортована за зростанням observed_at). null, якщо t раніше за найдавнішу
+// точку (немає даних аж настільки давно — вікно ще «не набралось»).
+function volumeAt(history, t) {
+  if (!history?.length) return null
+  const pts = []
+  for (const p of history) {
+    const ts = new Date(p.observed_at).getTime()
+    const v = Number(p.total_volume)
+    if (Number.isFinite(ts) && Number.isFinite(v)) pts.push([ts, v])
+  }
+  if (!pts.length || t <= pts[0][0]) return null
+  if (t >= pts[pts.length - 1][0]) return pts[pts.length - 1][1]
+  for (let i = 1; i < pts.length; i++) {
+    if (pts[i][0] >= t) {
+      const [t0, v0] = pts[i - 1]
+      const [t1, v1] = pts[i]
+      return t1 === t0 ? v1 : v0 + (v1 - v0) * ((t - t0) / (t1 - t0))
+    }
+  }
+  return pts[pts.length - 1][1]
+}
 
 function campaignState(c, now) {
   const start = c.start_at ? new Date(c.start_at).getTime() : null
@@ -151,8 +187,10 @@ export default function Live() {
         prev.map((c) => (c.id === row.campaign_id ? { ...c, okx_volume: row } : c)),
       )
       if (row.campaign_id === selectedIdRef.current) {
+        // тримаємо глибину ≥24 год (для дельти «за 1 день»); realtime додає точки
+        // частіше за БД-історію → дельти стають точнішими під час живої сесії
         setHistory((h) =>
-          [...h, { total_volume: row.total_volume, observed_at: row.updated_at }].slice(-96),
+          [...h, { total_volume: row.total_volume, observed_at: row.updated_at }].slice(-360),
         )
       }
     })
@@ -259,11 +297,13 @@ export default function Live() {
                 <MiniRow key={c.id} campaign={c} now={now} onSelect={() => setSelectedId(c.id)} />
               ))}
 
-              <OkxProfitCalculator
-                campaign={selected}
-                liveVolume={selected.okx_volume?.total_volume ?? null}
-                feeTiers={feeTiers}
-              />
+              {!isFlashEarn(selected) && (
+                <OkxProfitCalculator
+                  campaign={selected}
+                  liveVolume={selected.okx_volume?.total_volume ?? null}
+                  feeTiers={feeTiers}
+                />
+              )}
             </>
           )}
 
@@ -280,20 +320,26 @@ export default function Live() {
 
 function SelectedPanel({ campaign, history, now }) {
   const state = campaignState(campaign, now)
+  const flash = isFlashEarn(campaign)
   const vol = campaign.okx_volume
   const volume = vol?.total_volume != null ? Number(vol.total_volume) : null
-  const pool = Number(campaign.share_pool ?? campaign.prize_pool ?? 0)
+  // Пул нагород: USDT-турніри → share_pool/prize_pool; flash-earn (RE) → coin_amount
+  const pool = Number(campaign.share_pool ?? campaign.prize_pool ?? campaign.coin_amount ?? 0)
+  const poolCur = flash ? campaign.prize_currency || campaign.coin_symbol || 'USDT' : 'USDT'
   const left = timeLeft(campaign.end_at, now)
+  // Нагорода за 100K обсягу зараз (розмивання пулу) — працює для обох механік,
+  // валюта з пулу (USDT або RE)
   const per100k = volume != null && pool ? (pool * 100_000) / (volume + 100_000) : null
 
-  // приріст за ~5 хв з історії
-  const delta5m = useMemo(() => {
-    if (!history?.length || volume == null) return null
-    const cutoff = now - 5 * 60_000
-    const past = [...history].reverse().find((p) => new Date(p.observed_at).getTime() <= cutoff)
-    if (!past) return null
-    const d = volume - Number(past.total_volume)
-    return d > 0 ? d : null
+  // Приріст обсягу за кілька вікон — «темп накрутки». Рахуємо з історії через
+  // інтерполяцію на (now − вікно); показуємо лише вікна, для яких історія вже
+  // достатньо глибока (past != null). Обсяг кумулятивний → клампимо в ≥0.
+  const deltas = useMemo(() => {
+    if (volume == null) return []
+    return DELTA_WINDOWS.map((w) => {
+      const past = volumeAt(history, now - w.ms)
+      return past == null ? null : { ...w, d: Math.max(0, volume - past) }
+    }).filter(Boolean)
   }, [history, volume, now])
 
   return (
@@ -311,15 +357,23 @@ function SelectedPanel({ campaign, history, now }) {
         {left && <span className="muted" style={{ fontSize: '.78rem' }}>до кінця {left}</span>}
       </div>
 
-      <div className="live-panel-label">Загальний обсяг турніру</div>
+      <div className="live-panel-label">
+        {flash ? 'Загальний ефективний обсяг' : 'Загальний обсяг турніру'}
+      </div>
       {volume != null ? (
         <>
           <div className="live-panel-volume num">
             {fmt.format(Math.round(volume))} <small>{vol?.currency || 'USDT'}</small>
           </div>
-          {delta5m && (
-            <div className="num" style={{ fontSize: '.8rem', fontWeight: 600, color: '#34d399', marginTop: 2 }}>
-              ▲ +{fmt.format(Math.round(delta5m))} за останні 5 хв
+          {deltas.length > 0 && (
+            <div className="live-deltas">
+              <span className="live-deltas-cap">приріст:</span>
+              {deltas.map((w) => (
+                <span key={w.key} className="live-delta" title={`Приріст обсягу за останні ${w.label}`}>
+                  <span className="live-delta-k">{w.label}</span>
+                  <span className="live-delta-v">+{compact(w.d)}</span>
+                </span>
+              ))}
             </div>
           )}
         </>
@@ -329,7 +383,7 @@ function SelectedPanel({ campaign, history, now }) {
         </div>
       )}
 
-      <Sparkline points={history} />
+      <Sparkline points={history.length > 90 ? history.slice(-90) : history} />
 
       <div className="live-panel-meta">
         <div className="cell">
@@ -349,7 +403,7 @@ function SelectedPanel({ campaign, history, now }) {
         <div className="cell">
           <div className="k">За 100K обсягу зараз</div>
           <div className="v num" style={{ color: '#fbbf24' }}>
-            {per100k != null ? `≈ ${fmt.format(Math.round(per100k))} USDT` : '—'}
+            {per100k != null ? `≈ ${fmt.format(Math.round(per100k))} ${poolCur}` : '—'}
           </div>
         </div>
       </div>
@@ -364,13 +418,15 @@ function SelectedPanel({ campaign, history, now }) {
             </>
           )}
         </span>
-        <button
-          className="btn"
-          type="button"
-          onClick={() => document.getElementById('okx-calc')?.scrollIntoView({ behavior: 'smooth' })}
-        >
-          Порахувати мій прибуток →
-        </button>
+        {!flash && (
+          <button
+            className="btn"
+            type="button"
+            onClick={() => document.getElementById('okx-calc')?.scrollIntoView({ behavior: 'smooth' })}
+          >
+            Порахувати мій прибуток →
+          </button>
+        )}
       </div>
     </div>
   )
@@ -394,7 +450,12 @@ function MiniRow({ campaign, now, onSelect }) {
           {state === 'ended' && <span className="live-badge live-badge--done">ЗАВЕРШЕНО</span>}
         </span>
         <span className="sb num">
-          приз {campaign.prize_pool ? `${fmt.format(Number(campaign.prize_pool))} ${campaign.prize_currency || 'USDT'}` : '—'}
+          приз{' '}
+          {campaign.prize_pool
+            ? `${fmt.format(Number(campaign.prize_pool))} ${campaign.prize_currency || 'USDT'}`
+            : campaign.coin_amount
+              ? `${fmt.format(Number(campaign.coin_amount))} ${campaign.coin_symbol}`
+              : '—'}
           {left ? ` · до кінця ${left}` : ''}
         </span>
       </span>

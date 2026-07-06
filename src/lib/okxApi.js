@@ -17,7 +17,9 @@ export async function fetchOkxCampaigns() {
   return (data || []).map((c) => ({ ...c, okx_volume: one(c.okx_volume) }))
 }
 
-export async function fetchVolumeHistory(campaignId, limit = 96) {
+// limit 300 ≈ 24 год історії при кроці ~5 хв — треба для дельти «за 1 день».
+// (Sparkline показує лише хвіст, дельти рахуються з повної глибини.)
+export async function fetchVolumeHistory(campaignId, limit = 300) {
   const { data, error } = await supaRoma
     .from('okx_volume_history')
     .select('total_volume, observed_at')
