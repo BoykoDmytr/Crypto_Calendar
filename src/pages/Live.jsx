@@ -7,6 +7,7 @@ import {
 } from '../lib/okxApi'
 import { supaRoma } from '../lib/supabaseRoma'
 import OkxProfitCalculator from '../components/OkxProfitCalculator'
+import FlashEarnCalculator from '../components/FlashEarnCalculator'
 import Claims from './Claims'
 import './Live.css'
 
@@ -336,7 +337,13 @@ export default function Live() {
                 <MiniRow key={c.id} campaign={c} now={now} onSelect={() => setSelectedId(c.id)} />
               ))}
 
-              {!isFlashEarn(selected) && (
+              {isFlashEarn(selected) ? (
+                <FlashEarnCalculator
+                  campaign={selected}
+                  liveTotal={selected.okx_volume?.total_volume ?? null}
+                  feeTiers={feeTiers}
+                />
+              ) : (
                 <OkxProfitCalculator
                   campaign={selected}
                   liveVolume={selected.okx_volume?.total_volume ?? null}
@@ -488,15 +495,13 @@ function SelectedPanel({ campaign, history, now }) {
             </>
           )}
         </span>
-        {!flash && (
-          <button
-            className="btn"
-            type="button"
-            onClick={() => document.getElementById('okx-calc')?.scrollIntoView({ behavior: 'smooth' })}
-          >
-            Порахувати мій прибуток →
-          </button>
-        )}
+        <button
+          className="btn"
+          type="button"
+          onClick={() => document.getElementById('okx-calc')?.scrollIntoView({ behavior: 'smooth' })}
+        >
+          {flash ? 'Стратегія і прибуток →' : 'Порахувати мій прибуток →'}
+        </button>
       </div>
     </div>
   )

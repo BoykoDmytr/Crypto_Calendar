@@ -71,6 +71,27 @@
 .live-info { margin-left: 6px; cursor: help; opacity: .6; font-size: 11px; vertical-align: middle; }
 .live-info:hover { opacity: 1; }
 
+/* Flash Earn калькулятор: блок оптимальної стратегії + чипи днів з коефіцієнтами */
+.fecalc-strategy {
+  background: color-mix(in oklab, #10b981 8%, transparent);
+  border: 1px solid color-mix(in oklab, #10b981 25%, transparent);
+  border-radius: 14px; padding: 12px 14px; margin: 10px 0 14px;
+}
+.fecalc-strategy-title { font-weight: 800; font-size: .92rem; margin-bottom: 6px; }
+.fecalc-strategy ol { margin: 0; padding-left: 18px; display: grid; gap: 4px; font-size: .85rem; }
+.fecalc-strategy .muted { color: color-mix(in oklab, var(--text) 55%, transparent); }
+.fecalc-days { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 10px; }
+.fecalc-day {
+  font-size: .74rem; padding: 2px 8px; border-radius: 999px;
+  background: var(--glass-bg); border: 1px solid var(--glass-border);
+  color: color-mix(in oklab, var(--text) 70%, transparent);
+}
+.fecalc-day.on {
+  background: color-mix(in oklab, #34d399 18%, transparent);
+  border-color: color-mix(in oklab, #34d399 45%, transparent);
+  color: var(--text); font-weight: 700;
+}
+
 /* приріст обсягу за вікнами — «темп накрутки» */
 .live-deltas { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 8px; }
 .live-deltas-cap {
