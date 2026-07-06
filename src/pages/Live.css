@@ -67,6 +67,9 @@
 .live-panel-volume { font-size: 2rem; font-weight: 800; letter-spacing: .3px; line-height: 1.15; }
 .live-panel-volume small { font-size: 1rem; font-weight: 700; color: color-mix(in oklab, var(--text) 65%, transparent); }
 .live-panel-wait { font-size: .95rem; font-weight: 600; margin-top: 4px; color: color-mix(in oklab, var(--text) 70%, transparent); }
+/* ⓘ-підказка біля лейбла ефективного обсягу (пояснює зважування коефіцієнтами) */
+.live-info { margin-left: 6px; cursor: help; opacity: .6; font-size: 11px; vertical-align: middle; }
+.live-info:hover { opacity: 1; }
 
 /* приріст обсягу за вікнами — «темп накрутки» */
 .live-deltas { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 8px; }

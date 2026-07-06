@@ -79,6 +79,25 @@ function volumeAt(history, t) {
   return pts[pts.length - 1][1]
 }
 
+// Монотонний прогрес обсягу для flash-earn (RE). OKX віддає ЕФЕКТИВНИЙ обсяг (сирий ×
+// коеф. нагород), який періодично ПЕРЕРАХОВУЄ ВНИЗ (знімає недопустимий обсяг) — на
+// графіку це «падіння», хоча люди лише додають обсяг. Тому акумулюємо ЛИШЕ додатні
+// прирости: дипи перерахунку ігноруємо (0), а реальне зростання після дипу видно
+// одразу (на відміну від cummax, що «заморозив би» до пробиття піку). Повертає новий
+// масив із тим самим observed_at, але монотонним total_volume.
+function monotonicProgress(history) {
+  let acc = null
+  let prevRaw = null
+  return (history || []).map((p) => {
+    const v = Number(p.total_volume)
+    if (!Number.isFinite(v)) return p
+    if (acc == null) acc = v
+    else acc += Math.max(0, v - prevRaw)
+    prevRaw = v
+    return { ...p, total_volume: acc }
+  })
+}
+
 function campaignState(c, now) {
   const start = c.start_at ? new Date(c.start_at).getTime() : null
   const end = c.end_at ? new Date(c.end_at).getTime() : null
@@ -343,7 +362,19 @@ function SelectedPanel({ campaign, history, now }) {
   const flash = isFlashEarn(campaign)
   const tokenReward = isTokenReward(campaign)
   const vol = campaign.okx_volume
-  const volume = vol?.total_volume != null ? Number(vol.total_volume) : null
+  const rawVolume = vol?.total_volume != null ? Number(vol.total_volume) : null
+  // flash-earn: монотонний прогрес (див. monotonicProgress) — ховаємо дипи перерахунку
+  // OKX, але показуємо реальне зростання. Кампанії клампимо лишень flash, бо вони й так
+  // монотонні (а хибний high-глюк парсингу кампанії не має «залипати»).
+  const histView = flash ? monotonicProgress(history) : history
+  const progLast = histView.length ? Number(histView[histView.length - 1].total_volume) : null
+  const rawLast = history.length ? Number(history[history.length - 1].total_volume) : null
+  // поточний живий кадр може бути свіжішим за останню точку історії — додаємо лише
+  // додатний приріст відносно останнього сирого значення
+  const volume =
+    flash && rawVolume != null && progLast != null && rawLast != null
+      ? progLast + Math.max(0, rawVolume - rawLast)
+      : rawVolume
   // Пул нагород: USDT-турніри → share_pool/prize_pool; токен-приз (MON/RE) → prize_pool/coin_amount
   const pool = Number(campaign.share_pool ?? campaign.prize_pool ?? campaign.coin_amount ?? 0)
   const poolCur = tokenReward ? rewardCur(campaign) : 'USDT'
@@ -353,8 +384,10 @@ function SelectedPanel({ campaign, history, now }) {
   const tPrice = tokenPriceUsd(campaign)
   const rewardUsd = tokenReward && rQty && tPrice ? rQty * tPrice : null
   const left = timeLeft(campaign.end_at, now)
-  // Нагорода за 100K обсягу зараз (розмивання пулу) — у валюті пулу (USDT або токен)
-  const per100k = volume != null && pool ? (pool * 100_000) / (volume + 100_000) : null
+  // Нагорода за 100K обсягу (розмивання пулу) — у валюті пулу. Спираємось на СПРАВЖНІЙ
+  // ефективний обсяг (rawVolume), а не на монотонний дисплей: це реальний знаменник
+  // формули нагороди, тож оцінка не «пливе» вгору від акумуляції дипів.
+  const per100k = rawVolume != null && pool ? (pool * 100_000) / (rawVolume + 100_000) : null
 
   // Приріст обсягу за кілька вікон — «темп накрутки». Рахуємо з історії через
   // інтерполяцію на (now − вікно); показуємо лише вікна, для яких історія вже
@@ -362,12 +395,11 @@ function SelectedPanel({ campaign, history, now }) {
   const deltas = useMemo(() => {
     if (volume == null) return []
     return DELTA_WINDOWS.map((w) => {
-      const past = volumeAt(history, now - w.ms)
+      const past = volumeAt(histView, now - w.ms)
       return past == null ? null : { ...w, d: Math.max(0, volume - past) }
-      // ховаємо нульові вікна: ефективний обсяг може тимчасово просідати (OKX
-      // перераховує), тоді довше вікно показало б менше за коротше — плутає
+      // ховаємо нульові вікна (для flash-earn histView монотонна → дельти чисті)
     }).filter((w) => w && w.d > 0)
-  }, [history, volume, now])
+  }, [histView, volume, now])
 
   return (
     <div className="card live-panel">
@@ -385,7 +417,15 @@ function SelectedPanel({ campaign, history, now }) {
       </div>
 
       <div className="live-panel-label">
-        {flash ? 'Загальний ефективний обсяг' : 'Загальний обсяг турніру'}
+        {flash ? 'Ефективний обсяг (залік нагород)' : 'Загальний обсяг турніру'}
+        {flash && (
+          <span
+            className="live-info"
+            title="Це ЗВАЖЕНИЙ обсяг для розподілу нагород, а не сирий обсяг торгів. OKX множить обсяг на коефіцієнти: день 1 ×1.8 → день 11 ×1.0, пара RE ×1.1. Тому число більше за реально наторговане (≈ у 1.5–1.8 раза). OKX періодично перераховує (знімає недопустимий обсяг) — тут показуємо монотонно."
+          >
+            ⓘ
+          </span>
+        )}
       </div>
       {volume != null ? (
         <>
@@ -410,7 +450,7 @@ function SelectedPanel({ campaign, history, now }) {
         </div>
       )}
 
-      <Sparkline points={history.length > 90 ? history.slice(-90) : history} />
+      <Sparkline points={histView.length > 90 ? histView.slice(-90) : histView} />
 
       <div className="live-panel-meta">
         <div className="cell">
