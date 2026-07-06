@@ -11,7 +11,7 @@ function one(v) {
 export async function fetchOkxCampaigns() {
   const { data, error } = await supaRoma
     .from('okx_campaigns')
-    .select('*, okx_volume(total_volume, currency, participants, updated_at)')
+    .select('*, okx_volume(total_volume, currency, participants, updated_at, token_price_usd)')
     .order('end_at', { ascending: true })
   if (error) throw error
   return (data || []).map((c) => ({ ...c, okx_volume: one(c.okx_volume) }))

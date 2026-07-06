@@ -95,6 +95,9 @@
   color: color-mix(in oklab, var(--text) 50%, transparent);
 }
 .live-panel-meta .v { font-weight: 700; font-size: .95rem; margin-top: 2px; }
+/* $-вартість токен-призу під кількістю токенів */
+.live-usd { font-size: .78rem; font-weight: 700; color: #34d399; margin-top: 1px; }
+.live-usd .live-usd-px { color: color-mix(in oklab, var(--text) 50%, transparent); font-weight: 600; }
 .live-panel-foot { display: flex; justify-content: space-between; align-items: center; gap: 10px; margin-top: 14px; flex-wrap: wrap; }
 .live-upd { font-size: .75rem; color: color-mix(in oklab, var(--text) 50%, transparent); }
 

@@ -27,6 +27,26 @@ const logoColor = (sym) => LOGO_COLORS[sym] || '#475569'
 // без комісій/VIP. Тому для них ховаємо калькулятор прибутку і USDT-специфічні поля.
 const isFlashEarn = (c) => /\/flash-earn\//i.test(c?.page_url || '')
 
+// Приз у токенах (MON, RE), а не в USDT → показуємо і кількість токенів, і $-вартість
+// (ціна токена × кількість). Ціна — з okx_volume.token_price_usd (поллер бере з
+// OKX-тикера). Кількість = prize_pool (MON) або coin_amount (RE).
+const isTokenReward = (c) => !!(c?.prize_currency && String(c.prize_currency).toUpperCase() !== 'USDT')
+const rewardQty = (c) => Number(c?.prize_pool ?? c?.coin_amount ?? 0) || null
+const rewardCur = (c) => c?.prize_currency || c?.coin_symbol || 'USDT'
+const tokenPriceUsd = (c) =>
+  c?.okx_volume?.token_price_usd != null ? Number(c.okx_volume.token_price_usd) : null
+
+// Компактна сума в $ ($1.2M, $634K, $0.65)
+function compactUsd(v) {
+  if (v == null || !Number.isFinite(Number(v))) return null
+  const x = Number(v)
+  if (x >= 1e9) return `$${(x / 1e9).toFixed(2).replace('.', ',')}B`
+  if (x >= 1e6) return `$${(x / 1e6).toFixed(2).replace('.', ',')}M`
+  if (x >= 1e3) return `$${Math.round(x / 1e3)}K`
+  if (x >= 1) return `$${x.toFixed(2).replace('.', ',')}`
+  return `$${x.toPrecision(2)}`
+}
+
 // Вікна приросту обсягу (показуємо «темп накрутки», а не лише суму).
 const DELTA_WINDOWS = [
   { key: '5m', ms: 5 * 60_000, label: '5 хв' },
@@ -321,14 +341,19 @@ export default function Live() {
 function SelectedPanel({ campaign, history, now }) {
   const state = campaignState(campaign, now)
   const flash = isFlashEarn(campaign)
+  const tokenReward = isTokenReward(campaign)
   const vol = campaign.okx_volume
   const volume = vol?.total_volume != null ? Number(vol.total_volume) : null
-  // Пул нагород: USDT-турніри → share_pool/prize_pool; flash-earn (RE) → coin_amount
+  // Пул нагород: USDT-турніри → share_pool/prize_pool; токен-приз (MON/RE) → prize_pool/coin_amount
   const pool = Number(campaign.share_pool ?? campaign.prize_pool ?? campaign.coin_amount ?? 0)
-  const poolCur = flash ? campaign.prize_currency || campaign.coin_symbol || 'USDT' : 'USDT'
+  const poolCur = tokenReward ? rewardCur(campaign) : 'USDT'
+  // Токен-приз: кількість, валюта, ціна токена ($) і $-вартість усієї нагороди
+  const rQty = rewardQty(campaign)
+  const rCur = rewardCur(campaign)
+  const tPrice = tokenPriceUsd(campaign)
+  const rewardUsd = tokenReward && rQty && tPrice ? rQty * tPrice : null
   const left = timeLeft(campaign.end_at, now)
-  // Нагорода за 100K обсягу зараз (розмивання пулу) — працює для обох механік,
-  // валюта з пулу (USDT або RE)
+  // Нагорода за 100K обсягу зараз (розмивання пулу) — у валюті пулу (USDT або токен)
   const per100k = volume != null && pool ? (pool * 100_000) / (volume + 100_000) : null
 
   // Приріст обсягу за кілька вікон — «темп накрутки». Рахуємо з історії через
@@ -339,7 +364,9 @@ function SelectedPanel({ campaign, history, now }) {
     return DELTA_WINDOWS.map((w) => {
       const past = volumeAt(history, now - w.ms)
       return past == null ? null : { ...w, d: Math.max(0, volume - past) }
-    }).filter(Boolean)
+      // ховаємо нульові вікна: ефективний обсяг може тимчасово просідати (OKX
+      // перераховує), тоді довше вікно показало б менше за коротше — плутає
+    }).filter((w) => w && w.d > 0)
   }, [history, volume, now])
 
   return (
@@ -388,13 +415,13 @@ function SelectedPanel({ campaign, history, now }) {
       <div className="live-panel-meta">
         <div className="cell">
           <div className="k">Приз</div>
-          <div className="v num">
-            {campaign.prize_pool
-              ? `${fmt.format(Number(campaign.prize_pool))} ${campaign.prize_currency || 'USDT'}`
-              : campaign.coin_amount
-                ? `${fmt.format(Number(campaign.coin_amount))} ${campaign.coin_symbol}`
-                : '—'}
-          </div>
+          <div className="v num">{rQty ? `${fmt.format(rQty)} ${rCur}` : '—'}</div>
+          {rewardUsd != null && (
+            <div className="live-usd num">
+              ≈ {compactUsd(rewardUsd)}
+              {tPrice != null && <span className="live-usd-px"> · {rCur} {compactUsd(tPrice)}</span>}
+            </div>
+          )}
         </div>
         <div className="cell">
           <div className="k">Учасників</div>
@@ -405,6 +432,9 @@ function SelectedPanel({ campaign, history, now }) {
           <div className="v num" style={{ color: '#fbbf24' }}>
             {per100k != null ? `≈ ${fmt.format(Math.round(per100k))} ${poolCur}` : '—'}
           </div>
+          {per100k != null && tokenReward && tPrice != null && (
+            <div className="live-usd num">≈ {compactUsd(per100k * tPrice)}</div>
+          )}
         </div>
       </div>
 
@@ -437,6 +467,10 @@ function MiniRow({ campaign, now, onSelect }) {
   const vol = campaign.okx_volume
   const volume = vol?.total_volume != null ? Number(vol.total_volume) : null
   const left = timeLeft(campaign.end_at, now)
+  const rQty = rewardQty(campaign)
+  const rCur = rewardCur(campaign)
+  const tPrice = tokenPriceUsd(campaign)
+  const rewardUsd = isTokenReward(campaign) && rQty && tPrice ? rQty * tPrice : null
   return (
     <button className="card live-mini" type="button" onClick={onSelect}>
       <span className="live-coin-logo" style={{ background: logoColor(campaign.coin_symbol) }}>
@@ -450,12 +484,8 @@ function MiniRow({ campaign, now, onSelect }) {
           {state === 'ended' && <span className="live-badge live-badge--done">ЗАВЕРШЕНО</span>}
         </span>
         <span className="sb num">
-          приз{' '}
-          {campaign.prize_pool
-            ? `${fmt.format(Number(campaign.prize_pool))} ${campaign.prize_currency || 'USDT'}`
-            : campaign.coin_amount
-              ? `${fmt.format(Number(campaign.coin_amount))} ${campaign.coin_symbol}`
-              : '—'}
+          приз {rQty ? `${fmt.format(rQty)} ${rCur}` : '—'}
+          {rewardUsd != null ? ` (≈ ${compactUsd(rewardUsd)})` : ''}
           {left ? ` · до кінця ${left}` : ''}
         </span>
       </span>
