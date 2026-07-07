@@ -1,18 +1,15 @@
 import { useMemo, useState } from 'react'
 import { FEE_TIERS_FALLBACK } from '../lib/okxApi'
 
-// Калькулятор оптимальної стратегії для OKX Flash Earn trade-to-earn (RE тощо).
+// Калькулятор оптимальної стратегії для OKX Flash Earn trade-to-earn (DATA/RE тощо).
 // Механіка (з /public/detail/<id>, живе в okx_campaigns.flash_config):
 //   ефективний обсяг = Σ(денний обсяг × часовий коеф. × коеф. пари) × кумулятивний коеф.
 //   нагорода = (твій еф. обсяг / загальний еф. обсяг) × SHARE-пул, з кепом на юзера.
-// Оптимальна стратегія, яку рахуємо і показуємо:
-//   1) пара з максимальним коеф. (RE/USDT ×1.1);
-//   2) основний обсяг у день із найвищим коеф., що лишився (коеф. спадають → сьогодні);
-//   3) мікро-трейд щодня до кінця → максимальний кумулятивний коеф. (ден. мінімуму немає);
-//   4) НЕ 0% комісії (zero-fee обсяг не зараховується — правило OKX);
-//   5) обсяг-оптимум проти розмивання пулу, кепу і комісій — чисельно по лог-сітці.
-const REFBACK_BASE = 0.2
-const REFBACK_EXTRA = 0.25
+// Реффбек — як у спотовому калькуляторі: авто (20%, OKX) + партнерський (0…30%).
+const AUTO_REFBACK = 0.2
+const PARTNER_MAX = 0.3
+const PARTNER_STEP = 0.05
+const PARTNER_DEFAULT = 0.3
 
 const VMIN = 1_000
 const VMAX = 10_000_000
@@ -33,6 +30,35 @@ function compactUsd(x) {
   if (v >= 1e3) return `$${Math.round(v / 1e3)}K`
   if (v >= 1) return `$${v.toFixed(2).replace('.', ',')}`
   return `$${v.toPrecision(2)}`
+}
+
+// Ввід «людських» чисел: "3.3B" / "3300M" / "3 300 000 000" / "3,3B" → 3_300_000_000.
+function parseHumanNum(str) {
+  let s = String(str ?? '').trim().toLowerCase().replace(/[\s_]/g, '')
+  if (!s) return null
+  let mult = 1
+  const m = s.match(/([kкmмbб])$/)
+  if (m) {
+    const c = m[1]
+    mult = 'bб'.includes(c) ? 1e9 : 'mм'.includes(c) ? 1e6 : 1e3
+    s = s.slice(0, -1)
+  }
+  const commas = (s.match(/,/g) || []).length
+  const dots = (s.match(/\./g) || []).length
+  if (commas === 1 && dots === 0) s = s.replace(',', '.') // кома як десятковий роздільник
+  else s = s.replace(/,/g, '') // коми як тисячні
+  if ((s.match(/\./g) || []).length > 1) s = s.replace(/\./g, '') // крапки як тисячні
+  const n = Number(s)
+  return Number.isFinite(n) ? Math.max(0, n * mult) : null
+}
+// Компактний рядок для поля вводу (редагований): 3.3B, 12M, 500K.
+function toHumanInput(v) {
+  if (v == null || !Number.isFinite(v)) return ''
+  const trim = (x) => x.replace(/\.?0+$/, '')
+  if (v >= 1e9) return `${trim((v / 1e9).toFixed(2))}B`
+  if (v >= 1e6) return `${trim((v / 1e6).toFixed(1))}M`
+  if (v >= 1e3) return `${Math.round(v / 1e3)}K`
+  return String(Math.round(v))
 }
 
 // Фолбек-конфіг RE (activityId 10000002), якщо поллер ще не записав flash_config.
@@ -79,19 +105,16 @@ function cumMultFor(cfg, days) {
 }
 
 // Прогноз фінального загального еф. обсягу. Інтегруємо часовий коеф. по періоду
-// (день 1 короткий — 6 год; межі днів 16:00 UTC):
-//   linear — «сталий темп сирого обсягу до кінця» (верхня межа: хайп перших днів
-//   зазвичай згасає); damped — середнє геометричне між «ріст зупинився» (tNow) і
-//   linear ≈ модель затухання темпу. ДЕФОЛТ = damped, юзер може підправити.
+// (день 1 короткий; межі днів 16:00 UTC): linear — «сталий темп сирого до кінця»;
+// damped — середнє геометричне tNow і linear (модель затухання). ДЕФОЛТ = damped.
 function projectFinalT(cfg, tNow, now) {
   const start = new Date(cfg.startTime).getTime()
   const end = new Date(cfg.endTime).getTime()
   if (!Number.isFinite(start) || !Number.isFinite(end) || tNow == null) return null
   const B = 16 * 3600_000
-  const boundary = (t) => (Math.floor((t - B) / 86_400_000) + 1) * 86_400_000 + B // наступна межа 16:00 UTC
+  const boundary = (t) => (Math.floor((t - B) / 86_400_000) + 1) * 86_400_000 + B
   const multOf = (d) => cfg.timeCoefficients.find((x) => x.day === d)?.mult ?? 1
   const w = (t0, t1) => {
-    // Σ mult × тривалість по днях турніру в [t0, t1]
     let acc = 0
     let t = t0
     let day = computeCurrentDay(cfg, t0)
@@ -114,9 +137,12 @@ export default function FlashEarnCalculator({ campaign, liveTotal, feeTiers }) {
   const tiers = feeTiers && feeTiers.length ? feeTiers : FEE_TIERS_FALLBACK
   const [vipIdx, setVipIdx] = useState(0)
   const [order, setOrder] = useState('maker')
-  const [rbExtra, setRbExtra] = useState(true)
+  const [partnerRb, setPartnerRb] = useState(PARTNER_DEFAULT) // 0…0.3, регулюється −/+
+  const [autoRb, setAutoRb] = useState(true) // авто-реффбек 20% (вмик/вимк)
   const [slider, setSlider] = useState(500)
   const [tOverride, setTOverride] = useState(null) // ручна оцінка фінального T
+  const [tFocused, setTFocused] = useState(false)
+  const [tText, setTText] = useState('')
 
   const cfg = campaign?.flash_config || DEFAULT_RE_CONFIG
   const now = Date.now()
@@ -131,7 +157,9 @@ export default function FlashEarnCalculator({ campaign, liveTotal, feeTiers }) {
   const days = cfg.activityDays || 11
   const remaining = Math.max(1, days - day + 1)
   const todayMult = cfg.timeCoefficients.find((t) => t.day === day)?.mult ?? 1
-  const bestToken = [...(cfg.tokenCoefficients || [])].sort((a, b) => b.mult - a.mult)[0]
+  const tokenCoefs = cfg.tokenCoefficients || []
+  const bestToken = [...tokenCoefs].sort((a, b) => b.mult - a.mult)[0]
+  const singlePair = tokenCoefs.length <= 1 // напр. DATA/USDT — вибору пари немає
   const cumMax = cumMultFor(cfg, remaining)
   // повний множник за оптимальної гри: обсяг сьогодні × найкраща пара × щоденна активність
   const effMult = todayMult * (bestToken?.mult ?? 1) * cumMax
@@ -139,6 +167,7 @@ export default function FlashEarnCalculator({ campaign, liveTotal, feeTiers }) {
   const tNow = liveTotal != null ? Number(liveTotal) : null
   const tProj = useMemo(() => projectFinalT(cfg, tNow, now), [cfg, tNow]) // eslint-disable-line react-hooks/exhaustive-deps
   const T = Math.max(0, Number(tOverride ?? tProj?.damped ?? tNow ?? 0))
+  const tInputValue = tFocused ? tText : tOverride != null ? toHumanInput(tOverride) : toHumanInput(T)
 
   const tier = tiers[Math.min(vipIdx, tiers.length - 1)]
   const feePct =
@@ -148,7 +177,8 @@ export default function FlashEarnCalculator({ campaign, liveTotal, feeTiers }) {
         ? Number(tier.taker_pct)
         : (Number(tier.maker_pct) + Number(tier.taker_pct)) / 2
   const zeroFee = feePct === 0 // zero-fee обсяг НЕ зараховується (правило кампанії)
-  const rb = rbExtra ? 1 - (1 - REFBACK_BASE) * (1 - REFBACK_EXTRA) : REFBACK_BASE
+  const autoFrac = autoRb ? AUTO_REFBACK : 0
+  const rb = Math.min(0.99, partnerRb + autoFrac) // сумарний реффбек
   const fNet = (feePct / 100) * (1 - rb)
 
   // прибуток за сирий обсяг V (США): нагорода в $ мінус чиста комісія
@@ -166,27 +196,9 @@ export default function FlashEarnCalculator({ campaign, liveTotal, feeTiers }) {
   const V = sliderToV(slider)
   const res = profitAt(V)
   const fee = (V * feePct) / 100
-  const rbAmt = fee * rb
-
-  // оптимум і беззбитковість по лог-сітці (кеп ламає аналітику)
-  const { bestV, bestP, beV, hadProfit } = useMemo(() => {
-    if (zeroFee || !pool || price == null) return { bestV: null, bestP: null, beV: null, hadProfit: false }
-    let bestV = VMIN
-    let bestP = -Infinity
-    let beV = null
-    let hadProfit = false
-    for (let i = 0; i <= 400; i++) {
-      const v = Math.exp(Math.log(VMIN) + (i / 400) * (Math.log(VMAX * 3) - Math.log(VMIN)))
-      const p = profitAt(v).profit
-      if (p > bestP) {
-        bestP = p
-        bestV = v
-      }
-      if (p >= 0) hadProfit = true
-      else if (hadProfit && beV === null) beV = v
-    }
-    return { bestV, bestP, beV, hadProfit }
-  }, [zeroFee, pool, T, cap, fNet, price, effMult]) // eslint-disable-line react-hooks/exhaustive-deps
+  const autoAmt = fee * autoFrac
+  const partnerAmt = fee * partnerRb
+  const rbAmt = autoAmt + partnerAmt
 
   // крива прибутку
   const curve = useMemo(() => {
@@ -246,38 +258,37 @@ export default function FlashEarnCalculator({ campaign, liveTotal, feeTiers }) {
   if (!campaign) return null
 
   const remainingChips = cfg.timeCoefficients.filter((t) => t.day >= day)
+  const setTAuto = () => {
+    setTOverride(null)
+    setTText('')
+    setTFocused(false)
+  }
 
   return (
     <div className="okxcalc" id="okx-calc">
-      <div className="okxcalc-title">
-        🎯 Калькулятор стратегії · {cur} Flash Earn
-      </div>
+      <div className="okxcalc-title">🎯 Калькулятор стратегії · {cur} Flash Earn</div>
 
       {/* Оптимальна стратегія — головні правила гри */}
       <div className="fecalc-strategy">
         <div className="fecalc-strategy-title">Оптимальна гра (множник сьогодні ×{effMult.toFixed(2)})</div>
         <ol>
-          <li>
-            Торгуй пару <b>{bestToken?.token}/USDT</b> — коеф. ×{bestToken?.mult}
-            {cfg.tokenCoefficients.length > 1 &&
-              ` (${cfg.tokenCoefficients.filter((t) => t !== bestToken).map((t) => `${t.token} ×${t.mult}`).join(', ')})`}
-          </li>
-          <li>
-            Сьогодні <b>день {day}/{days}</b> — часовий коеф. <b>×{todayMult}</b>, найвищий з решти:{' '}
-            <b>основний обсяг — якомога раніше</b>
-          </li>
-          <li>
-            Зроби хоч один трейд <b>щодня до кінця</b> ({remaining} дн) → кумулятивний коеф. <b>×{cumMax}</b>{' '}
-            <span className="muted">(денного мінімуму немає — вистачить дрібного трейду)</span>
-          </li>
-          <li>
-            <b>Не</b> використовуй 0% комісії (VIP6 maker) — такий обсяг <b>не зараховується</b>
-          </li>
-          {minVol != null && (
+          {!singlePair && (
             <li>
-              Мінімум для участі: <b>{fmt.format(minVol)} USDT</b> сумарного обсягу
+              Торгуй пару <b>{bestToken?.token}/USDT</b> — коеф. ×{bestToken?.mult}
+              {` (${tokenCoefs.filter((t) => t !== bestToken).map((t) => `${t.token} ×${t.mult}`).join(', ')})`}
             </li>
           )}
+          <li>
+            Сьогодні <b>день {day}/{days}</b> — часовий коеф. <b>×{todayMult}</b>:{' '}
+            <b>основний обсяг якомога раніше</b>
+          </li>
+          <li>
+            Трейд <b>щодня до кінця</b> ({remaining} дн) → кумулятивний коеф. <b>×{cumMax}</b>{' '}
+            <span className="muted">(вистачить дрібного)</span>
+          </li>
+          <li>
+            <b>Не</b> 0% комісії (VIP6 maker) — такий обсяг <b>не зараховується</b>
+          </li>
         </ol>
         <div className="fecalc-days num">
           {remainingChips.map((t) => (
@@ -316,40 +327,75 @@ export default function FlashEarnCalculator({ campaign, liveTotal, feeTiers }) {
         </div>
         <div className="okxcalc-rbfield">
           <span className="okxcalc-label">Реффбек</span>
-          <div className="okxcalc-rbrow">
-            <span className="okxcalc-rbchip on lock">{Math.round(REFBACK_BASE * 100)}% базовий · авто</span>
-            <button type="button" className={`okxcalc-rbchip ${rbExtra ? 'on' : ''}`} onClick={() => setRbExtra(!rbExtra)}>
-              +{Math.round(REFBACK_EXTRA * 100)}% додатковий
+          <div className="okxcalc-rbrow2">
+            <button
+              type="button"
+              className={`okxcalc-rbchip ${autoRb ? 'on' : ''}`}
+              onClick={() => setAutoRb((a) => !a)}
+            >
+              {autoRb ? '✓ ' : ''}{Math.round(AUTO_REFBACK * 100)}% авто
             </button>
-            <span className="okxcalc-rbchip lock dash">ефективно {Math.round(rb * 100)}%</span>
+            <span className="okxcalc-rbpartner">
+              <span className="okxcalc-rbpartner-lab">партнер</span>
+              <span className="okxcalc-rbstep">
+                <button
+                  type="button"
+                  className="okxcalc-rbstep-btn"
+                  onClick={() => setPartnerRb((r) => Math.max(0, Math.round((r - PARTNER_STEP) * 100) / 100))}
+                  disabled={partnerRb <= 0.0001}
+                  aria-label="Зменшити реффбек партнера"
+                >
+                  −
+                </button>
+                <span className="okxcalc-rbstep-val num">{Math.round(partnerRb * 100)}%</span>
+                <button
+                  type="button"
+                  className="okxcalc-rbstep-btn"
+                  onClick={() => setPartnerRb((r) => Math.min(PARTNER_MAX, Math.round((r + PARTNER_STEP) * 100) / 100))}
+                  disabled={partnerRb >= PARTNER_MAX - 0.0001}
+                  aria-label="Збільшити реффбек партнера"
+                >
+                  +
+                </button>
+              </span>
+            </span>
           </div>
         </div>
-        <div className="okxcalc-feeline num">
-          Ставка: <b>{feePct.toFixed(4)}%</b> → ефективна <b>{(feePct * (1 - rb)).toFixed(4)}%</b> після реффбеку ·
-          SHARE-пул: <b>{fmt.format(pool)} {cur}</b>
-          {price != null ? ` (≈ ${compactUsd(pool * price)})` : ''}
-          {cap ? ` · кеп ${fmt.format(cap)} ${cur}/юзера` : ''}
-        </div>
-        <div className="okxcalc-estline">
-          Оцінка фінального заг. еф. обсягу:
+      </div>
+
+      {/* Оцінка фінального обсягу — редагований ввід з B/M/K */}
+      <div className="fecalc-estfield">
+        <span className="okxcalc-label">Оцінка фінального обсягу (всіх учасників)</span>
+        <div className="fecalc-estrow">
           <input
-            type="number"
-            className="okxcalc-est"
-            min="0"
-            value={Math.round(T)}
-            onChange={(e) => setTOverride(Math.max(0, Number(e.target.value) || 0))}
+            type="text"
+            inputMode="decimal"
+            className="okxcalc-est num"
+            value={tInputValue}
+            placeholder="напр. 3.3B"
+            onFocus={() => {
+              setTFocused(true)
+              setTText(toHumanInput(tOverride != null ? tOverride : T))
+            }}
+            onBlur={() => setTFocused(false)}
+            onChange={(e) => {
+              const s = e.target.value
+              setTText(s)
+              const n = parseHumanNum(s)
+              if (n != null) setTOverride(n)
+            }}
             aria-label="Оцінка фінального загального ефективного обсягу"
           />
-          USDT
-          {tProj != null && tOverride != null && (
-            <button type="button" className="okxcalc-rbchip" onClick={() => setTOverride(null)}>
-              авто ({compact(tProj.damped)})
+          <span className="fecalc-estunit">USDT</span>
+          {tOverride != null && (
+            <button type="button" className="okxcalc-rbchip" onClick={setTAuto}>
+              авто{tProj ? ` (${compact(tProj.damped)})` : ''}
             </button>
           )}
-          <span className="muted">
-            {' '}зараз {tNow != null ? compact(tNow) : '—'}
-            {tProj != null ? ` · при сталому темпі до ${compact(tProj.linear)}` : ''}
-          </span>
+        </div>
+        <div className="muted fecalc-esthint num">
+          = {fmt.format(Math.round(T))} USDT · зараз {tNow != null ? compact(tNow) : '—'}
+          {tProj != null ? ` · за сталого темпу до ${compact(tProj.linear)}` : ''}
         </div>
       </div>
 
@@ -431,30 +477,22 @@ export default function FlashEarnCalculator({ campaign, liveTotal, feeTiers }) {
             <span className="k">Комісія</span>
             <span className="v num">{fmt2.format(fee)} USDT</span>
           </div>
-          <div className="okxcalc-kv">
-            <span className="k">Повернеться реффбеком</span>
-            <span className="v num" style={{ color: '#6ee7b7' }}>−{fmt2.format(rbAmt)} USDT</span>
-          </div>
+          {autoRb && (
+            <div className="okxcalc-kv">
+              <span className="k">Авто-реффбек ({Math.round(AUTO_REFBACK * 100)}%)</span>
+              <span className="v num" style={{ color: '#6ee7b7' }}>−{fmt2.format(autoAmt)} USDT</span>
+            </div>
+          )}
+          {partnerRb > 0 && (
+            <div className="okxcalc-kv">
+              <span className="k">Реффбек партнера ({Math.round(partnerRb * 100)}%)</span>
+              <span className="v num" style={{ color: '#6ee7b7' }}>−{fmt2.format(partnerAmt)} USDT</span>
+            </div>
+          )}
           <div className="okxcalc-kv">
             <span className="k">Чиста комісія</span>
             <span className="v num">{fmt2.format(fee - rbAmt)} USDT</span>
           </div>
-        </div>
-        <div className="okxcalc-hints">
-          <span className="okxcalc-hint opt num">
-            {bestV == null
-              ? '⚡ Оптимум: —'
-              : bestP >= 0
-                ? `⚡ Оптимум: ${compact(bestV)} → +${fmt.format(Math.round(bestP))} USD`
-                : '⚡ Збитково на всьому діапазоні'}
-          </span>
-          <span className="okxcalc-hint num">
-            {zeroFee || !hadProfit
-              ? 'Беззбитковість: —'
-              : beV
-                ? `Беззбитково до ${compact(beV)} обсягу`
-                : 'Прибутково у всьому діапазоні'}
-          </span>
         </div>
         {minVol != null && V < minVol && (
           <div className="okxcalc-warn red">⚠️ Обсяг нижче мінімуму турніру — {fmt.format(minVol)} USDT.</div>

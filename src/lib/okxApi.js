@@ -9,11 +9,13 @@ function one(v) {
 }
 
 export async function fetchOkxCampaigns() {
-  const { data, error } = await supaRoma
+  let q = supaRoma
     .from('okx_campaigns')
     .select('*, okx_volume(total_volume, raw_volume, currency, participants, updated_at, token_price_usd)')
-    .eq('watch', true) // приховані/паузовані турніри (watch=false) не показуємо
-    .order('end_at', { ascending: true })
+  // DEV-режим (локалка): показуємо і watch=false — для розробки нових турнірів
+  // (DATA/RE flash-earn) без появи їх на проді. НЕ ПУШИТИ без узгодження.
+  if (!import.meta.env.DEV) q = q.eq('watch', true) // приховані/паузовані турніри (watch=false) не показуємо
+  const { data, error } = await q.order('end_at', { ascending: true })
   if (error) throw error
   return (data || []).map((c) => ({ ...c, okx_volume: one(c.okx_volume) }))
 }

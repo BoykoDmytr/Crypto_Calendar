@@ -175,6 +175,16 @@
   width: 140px; padding: 6px 10px; border-radius: 8px; font-size: 13px; color: #fff;
   background: #121a38; border: 1px solid rgba(255,255,255,.1); outline: none;
 }
+/* Ввід оцінки фінального обсягу (flash-earn) — редагований, з B/M/K */
+.fecalc-estfield { margin: 4px 0 14px; }
+.fecalc-estrow { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 4px; }
+.fecalc-estrow .okxcalc-est {
+  width: 130px; padding: 9px 12px; border-radius: 10px; font-size: 15px; font-weight: 700;
+  letter-spacing: .01em;
+}
+.fecalc-estrow .okxcalc-est:focus { border-color: rgba(165,180,252,.7); }
+.fecalc-estunit { font-size: 12px; color: rgba(255,255,255,.55); font-weight: 600; }
+.fecalc-esthint { font-size: 12px; margin-top: 6px; }
 .okxcalc-inputs { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 @media (max-width: 560px) { .okxcalc-inputs { grid-template-columns: 1fr; } }
 .okxcalc-label {

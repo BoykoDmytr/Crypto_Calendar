@@ -451,6 +451,10 @@ function CoinLogo({ campaign }) {
 function SelectedPanel({ campaign, history, now }) {
   const state = campaignState(campaign, now)
   const flash = isFlashEarn(campaign)
+  // Турнір з ЄДИНОЮ парою (напр. DATA/USDT) → сирий обсяг береться ТОЧНО зі свічок
+  // (біржовий обсяг пари), а не оцінюється з коефіцієнтів. Мультипарний (RE: RE+ETH)
+  // лишається оцінкою.
+  const candleExact = flash && (campaign.flash_config?.relatedPairs?.length ?? 2) <= 1
   const tokenReward = isTokenReward(campaign)
   const vol = campaign.okx_volume
   const effVolume = vol?.total_volume != null ? Number(vol.total_volume) : null // ефективний (залік нагород OKX)
@@ -528,14 +532,22 @@ function SelectedPanel({ campaign, history, now }) {
       </div>
 
       <div className="live-panel-label">
-        {flash ? (showingRaw ? 'Наторговано (сирий обсяг · оцінка)' : 'Ефективний обсяг (залік нагород)') : 'Загальний обсяг турніру'}
+        {flash
+          ? showingRaw
+            ? candleExact
+              ? `Реальний обсяг торгів ${(campaign.pair || '').replace('-', '/')} · точно`
+              : 'Наторговано (сирий обсяг · оцінка)'
+            : 'Ефективний обсяг (залік нагород)'
+          : 'Загальний обсяг турніру'}
         {flash && (
           <span
             className="live-info"
             title={
-              showingRaw
-                ? 'Скільки реально наторгували учасники. OKX віддає лише ЕФЕКТИВНИЙ (зважений) обсяг — ми відновлюємо сирий з його приростів, ділячи на коефіцієнти нагород (день ×1.8→×1.0, пара ×1.1, дні активності ×1.0-1.3). Оцінка, похибка ~±10-15%. Ефективний обсяг — рядком нижче.'
-                : 'Це ЗВАЖЕНИЙ обсяг для розподілу нагород, а не сирий обсяг торгів. OKX множить обсяг на коефіцієнти: день 1 ×1.8 → день 11 ×1.0, пара RE ×1.1.'
+              !showingRaw
+                ? 'Це ЗВАЖЕНИЙ обсяг для розподілу нагород, а не сирий обсяг торгів. OKX множить обсяг на коефіцієнти дня/пари/активних днів.'
+                : candleExact
+                  ? 'Точний біржовий обсяг пари від старту турніру (сума погодинних свічок публічного market-API OKX — кожна угода рахується один раз). Нижче — той самий обсяг ПОМНОЖЕНИЙ на коефіцієнти нагород («залік нагород»), за яким OKX ділить пул.'
+                  : 'Скільки реально наторгували учасники. OKX віддає лише ЕФЕКТИВНИЙ (зважений) обсяг — ми відновлюємо сирий з його приростів, ділячи на коефіцієнти нагород. Оцінка, похибка ~±10-15%. Ефективний — рядком нижче.'
             }
           >
             ⓘ
@@ -549,7 +561,7 @@ function SelectedPanel({ campaign, history, now }) {
           </div>
           {showingRaw && effVolume != null && (
             <div className="live-effline num">
-              залік нагород (ефективний): {fmt.format(Math.round(effVolume))} USDT
+              з множниками (залік нагород): {fmt.format(Math.round(effVolume))} USDT
             </div>
           )}
           {deltas.length > 0 && (
