@@ -89,19 +89,33 @@ export default function Claims() {
   const [active, setActive] = useState(null);
 
   useEffect(() => {
-    (async () => {
-      setLoading(true);
+    let cancelled = false;
+    const load = async (initial) => {
+      if (initial) setLoading(true);
       try {
         const tracked = await fetchTrackedTokens();
+        if (cancelled) return;
         setTokens(tracked);
-        if (tracked.length) setActive((prev) => prev || tracked[0].symbol);
+        setActive((prev) => prev || (tracked[0] && tracked[0].symbol) || null);
+        setError(null);
       } catch (e) {
         console.error('[claims] load failed', e);
-        setError(e?.message || String(e));
+        if (!cancelled && initial) setError(e?.message || String(e));
       } finally {
-        setLoading(false);
+        if (!cancelled && initial) setLoading(false);
       }
-    })();
+    };
+    load(true);
+    // Лайв-режим: watcher пише прогрес клейму в БД кожні ~5 хв; пере-фетчимо частіше,
+    // щоб цифри оновлювались без ручного рефрешу (+ при поверненні на вкладку).
+    const poll = setInterval(() => load(false), 60_000);
+    const onVis = () => { if (!document.hidden) load(false); };
+    document.addEventListener('visibilitychange', onVis);
+    return () => {
+      cancelled = true;
+      clearInterval(poll);
+      document.removeEventListener('visibilitychange', onVis);
+    };
   }, []);
 
   const token = useMemo(
