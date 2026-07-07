@@ -4,10 +4,11 @@ import { FEE_TIERS_FALLBACK } from '../lib/okxApi'
 // Калькулятор прибутку для OKX Spot Trade-to-Earn.
 // Модель: нагорода = pool × V / (T + V) (розмивання власним обсягом),
 // обрізана кепом на юзера; витрати = V × ставка × (1 − реффбек).
-// Реффбек регулюється користувачем: 0…50%, дефолт 45%.
-const REFBACK_DEFAULT = 0.45
-const REFBACK_MAX = 0.5
-const REFBACK_STEP = 0.05
+// Реффбек = авто (20%, OKX, вмикається кнопкою) + партнерський (0…30%, регулюється).
+const AUTO_REFBACK = 0.2
+const PARTNER_MAX = 0.3
+const PARTNER_STEP = 0.05
+const PARTNER_DEFAULT = 0.3
 
 const VMIN = 1_000
 const VMAX = 10_000_000
@@ -39,7 +40,8 @@ export default function OkxProfitCalculator({ campaign, liveVolume, feeTiers }) 
   const tiers = feeTiers && feeTiers.length ? feeTiers : FEE_TIERS_FALLBACK
   const [vipIdx, setVipIdx] = useState(0)
   const [order, setOrder] = useState('maker')
-  const [refback, setRefback] = useState(REFBACK_DEFAULT) // 0…0.5, регулюється −/+
+  const [partnerRb, setPartnerRb] = useState(PARTNER_DEFAULT) // 0…0.3, регулюється −/+
+  const [autoRb, setAutoRb] = useState(true) // авто-реффбек 20% (вмик/вимк)
   const [slider, setSlider] = useState(500)
   const [estT, setEstT] = useState(10_000_000)
 
@@ -59,13 +61,16 @@ export default function OkxProfitCalculator({ campaign, liveVolume, feeTiers }) 
         ? Number(tier.taker_pct)
         : (Number(tier.maker_pct) + Number(tier.taker_pct)) / 2
   const zeroFee = feePct === 0
-  const rb = refback
+  const autoFrac = autoRb ? AUTO_REFBACK : 0
+  const rb = Math.min(0.99, partnerRb + autoFrac) // сумарний реффбек
   const fNet = (feePct / 100) * (1 - rb)
 
   const V = sliderToV(slider)
   const res = profitAt(V, pool, T, cap, fNet)
   const fee = (V * feePct) / 100
-  const rbAmt = fee * rb
+  const autoAmt = fee * autoFrac // повернеться авто-реффбеком (20%)
+  const partnerAmt = fee * partnerRb // повернеться реффбеком партнера
+  const rbAmt = autoAmt + partnerAmt
 
   // крива прибутку для SVG
   const curve = useMemo(() => {
@@ -177,27 +182,39 @@ export default function OkxProfitCalculator({ campaign, liveVolume, feeTiers }) 
           </div>
         </div>
         <div className="okxcalc-rbfield">
-          <span className="okxcalc-label">Реффбек від партнера</span>
-          <div className="okxcalc-rbstep">
+          <span className="okxcalc-label">Реффбек</span>
+          <div className="okxcalc-rbrow2">
             <button
               type="button"
-              className="okxcalc-rbstep-btn"
-              onClick={() => setRefback((r) => Math.max(0, Math.round((r - REFBACK_STEP) * 100) / 100))}
-              disabled={refback <= 0.0001}
-              aria-label="Зменшити реффбек"
+              className={`okxcalc-rbchip ${autoRb ? 'on' : ''}`}
+              onClick={() => setAutoRb((a) => !a)}
             >
-              −
+              {autoRb ? '✓ ' : ''}{Math.round(AUTO_REFBACK * 100)}% авто
             </button>
-            <span className="okxcalc-rbstep-val num">{Math.round(rb * 100)}%</span>
-            <button
-              type="button"
-              className="okxcalc-rbstep-btn"
-              onClick={() => setRefback((r) => Math.min(REFBACK_MAX, Math.round((r + REFBACK_STEP) * 100) / 100))}
-              disabled={refback >= REFBACK_MAX - 0.0001}
-              aria-label="Збільшити реффбек"
-            >
-              +
-            </button>
+            <span className="okxcalc-rbpartner">
+              <span className="okxcalc-rbpartner-lab">партнер</span>
+              <span className="okxcalc-rbstep">
+                <button
+                  type="button"
+                  className="okxcalc-rbstep-btn"
+                  onClick={() => setPartnerRb((r) => Math.max(0, Math.round((r - PARTNER_STEP) * 100) / 100))}
+                  disabled={partnerRb <= 0.0001}
+                  aria-label="Зменшити реффбек партнера"
+                >
+                  −
+                </button>
+                <span className="okxcalc-rbstep-val num">{Math.round(partnerRb * 100)}%</span>
+                <button
+                  type="button"
+                  className="okxcalc-rbstep-btn"
+                  onClick={() => setPartnerRb((r) => Math.min(PARTNER_MAX, Math.round((r + PARTNER_STEP) * 100) / 100))}
+                  disabled={partnerRb >= PARTNER_MAX - 0.0001}
+                  aria-label="Збільшити реффбек партнера"
+                >
+                  +
+                </button>
+              </span>
+            </span>
           </div>
         </div>
       </div>
@@ -288,10 +305,18 @@ export default function OkxProfitCalculator({ campaign, liveVolume, feeTiers }) 
             <span className="k">Комісія</span>
             <span className="v num">{fmt2.format(fee)} USDT</span>
           </div>
-          <div className="okxcalc-kv">
-            <span className="k">Повернеться реффбеком</span>
-            <span className="v num" style={{ color: '#6ee7b7' }}>−{fmt2.format(rbAmt)} USDT</span>
-          </div>
+          {autoRb && (
+            <div className="okxcalc-kv">
+              <span className="k">Авто-реффбек ({Math.round(AUTO_REFBACK * 100)}%)</span>
+              <span className="v num" style={{ color: '#6ee7b7' }}>−{fmt2.format(autoAmt)} USDT</span>
+            </div>
+          )}
+          {partnerRb > 0 && (
+            <div className="okxcalc-kv">
+              <span className="k">Реффбек партнера ({Math.round(partnerRb * 100)}%)</span>
+              <span className="v num" style={{ color: '#6ee7b7' }}>−{fmt2.format(partnerAmt)} USDT</span>
+            </div>
+          )}
           <div className="okxcalc-kv">
             <span className="k">Чиста комісія</span>
             <span className="v num">{fmt2.format(fee - rbAmt)} USDT</span>
@@ -314,12 +339,6 @@ export default function OkxProfitCalculator({ campaign, liveVolume, feeTiers }) 
             <b>не зараховується</b> в турнір — обери taker або 50/50.
           </div>
         )}
-      </div>
-
-      <div className="okxcalc-warn">
-        ⚠️ Калькулятор — оцінка. Реальна нагорода залежить від фінального обсягу всіх
-        учасників на кінець турніру; wash-trading може порушувати ToS біржі. Ризики — на
-        користувачі.
       </div>
     </div>
   )

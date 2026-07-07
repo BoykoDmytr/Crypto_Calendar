@@ -131,7 +131,20 @@ function agoLabel(ts, now) {
   return `оновлено ${Math.round(s / 3600)} г тому`
 }
 
+// Час точки для тултіпа графіка: локальний HH:MM (+ DD.MM якщо інший день).
+function sparkTime(ts) {
+  const d = new Date(ts)
+  if (Number.isNaN(d.getTime())) return ''
+  const hh = String(d.getHours()).padStart(2, '0')
+  const mm = String(d.getMinutes()).padStart(2, '0')
+  const sameDay = d.toDateString() === new Date().toDateString()
+  return sameDay
+    ? `${hh}:${mm}`
+    : `${String(d.getDate()).padStart(2, '0')}.${String(d.getMonth() + 1).padStart(2, '0')} ${hh}:${mm}`
+}
+
 function Sparkline({ points }) {
+  const [hi, setHi] = useState(null) // індекс точки під курсором
   if (!points || points.length < 2) return null
   const W = 640
   const H = 120
@@ -146,9 +159,28 @@ function Sparkline({ points }) {
   ])
   const d = xy.map(([x, y], i) => `${i ? 'L' : 'M'}${x.toFixed(1)} ${y.toFixed(1)}`).join(' ')
   const [lx, ly] = xy[xy.length - 1]
+
+  // фракція курсора по ширині → найближча точка (SVG розтягнутий preserveAspectRatio=none,
+  // тож x-фракція контейнера = x-фракція viewBox)
+  const onMove = (e) => {
+    const rect = e.currentTarget.getBoundingClientRect()
+    if (!rect.width) return
+    const f = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width))
+    setHi(Math.round(f * (points.length - 1)))
+  }
+  const hp = hi != null && points[hi] ? points[hi] : null
+  const hxy = hi != null && xy[hi] ? xy[hi] : null
+  const leftPct = hxy ? (hxy[0] / W) * 100 : 0
+
   return (
-    <div className="live-spark">
-      <svg viewBox={`0 0 ${W} ${H}`} width="100%" height="90" preserveAspectRatio="none" aria-hidden="true">
+    <div
+      className="live-spark"
+      onMouseMove={onMove}
+      onMouseLeave={() => setHi(null)}
+      onTouchStart={(e) => onMove(e.touches[0])}
+      onTouchMove={(e) => onMove(e.touches[0])}
+    >
+      <svg viewBox={`0 0 ${W} ${H}`} width="100%" height="90" preserveAspectRatio="none">
         <defs>
           <linearGradient id="live-sg" x1="0" y1="0" x2="0" y2="1">
             <stop offset="0" stopColor="#3B82F6" stopOpacity=".3" />
@@ -157,8 +189,20 @@ function Sparkline({ points }) {
         </defs>
         <path d={`${d} L ${lx} ${H - 2} L ${pad} ${H - 2} Z`} fill="url(#live-sg)" />
         <path d={d} fill="none" stroke="#3B82F6" strokeWidth="2.2" strokeLinejoin="round" />
+        {hxy && <line x1={hxy[0]} y1="0" x2={hxy[0]} y2={H} stroke="rgba(255,255,255,.4)" strokeWidth="1" strokeDasharray="3 3" />}
         <circle cx={lx} cy={ly} r="4.5" fill="#fff" stroke="#3B82F6" strokeWidth="2.5" />
+        {hxy && <circle cx={hxy[0]} cy={hxy[1]} r="4" fill="#fff" stroke="#3B82F6" strokeWidth="2.5" />}
       </svg>
+      {hp && (
+        <>
+          <div className="live-spark-tip live-spark-tip--top" style={{ left: `${leftPct}%` }}>
+            {fmt.format(Math.round(Number(hp.total_volume)))} USDT
+          </div>
+          <div className="live-spark-tip live-spark-tip--bot" style={{ left: `${leftPct}%` }}>
+            {sparkTime(hp.observed_at)}
+          </div>
+        </>
+      )}
     </div>
   )
 }
@@ -375,11 +419,6 @@ export default function Live() {
             </>
           )}
 
-          <div className="live-foot">
-            Обсяги — зі сторінок кампаній OKX (оновлення ~30–60 с)
-            <br />
-            Сторінка доступна лише за прямим URL. Не є фінансовою порадою.
-          </div>
         </>
       )}
     </div>

@@ -115,7 +115,16 @@
 .live-delta-k { font-size: 10.5px; font-weight: 600; color: color-mix(in oklab, var(--text) 55%, transparent); }
 .live-delta-v { font-size: .82rem; font-weight: 800; color: #34d399; }
 
-.live-spark { margin-top: 14px; }
+.live-spark { margin-top: 14px; margin-bottom: 20px; position: relative; cursor: crosshair; }
+/* тултіп графіка: обсяг зверху, час знизу (по наведенню) */
+.live-spark-tip { position: absolute; transform: translateX(-50%); pointer-events: none; white-space: nowrap; z-index: 3; }
+.live-spark-tip--top {
+  top: -4px; font-size: .8rem; font-weight: 800; color: var(--text);
+  background: color-mix(in oklab, var(--card-bg, #141a2e) 92%, transparent);
+  padding: 2px 8px; border-radius: 7px; border: 1px solid var(--glass-border);
+  box-shadow: 0 3px 10px rgba(0,0,0,.35);
+}
+.live-spark-tip--bot { bottom: -18px; font-size: .72rem; font-weight: 700; color: color-mix(in oklab, var(--text) 60%, transparent); }
 .live-panel-meta { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-top: 14px; }
 @media (max-width: 520px) { .live-panel-meta { grid-template-columns: repeat(2, 1fr); } }
 .live-panel-meta .cell {
@@ -195,7 +204,11 @@
 .okxcalc-rbchip.on { border-color: rgba(52,211,153,.6); background: rgba(52,211,153,.15); color: #6ee7b7; }
 .okxcalc-rbchip.lock { cursor: default; }
 .okxcalc-rbchip.dash { border-style: dashed; }
-/* степер реффбеку: −  45%  + */
+/* реффбек: [20% авто] + [партнер −  30%  +] */
+.okxcalc-rbrow2 { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+.okxcalc-rbpartner { display: inline-flex; align-items: center; gap: 7px; }
+.okxcalc-rbpartner-lab { font-size: 12px; color: rgba(255,255,255,.55); }
+/* степер реффбеку: −  30%  + */
 .okxcalc-rbstep {
   display: inline-flex; align-items: center; gap: 2px;
   border: 1px solid rgba(52,211,153,.5); border-radius: 9999px;
