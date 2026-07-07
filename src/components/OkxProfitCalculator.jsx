@@ -4,8 +4,10 @@ import { FEE_TIERS_FALLBACK } from '../lib/okxApi'
 // Калькулятор прибутку для OKX Spot Trade-to-Earn.
 // Модель: нагорода = pool × V / (T + V) (розмивання власним обсягом),
 // обрізана кепом на юзера; витрати = V × ставка × (1 − реффбек).
-const REFBACK_BASE = 0.2 // авто-реффбек
-const REFBACK_EXTRA = 0.25 // додатковий, каскадом від залишку
+// Реффбек регулюється користувачем: 0…50%, дефолт 45%.
+const REFBACK_DEFAULT = 0.45
+const REFBACK_MAX = 0.5
+const REFBACK_STEP = 0.05
 
 const VMIN = 1_000
 const VMAX = 10_000_000
@@ -37,7 +39,7 @@ export default function OkxProfitCalculator({ campaign, liveVolume, feeTiers }) 
   const tiers = feeTiers && feeTiers.length ? feeTiers : FEE_TIERS_FALLBACK
   const [vipIdx, setVipIdx] = useState(0)
   const [order, setOrder] = useState('maker')
-  const [rbExtra, setRbExtra] = useState(true)
+  const [refback, setRefback] = useState(REFBACK_DEFAULT) // 0…0.5, регулюється −/+
   const [slider, setSlider] = useState(500)
   const [estT, setEstT] = useState(10_000_000)
 
@@ -57,37 +59,13 @@ export default function OkxProfitCalculator({ campaign, liveVolume, feeTiers }) 
         ? Number(tier.taker_pct)
         : (Number(tier.maker_pct) + Number(tier.taker_pct)) / 2
   const zeroFee = feePct === 0
-  const rb = rbExtra ? 1 - (1 - REFBACK_BASE) * (1 - REFBACK_EXTRA) : REFBACK_BASE
+  const rb = refback
   const fNet = (feePct / 100) * (1 - rb)
 
   const V = sliderToV(slider)
   const res = profitAt(V, pool, T, cap, fNet)
   const fee = (V * feePct) / 100
   const rbAmt = fee * rb
-
-  // оптимум і беззбитковість — чисельно по лог-сітці (кеп ламає аналітику)
-  const { bestV, bestP, beV, hadProfit } = useMemo(() => {
-    if (zeroFee || !pool) return { bestV: null, bestP: null, beV: null, hadProfit: false }
-    let bestV = VMIN
-    let bestP = -Infinity
-    let beV = null
-    let hadProfit = false
-    for (let i = 0; i <= 400; i++) {
-      const v = Math.exp(
-        Math.log(VMIN) + (i / 400) * (Math.log(VMAX * 3) - Math.log(VMIN)),
-      )
-      const p = profitAt(v, pool, T, cap, fNet).profit
-      if (p > bestP) {
-        bestP = p
-        bestV = v
-      }
-      // беззбитковість = перехід із плюса в мінус; якщо плюса не було взагалі —
-      // беззбиткової зони не існує і показувати "до 1K" не можна
-      if (p >= 0) hadProfit = true
-      else if (hadProfit && beV === null) beV = v
-    }
-    return { bestV, bestP, beV, hadProfit }
-  }, [zeroFee, pool, T, cap, fNet])
 
   // крива прибутку для SVG
   const curve = useMemo(() => {
@@ -199,28 +177,28 @@ export default function OkxProfitCalculator({ campaign, liveVolume, feeTiers }) 
           </div>
         </div>
         <div className="okxcalc-rbfield">
-          <span className="okxcalc-label">Реффбек</span>
-          <div className="okxcalc-rbrow">
-            <span className="okxcalc-rbchip on lock">
-              {Math.round(REFBACK_BASE * 100)}% базовий · авто
-            </span>
+          <span className="okxcalc-label">Реффбек від партнера</span>
+          <div className="okxcalc-rbstep">
             <button
               type="button"
-              className={`okxcalc-rbchip ${rbExtra ? 'on' : ''}`}
-              onClick={() => setRbExtra(!rbExtra)}
+              className="okxcalc-rbstep-btn"
+              onClick={() => setRefback((r) => Math.max(0, Math.round((r - REFBACK_STEP) * 100) / 100))}
+              disabled={refback <= 0.0001}
+              aria-label="Зменшити реффбек"
             >
-              +{Math.round(REFBACK_EXTRA * 100)}% додатковий
+              −
             </button>
-            <span className="okxcalc-rbchip lock dash">
-              ефективно {Math.round(rb * 100)}%
-            </span>
+            <span className="okxcalc-rbstep-val num">{Math.round(rb * 100)}%</span>
+            <button
+              type="button"
+              className="okxcalc-rbstep-btn"
+              onClick={() => setRefback((r) => Math.min(REFBACK_MAX, Math.round((r + REFBACK_STEP) * 100) / 100))}
+              disabled={refback >= REFBACK_MAX - 0.0001}
+              aria-label="Збільшити реффбек"
+            >
+              +
+            </button>
           </div>
-        </div>
-        <div className="okxcalc-feeline num">
-          Ставка: <b>{feePct.toFixed(4)}%</b> → ефективна{' '}
-          <b>{(feePct * (1 - rb)).toFixed(4)}%</b> після реффбеку · пул на розподіл:{' '}
-          <b>{fmt.format(pool)} USDT</b>
-          {cap ? ` · кеп ${fmt.format(cap)} USDT/юзера` : ''}
         </div>
       </div>
 
@@ -318,22 +296,6 @@ export default function OkxProfitCalculator({ campaign, liveVolume, feeTiers }) 
             <span className="k">Чиста комісія</span>
             <span className="v num">{fmt2.format(fee - rbAmt)} USDT</span>
           </div>
-        </div>
-        <div className="okxcalc-hints">
-          <span className="okxcalc-hint opt num">
-            {bestV == null
-              ? '⚡ Оптимум: —'
-              : bestP >= 0
-                ? `⚡ Оптимум: ${compact(bestV)} → +${fmt.format(Math.round(bestP))} USDT`
-                : '⚡ Збитково на всьому діапазоні'}
-          </span>
-          <span className="okxcalc-hint num">
-            {zeroFee || !hadProfit
-              ? 'Беззбитковість: —'
-              : beV
-                ? `Беззбитково до ${compact(beV)} обсягу`
-                : 'Прибутково у всьому діапазоні'}
-          </span>
         </div>
         {minVol != null && V < minVol && (
           <div className="okxcalc-warn red">

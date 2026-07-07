@@ -39,6 +39,7 @@
   display: inline-flex; align-items: center; justify-content: center;
   font-size: 11px; font-weight: 800;
 }
+.live-tab-logo--img { object-fit: cover; background: #fff; }
 
 .live-section-title {
   font-size: 11px; text-transform: uppercase; letter-spacing: .1em; font-weight: 600;
@@ -194,6 +195,21 @@
 .okxcalc-rbchip.on { border-color: rgba(52,211,153,.6); background: rgba(52,211,153,.15); color: #6ee7b7; }
 .okxcalc-rbchip.lock { cursor: default; }
 .okxcalc-rbchip.dash { border-style: dashed; }
+/* степер реффбеку: −  45%  + */
+.okxcalc-rbstep {
+  display: inline-flex; align-items: center; gap: 2px;
+  border: 1px solid rgba(52,211,153,.5); border-radius: 9999px;
+  background: rgba(52,211,153,.12); padding: 3px; width: max-content;
+}
+.okxcalc-rbstep-btn {
+  width: 30px; height: 30px; border-radius: 50%; border: none; cursor: pointer;
+  background: rgba(52,211,153,.18); color: #6ee7b7; font-size: 18px; font-weight: 800;
+  line-height: 1; display: inline-flex; align-items: center; justify-content: center;
+  transition: background .12s;
+}
+.okxcalc-rbstep-btn:hover:not(:disabled) { background: rgba(52,211,153,.35); }
+.okxcalc-rbstep-btn:disabled { opacity: .35; cursor: default; }
+.okxcalc-rbstep-val { min-width: 52px; text-align: center; font-weight: 800; font-size: .95rem; color: #6ee7b7; }
 .okxcalc-feeline { grid-column: 1 / -1; font-size: .78rem; color: rgba(255,255,255,.55); }
 .okxcalc-feeline b { color: rgba(255,255,255,.85); }
 .okxcalc-volhead { display: flex; justify-content: space-between; align-items: baseline; margin-top: 16px; }

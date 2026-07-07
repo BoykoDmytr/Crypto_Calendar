@@ -32,7 +32,9 @@ const isFlashEarn = (c) => /\/flash-earn\//i.test(c?.page_url || '')
 // (ціна токена × кількість). Ціна — з okx_volume.token_price_usd (поллер бере з
 // OKX-тикера). Кількість = prize_pool (MON) або coin_amount (RE).
 const isTokenReward = (c) => !!(c?.prize_currency && String(c.prize_currency).toUpperCase() !== 'USDT')
-const rewardQty = (c) => Number(c?.prize_pool ?? c?.coin_amount ?? 0) || null
+// Показуємо ТУРНІРНИЙ пул (share_pool) — напр. NES 750K, а не 800K: різниця (50K)
+// йде новим користувачам, не в турнір.
+const rewardQty = (c) => Number(c?.share_pool ?? c?.prize_pool ?? c?.coin_amount ?? 0) || null
 const rewardCur = (c) => c?.prize_currency || c?.coin_symbol || 'USDT'
 const tokenPriceUsd = (c) =>
   c?.okx_volume?.token_price_usd != null ? Number(c.okx_volume.token_price_usd) : null
@@ -305,16 +307,34 @@ export default function Live() {
 
       <div className="live-tabs">
         <button className={`live-tab ${tab === 'okx' ? 'on' : ''}`} onClick={() => setTab('okx')}>
-          <span className="live-tab-logo" style={{ background: '#fff', color: '#000' }}>O</span>
+          <img
+            className="live-tab-logo live-tab-logo--img"
+            src="https://static.coinall.ltd/cdn/oksupport/asset/currency/icon/okb20230419112935.png"
+            alt="OKX"
+            loading="lazy"
+          />
           OKX Турніри
           {anyLive && <span className="live-pulse live-pulse--sm" />}
         </button>
         <button className={`live-tab ${tab === 'claims' ? 'on' : ''}`} onClick={() => setTab('claims')}>
-          <span className="live-tab-logo" style={{ background: '#7c3aed', color: '#fff' }}>К</span>
+          <span className="live-tab-logo" style={{ background: '#7c3aed', color: '#fff' }}>
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <polyline points="20 12 20 22 4 22 4 12" />
+              <rect x="2" y="7" width="20" height="5" />
+              <line x1="12" y1="22" x2="12" y2="7" />
+              <path d="M12 7H7.5a2.5 2.5 0 0 1 0-5C11 2 12 7 12 7z" />
+              <path d="M12 7h4.5a2.5 2.5 0 0 0 0-5C13 2 12 7 12 7z" />
+            </svg>
+          </span>
           Клейми
         </button>
         <button className="live-tab off" type="button" tabIndex={-1} aria-disabled="true">
-          <span className="live-tab-logo" style={{ background: '#f0b90b', color: '#000' }}>B</span>
+          <img
+            className="live-tab-logo live-tab-logo--img"
+            src="https://static.coinall.ltd/cdn/oksupport/asset/currency/icon/bnb20221218121954.png"
+            alt="Binance"
+            loading="lazy"
+          />
           Binance Hodler · скоро
         </button>
       </div>

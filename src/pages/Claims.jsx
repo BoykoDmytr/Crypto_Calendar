@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { fetchTrackedTokens, fetchExcludedTokens, eventDate } from '../lib/claimsApi';
+import { fetchTrackedTokens, eventDate } from '../lib/claimsApi';
 import './Claims.css';
 
 // ---- formatting helpers (all UTC, on-chain truth) ----
@@ -29,6 +29,34 @@ function fmtPromised(promised) {
 
 const LOGO_COLORS = { SOSO: '#d8602e', OFC: '#7c3aed', OPG: '#2563eb' };
 const logoColor = (sym) => LOGO_COLORS[sym] || '#475569';
+// Логотипи токенів: OFC/OPG — з OKX-CDN, SOSO (SoSoValue) — з CoinGecko.
+const CLAIM_LOGOS = {
+  OFC: 'https://static.coinall.ltd/cdn/oksupport/asset/currency/icon/ofc20260409083807.png',
+  OPG: 'https://static.coinall.ltd/cdn/oksupport/asset/currency/icon/opg20260423155408.png',
+  SOSO: 'https://coin-images.coingecko.com/coins/images/53919/large/soso.jpg',
+};
+
+// Логотип токена клейму: справжня іконка з фолбеком на кольорове коло з літерою.
+function ClaimLogo({ symbol }) {
+  const [failed, setFailed] = useState(false);
+  const url = CLAIM_LOGOS[symbol];
+  if (url && !failed) {
+    return (
+      <img
+        className="claim-logo claim-logo--img"
+        src={url}
+        alt={symbol}
+        loading="lazy"
+        onError={() => setFailed(true)}
+      />
+    );
+  }
+  return (
+    <span className="claim-logo" style={{ background: logoColor(symbol) }}>
+      {symbol[0]}
+    </span>
+  );
+}
 
 const STATUS_LABEL = {
   completed: 'завершено',
@@ -57,7 +85,6 @@ function isLive(ev) {
 
 export default function Claims() {
   const [tokens, setTokens] = useState([]);
-  const [excluded, setExcluded] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [active, setActive] = useState(null);
@@ -66,9 +93,8 @@ export default function Claims() {
     (async () => {
       setLoading(true);
       try {
-        const [tracked, exc] = await Promise.all([fetchTrackedTokens(), fetchExcludedTokens()]);
+        const tracked = await fetchTrackedTokens();
         setTokens(tracked);
-        setExcluded(exc);
         if (tracked.length) setActive((prev) => prev || tracked[0].symbol);
       } catch (e) {
         console.error('[claims] load failed', e);
@@ -122,9 +148,7 @@ export default function Claims() {
                   className={`claim-tab ${t.symbol === token.symbol ? 'on' : ''}`}
                   onClick={() => setActive(t.symbol)}
                 >
-                  <span className="claim-logo" style={{ background: logoColor(t.symbol) }}>
-                    {t.symbol[0]}
-                  </span>
+                  <ClaimLogo symbol={t.symbol} />
                   {t.symbol}
                   {live && <span className="claim-live-dot" />}
                 </button>
@@ -190,18 +214,6 @@ export default function Claims() {
               </div>
             );
           })}
-
-          {/* excluded note — honest "not a community claim" examples */}
-          {excluded.length > 0 && (
-            <div className="card claim-excluded">
-              <h3>Не клейми спільноти (інсайдерські розлоки)</h3>
-              {excluded.map((t) => (
-                <div className="claim-excluded-item" key={t.id}>
-                  <b>{t.symbol}</b> — {t.name}: {stripExcluded(t.notes)}
-                </div>
-              ))}
-            </div>
-          )}
 
           <div className="claims-foot">
             Усі дані верифіковані on-chain через Blockscout · watcher оновлює автоматично
@@ -280,8 +292,4 @@ function cadenceLabel(c) {
   if (c === 'per-epoch') return 'Наступна епоха';
   if (c === 'per-tranche') return 'Наступний транш';
   return 'Наступний розлок';
-}
-function stripExcluded(notes) {
-  if (!notes) return '';
-  return notes.replace(/^EXCLUDED:\s*/i, '');
 }
