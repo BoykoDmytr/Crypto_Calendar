@@ -46,7 +46,6 @@ function ClaimLogo({ symbol }) {
         className="claim-logo claim-logo--img"
         src={url}
         alt={symbol}
-        loading="lazy"
         onError={() => setFailed(true)}
       />
     );

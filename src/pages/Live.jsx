@@ -311,7 +311,6 @@ export default function Live() {
             className="live-tab-logo live-tab-logo--img"
             src="https://static.coinall.ltd/cdn/oksupport/asset/currency/icon/okb20230419112935.png"
             alt="OKX"
-            loading="lazy"
           />
           OKX Турніри
           {anyLive && <span className="live-pulse live-pulse--sm" />}
@@ -333,7 +332,6 @@ export default function Live() {
             className="live-tab-logo live-tab-logo--img"
             src="https://static.coinall.ltd/cdn/oksupport/asset/currency/icon/bnb20221218121954.png"
             alt="Binance"
-            loading="lazy"
           />
           Binance Hodler · скоро
         </button>
@@ -400,7 +398,6 @@ function CoinLogo({ campaign }) {
         className="live-coin-logo live-coin-logo--img"
         src={icon}
         alt={sym}
-        loading="lazy"
         onError={() => setFailed(true)}
       />
     )
