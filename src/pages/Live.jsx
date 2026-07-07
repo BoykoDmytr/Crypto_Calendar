@@ -461,17 +461,19 @@ function SelectedPanel({ campaign, history, now }) {
   // ефективний обсяг (effVolume): це реальний знаменник формули нагороди.
   const per100k = effVolume != null && pool ? (pool * 100_000) / (effVolume + 100_000) : null
 
-  // Приріст обсягу за кілька вікон — «темп накрутки». Рахуємо з історії через
-  // інтерполяцію на (now − вікно); показуємо лише вікна, для яких історія вже
-  // достатньо глибока (past != null). Обсяг кумулятивний → клампимо в ≥0.
+  // Приріст обсягу за кілька вікон — «темп накрутки». АНКОР — час ОСТАННЬОГО
+  // оновлення обсягу (vol.updated_at), а НЕ живий `now`: інакше інтерполяція на
+  // (now − вікно) сповзає щосекунди й числа «мерехтять», хоча дані ті самі. Так
+  // дельти міняються ЛИШЕ коли приходить новий знімок (~раз на каденс поллера).
+  const latestTs = vol?.updated_at ? new Date(vol.updated_at).getTime() : null
   const deltas = useMemo(() => {
-    if (volume == null) return []
+    if (volume == null || latestTs == null) return []
     return DELTA_WINDOWS.map((w) => {
-      const past = volumeAt(histView, now - w.ms)
+      const past = volumeAt(histView, latestTs - w.ms)
       return past == null ? null : { ...w, d: Math.max(0, volume - past) }
       // ховаємо нульові вікна (для flash-earn histView монотонна → дельти чисті)
     }).filter((w) => w && w.d > 0)
-  }, [histView, volume, now])
+  }, [histView, volume, latestTs])
 
   return (
     <div className="card live-panel">
