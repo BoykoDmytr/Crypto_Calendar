@@ -84,7 +84,7 @@ function buildMexcPriceLink(ticker) {
 // like (2026-05-26).
 export function extractTickerFromTitle(title) {
   if (!title) return null;
-  const matches = [...String(title).matchAll(/\(([A-Z0-9]{2,15})\)/g)];
+  const matches = [...String(title).matchAll(/\(([A-Z0-9]{1,15})\)/g)];
   for (let i = matches.length - 1; i >= 0; i -= 1) {
     const candidate = matches[i][1];
     if (/^[A-Z][A-Z0-9]*$/.test(candidate)) return candidate;
@@ -100,7 +100,7 @@ export function parseTournamentRewards(text) {
 
   // per-user reward: "(= 270 KGEN per user)" — tolerate optional $ and spacing.
   const perUserMatch = text.match(
-    /\(\s*=?\s*([\d,.]+)\s*\$?([A-Z0-9]{2,15})\s+per\s+user\s*\)/i
+    /\(\s*=?\s*([\d,.]+)\s*\$?([A-Z0-9]{1,15})\s+per\s+user\s*\)/i
   );
 
   // prize pool — wording varies across announcements:
@@ -108,11 +108,11 @@ export function parseTournamentRewards(text) {
   //   "594,000 KGEN tokens equally", etc. Try strict→loose, anchored to "share".
   const poolMatch =
     text.match(
-      /share\s+(?:a\s+total\s+of\s+|up\s+to\s+)?([\d,]+)\s*\$?([A-Z0-9]{2,15})\s+tokens?/i
+      /share\s+(?:a\s+total\s+of\s+|up\s+to\s+)?([\d,]+)\s*\$?([A-Z0-9]{1,15})\s+tokens?/i
     ) ||
-    text.match(/([\d,]{3,})\s*\$?([A-Z0-9]{2,15})\s+tokens?\s+equally/i) ||
+    text.match(/([\d,]{3,})\s*\$?([A-Z0-9]{1,15})\s+tokens?\s+equally/i) ||
     text.match(
-      /share\s+(?:a\s+total\s+of\s+|up\s+to\s+)?([\d,]+)\s*\$?([A-Z0-9]{2,15})\b/i
+      /share\s+(?:a\s+total\s+of\s+|up\s+to\s+)?([\d,]+)\s*\$?([A-Z0-9]{1,15})\b/i
     );
 
   const topRaw = topMatch ? topMatch[1] : null;
@@ -138,7 +138,7 @@ export function parseTournamentRewards(text) {
  */
 export function parseTournamentPeriods(text) {
   const re =
-    /(\d+(?:st|nd|rd|th))\s+([A-Z0-9]{2,15})\s+Trading\s+Competition\s+Promotion\s+Period\s*:?\s*(\d{4}-\d{2}-\d{2})\s+(\d{2}:\d{2})\s*\(UTC\)\s*(?:to|-|–|—)\s*(\d{4}-\d{2}-\d{2})\s+(\d{2}:\d{2})\s*\(UTC\)/gi;
+    /(\d+(?:st|nd|rd|th))\s+([A-Z0-9]{1,15})\s+Trading\s+Competition\s+Promotion\s+Period\s*:?\s*(\d{4}-\d{2}-\d{2})\s+(\d{2}:\d{2})\s*\(UTC\)\s*(?:to|-|–|—)\s*(\d{4}-\d{2}-\d{2})\s+(\d{2}:\d{2})\s*\(UTC\)/gi;
 
   const periods = [];
   const seen = new Set();
