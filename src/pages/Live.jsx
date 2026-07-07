@@ -368,6 +368,30 @@ export default function Live() {
   )
 }
 
+// Логотип монети: справжня іконка з OKX (okx_campaigns.coin_icon), фолбек — кольорове
+// коло з першою літерою символу (якщо іконки нема або не завантажилась).
+function CoinLogo({ campaign }) {
+  const [failed, setFailed] = useState(false)
+  const icon = campaign?.coin_icon
+  const sym = campaign?.coin_symbol || '?'
+  if (icon && !failed) {
+    return (
+      <img
+        className="live-coin-logo live-coin-logo--img"
+        src={icon}
+        alt={sym}
+        loading="lazy"
+        onError={() => setFailed(true)}
+      />
+    )
+  }
+  return (
+    <span className="live-coin-logo" style={{ background: logoColor(sym) }}>
+      {sym[0]}
+    </span>
+  )
+}
+
 function SelectedPanel({ campaign, history, now }) {
   const state = campaignState(campaign, now)
   const flash = isFlashEarn(campaign)
@@ -436,9 +460,7 @@ function SelectedPanel({ campaign, history, now }) {
     <div className="card live-panel">
       <div className="live-panel-top">
         <div className="live-panel-name">
-          <span className="live-coin-logo" style={{ background: logoColor(campaign.coin_symbol) }}>
-            {(campaign.coin_symbol || '?')[0]}
-          </span>
+          <CoinLogo campaign={campaign} />
           {campaign.name}
           {state === 'live' && <span className="live-badge live-badge--live">● LIVE</span>}
           {state === 'soon' && <span className="live-badge live-badge--soon">СКОРО</span>}
@@ -557,9 +579,7 @@ function MiniRow({ campaign, now, onSelect }) {
   const rewardUsd = isTokenReward(campaign) && rQty && tPrice ? rQty * tPrice : null
   return (
     <button className="card live-mini" type="button" onClick={onSelect}>
-      <span className="live-coin-logo" style={{ background: logoColor(campaign.coin_symbol) }}>
-        {(campaign.coin_symbol || '?')[0]}
-      </span>
+      <CoinLogo campaign={campaign} />
       <span className="grow">
         <span className="nm">
           {campaign.name}

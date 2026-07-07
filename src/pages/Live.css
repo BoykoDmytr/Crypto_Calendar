@@ -60,6 +60,11 @@
   display: inline-flex; align-items: center; justify-content: center;
   font-weight: 800; font-size: 13px; color: #fff;
 }
+/* справжня іконка монети з OKX (замість кольорового кола з літерою) */
+.live-coin-logo--img {
+  object-fit: cover; background: #fff;
+  border: 1px solid color-mix(in oklab, var(--text) 12%, transparent);
+}
 .live-panel-label {
   font-size: 11px; text-transform: uppercase; letter-spacing: .08em;
   color: color-mix(in oklab, var(--text) 55%, transparent); margin-top: 16px;
