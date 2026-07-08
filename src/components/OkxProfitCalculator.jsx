@@ -45,8 +45,16 @@ export default function OkxProfitCalculator({ campaign, liveVolume, feeTiers }) 
   const [slider, setSlider] = useState(500)
   const [estT, setEstT] = useState(10_000_000)
 
-  const pool = Number(campaign?.share_pool ?? campaign?.prize_pool ?? 0)
-  const cap = campaign?.cap_per_user ? Number(campaign.cap_per_user) : null
+  // Приз у токенах (MON тощо) → пул/кеп задані в ТОКЕНАХ. Конвертуємо в USD за ціною
+  // токена, бо інакше нагорода рахувалась би в токенах, а комісія віднімалась у USDT
+  // (одиниці не збігались → нагорода завищувалась у 1/ціну разів, напр. MON ×42).
+  // USDT-призи (TAO/CARDS/NES): множник 1 — конвертація не потрібна.
+  const isTokenReward = !!campaign?.prize_currency && String(campaign.prize_currency).toUpperCase() !== 'USDT'
+  const tokenPrice = Number(campaign?.okx_volume?.token_price_usd) || null
+  const usdMul = isTokenReward && tokenPrice ? tokenPrice : 1
+  const rewardCur = isTokenReward ? String(campaign.prize_currency).toUpperCase() : 'USDT'
+  const pool = Number(campaign?.share_pool ?? campaign?.prize_pool ?? 0) * usdMul
+  const cap = campaign?.cap_per_user ? Number(campaign.cap_per_user) * usdMul : null
   const minVol = campaign?.min_volume ? Number(campaign.min_volume) : null
   const hasLive = liveVolume != null && Number(liveVolume) > 0
   // min="0" на інпуті не блокує введення мінуса з клавіатури — клампимо самі,
@@ -299,7 +307,10 @@ export default function OkxProfitCalculator({ campaign, liveVolume, feeTiers }) 
         <div className="okxcalc-kvs">
           <div className="okxcalc-kv">
             <span className="k">Нагорода (з розмиванням твого обсягу)</span>
-            <span className="v num">{fmt.format(Math.round(res.reward))} USDT</span>
+            <span className="v num">
+              {fmt.format(Math.round(res.reward))} USDT
+              {isTokenReward && tokenPrice ? ` · ≈${fmt.format(Math.round(res.reward / usdMul))} ${rewardCur}` : ''}
+            </span>
           </div>
           <div className="okxcalc-kv">
             <span className="k">Комісія</span>
@@ -337,6 +348,11 @@ export default function OkxProfitCalculator({ campaign, liveVolume, feeTiers }) 
           <div className="okxcalc-warn red">
             ⚠️ VIP6 maker = 0% комісії. За правилами OKX обсяг із нульовою комісією{' '}
             <b>не зараховується</b> в турнір — обери taker або 50/50.
+          </div>
+        )}
+        {isTokenReward && !tokenPrice && (
+          <div className="okxcalc-warn red">
+            ⚠️ Ціна {rewardCur} недоступна — нагороду показано в токенах, не переведено в $.
           </div>
         )}
       </div>
