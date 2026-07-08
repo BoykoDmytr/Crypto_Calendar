@@ -53,6 +53,13 @@ export default function Navbar() {
               >
                 Івенти
               </Link>
+              <Link
+                className={linkClasses(is('/live'))}
+                to="/live"
+                aria-current={is('/live') ? 'page' : undefined}
+              >
+                Live
+              </Link>
               {/* Клейми переїхали у приховану сторінку /live (вкладка всередині) */}
             </nav>
           </div>

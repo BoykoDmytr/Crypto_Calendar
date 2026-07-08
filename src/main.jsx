@@ -46,7 +46,7 @@ const router = createBrowserRouter([
       { path: 'gifts', element: <Gifts /> },
       { path: 'stats', element: <Stats /> },
       { path: 'claims', element: <Claims /> },
-      { path: 'live', element: <Live /> }, // прихована сторінка — без лінка в навбарі
+      { path: 'live', element: <Live /> }, // лінк у навбарі (Календар / Івенти / Live)
 
     ],
   },

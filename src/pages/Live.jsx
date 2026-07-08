@@ -371,14 +371,6 @@ export default function Live() {
           </span>
           Клейми
         </button>
-        <button className="live-tab off" type="button" tabIndex={-1} aria-disabled="true">
-          <img
-            className="live-tab-logo live-tab-logo--img"
-            src="https://static.coinall.ltd/cdn/oksupport/asset/currency/icon/bnb20221218121954.png"
-            alt="Binance"
-          />
-          Binance Hodler · скоро
-        </button>
       </div>
 
       {tab === 'claims' && <Claims />}
