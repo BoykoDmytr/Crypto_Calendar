@@ -307,9 +307,12 @@ export default function OkxProfitCalculator({ campaign, liveVolume, feeTiers }) 
         <div className="okxcalc-kvs">
           <div className="okxcalc-kv">
             <span className="k">Нагорода (з розмиванням твого обсягу)</span>
+            {/* Токен-приз (MON) → ПЕРВИННО в монетах, $-вартість збоку (монети × ціна).
+                USDT-приз → просто в USDT. */}
             <span className="v num">
-              {fmt.format(Math.round(res.reward))} USDT
-              {isTokenReward && tokenPrice ? ` · ≈${fmt.format(Math.round(res.reward / usdMul))} ${rewardCur}` : ''}
+              {isTokenReward && tokenPrice
+                ? `≈ ${fmt.format(Math.round(res.reward / usdMul))} ${rewardCur} · ≈ $${fmt.format(Math.round(res.reward))}`
+                : `${fmt.format(Math.round(res.reward))} USDT`}
             </span>
           </div>
           <div className="okxcalc-kv">
