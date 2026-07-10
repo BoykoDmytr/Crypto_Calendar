@@ -443,39 +443,19 @@ function CoinLogo({ campaign }) {
 function SelectedPanel({ campaign, history, now }) {
   const state = campaignState(campaign, now)
   const flash = isFlashEarn(campaign)
-  // Турнір з ЄДИНОЮ парою (напр. DATA/USDT) → сирий обсяг береться ТОЧНО зі свічок
-  // (біржовий обсяг пари), а не оцінюється з коефіцієнтів. Мультипарний (RE: RE+ETH)
-  // лишається оцінкою.
-  const candleExact = flash && (campaign.flash_config?.relatedPairs?.length ?? 2) <= 1
   const tokenReward = isTokenReward(campaign)
   const vol = campaign.okx_volume
-  const effVolume = vol?.total_volume != null ? Number(vol.total_volume) : null // ефективний (залік нагород OKX)
-  const rawTraded = vol?.raw_volume != null ? Number(vol.raw_volume) : null // СИРИЙ наторгований (оцінка поллера)
-  // flash-earn: головне число і графік — СИРИЙ обсяг (скільки реально накрутили;
-  // поллер відновлює його з приростів ефективного, ділячи на коефіцієнти нагород —
-  // монотонний за побудовою). Фолбек, поки поллер ще не порахував raw: монотонний
-  // ефективний (стара поведінка).
-  const rawHist = flash
-    ? history
-        .filter((p) => p.raw_volume != null)
-        .map((p) => ({ observed_at: p.observed_at, total_volume: p.raw_volume }))
-    : null
-  // сирий «зараз»: свіжий знімок okx_volume, або остання точка сирої історії
-  const rawNow =
-    rawTraded != null
-      ? rawTraded
-      : rawHist && rawHist.length
-        ? Number(rawHist[rawHist.length - 1].total_volume)
-        : null
-  const showingRaw = flash && rawNow != null // показуємо сирий обсяг (не фолбек-ефективний)
-  const histView = flash ? (rawHist.length ? rawHist : monotonicProgress(history)) : history
+  const effVolume = vol?.total_volume != null ? Number(vol.total_volume) : null // ефективний = обсяг З МНОЖНИКОМ (офіц. знаменник OKX)
+  // flash-earn: показуємо ЕФЕКТИВНИЙ (зважений) обсяг — «скільки накручено з
+  // множниками», точне офіційне число зі stats OKX (той самий знаменник, що в
+  // OKX-калькуляторі). Сиру оцінку більше НЕ показуємо. Ефективний може просісти
+  // (OKX знімає wash) → для графіка/дельт беремо монотонний прогрес (лише додатні
+  // прирости), а поверх — живий приріст від останнього знімка.
+  const histView = flash ? monotonicProgress(history) : history
   let volume
   if (!flash) {
     volume = effVolume
-  } else if (showingRaw) {
-    volume = rawNow
   } else {
-    // фолбек (raw ще не пораховано): монотонний ефективний + живий приріст
     const progLast = histView.length ? Number(histView[histView.length - 1].total_volume) : null
     const effLast = history.length ? Number(history[history.length - 1].total_volume) : null
     volume =
@@ -524,23 +504,11 @@ function SelectedPanel({ campaign, history, now }) {
       </div>
 
       <div className="live-panel-label">
-        {flash
-          ? showingRaw
-            ? candleExact
-              ? `Реальний обсяг торгів ${(campaign.pair || '').replace('-', '/')} · точно`
-              : 'Наторговано (сирий обсяг · оцінка)'
-            : 'Ефективний обсяг (залік нагород)'
-          : 'Загальний обсяг турніру'}
+        {flash ? 'Загальний обсяг з множником' : 'Загальний обсяг турніру'}
         {flash && (
           <span
             className="live-info"
-            title={
-              !showingRaw
-                ? 'Це ЗВАЖЕНИЙ обсяг для розподілу нагород, а не сирий обсяг торгів. OKX множить обсяг на коефіцієнти дня/пари/активних днів.'
-                : candleExact
-                  ? 'Точний біржовий обсяг пари від старту турніру (сума погодинних свічок публічного market-API OKX — кожна угода рахується один раз). Нижче — той самий обсяг ПОМНОЖЕНИЙ на коефіцієнти нагород («залік нагород»), за яким OKX ділить пул.'
-                  : 'Скільки реально наторгували учасники. OKX віддає лише ЕФЕКТИВНИЙ (зважений) обсяг — ми відновлюємо сирий з його приростів, ділячи на коефіцієнти нагород. Оцінка, похибка ~±10-15%. Ефективний — рядком нижче.'
-            }
+            title="Це ЗВАЖЕНИЙ обсяг (effective volume), яким OKX ділить пул нагород — той самий, що в OKX-калькуляторі «Calculate my reward». Формула: сирий обсяг × коеф. монети × коеф. дня × коеф. активних днів. Точне офіційне число зі stats OKX (не оцінка)."
           >
             ⓘ
           </span>
@@ -551,11 +519,6 @@ function SelectedPanel({ campaign, history, now }) {
           <div className="live-panel-volume num">
             {fmt.format(Math.round(volume))} <small>{vol?.currency || 'USDT'}</small>
           </div>
-          {showingRaw && effVolume != null && (
-            <div className="live-effline num">
-              з множниками (залік нагород): {fmt.format(Math.round(effVolume))} USDT
-            </div>
-          )}
           {deltas.length > 0 && (
             <div className="live-deltas">
               <span className="live-deltas-cap">приріст:</span>
@@ -627,13 +590,8 @@ function SelectedPanel({ campaign, history, now }) {
 function MiniRow({ campaign, now, onSelect }) {
   const state = campaignState(campaign, now)
   const vol = campaign.okx_volume
-  // flash-earn: показуємо СИРИЙ наторгований (оцінка), фолбек — ефективний
-  const volume =
-    isFlashEarn(campaign) && vol?.raw_volume != null
-      ? Number(vol.raw_volume)
-      : vol?.total_volume != null
-        ? Number(vol.total_volume)
-        : null
+  // Обсяг = ЕФЕКТИВНИЙ (total_volume) для всіх; для flash-earn це «з множником».
+  const volume = vol?.total_volume != null ? Number(vol.total_volume) : null
   const left = timeLeft(campaign.end_at, now)
   const rQty = rewardQty(campaign)
   const rCur = rewardCur(campaign)
