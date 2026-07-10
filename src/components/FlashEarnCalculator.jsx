@@ -134,8 +134,9 @@ function projectFinalT(cfg, tNow, now) {
 }
 
 export default function FlashEarnCalculator({ campaign, liveTotal, feeTiers }) {
-  // Fee-таблиця за групою монети OKX (усі flash-earn токени = Група 2). Дефолт = 2.
-  const tiers = feeTiersForGroup(campaign?.fee_group)
+  // Fee-таблиця за групою монети OKX. Поллер резолвить групу пари (groupId) і кладе
+  // у flash_config.feeGroup; дефолт = 2 (усі trade-to-earn токени = Група 2).
+  const tiers = feeTiersForGroup(campaign?.fee_group ?? campaign?.flash_config?.feeGroup)
   const [vipIdx, setVipIdx] = useState(0)
   const [order, setOrder] = useState('maker')
   const [partnerRb, setPartnerRb] = useState(PARTNER_DEFAULT)
