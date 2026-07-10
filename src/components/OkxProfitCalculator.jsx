@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import { FEE_TIERS_FALLBACK } from '../lib/okxApi'
+import { feeTiersForGroup } from '../lib/okxApi'
 
 // Калькулятор прибутку для OKX Spot Trade-to-Earn.
 // Модель: нагорода = pool × V / (T + V) (розмивання власним обсягом),
@@ -37,7 +37,9 @@ function profitAt(V, pool, T, cap, fNet) {
 }
 
 export default function OkxProfitCalculator({ campaign, liveVolume, feeTiers }) {
-  const tiers = feeTiers && feeTiers.length ? feeTiers : FEE_TIERS_FALLBACK
+  // Fee-таблиця за групою монети OKX (усі турнірні токени = Група 2 → вищий taker
+  // на VIP4-6). campaign.fee_group керує; дефолт = 2. Проп feeTiers більше не потрібен.
+  const tiers = feeTiersForGroup(campaign?.fee_group)
   const [vipIdx, setVipIdx] = useState(0)
   const [order, setOrder] = useState('maker')
   const [partnerRb, setPartnerRb] = useState(PARTNER_DEFAULT) // 0…0.3, регулюється −/+

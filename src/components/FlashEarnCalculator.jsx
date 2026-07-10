@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import { FEE_TIERS_FALLBACK } from '../lib/okxApi'
+import { feeTiersForGroup } from '../lib/okxApi'
 
 // Калькулятор нагороди для OKX Flash Earn trade-to-earn (SLX / RE / DATA).
 // Формула — 1:1 з OKX «Calculate my reward»:
@@ -134,7 +134,8 @@ function projectFinalT(cfg, tNow, now) {
 }
 
 export default function FlashEarnCalculator({ campaign, liveTotal, feeTiers }) {
-  const tiers = feeTiers && feeTiers.length ? feeTiers : FEE_TIERS_FALLBACK
+  // Fee-таблиця за групою монети OKX (усі flash-earn токени = Група 2). Дефолт = 2.
+  const tiers = feeTiersForGroup(campaign?.fee_group)
   const [vipIdx, setVipIdx] = useState(0)
   const [order, setOrder] = useState('maker')
   const [partnerRb, setPartnerRb] = useState(PARTNER_DEFAULT)

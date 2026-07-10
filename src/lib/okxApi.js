@@ -33,16 +33,46 @@ export async function fetchVolumeHistory(campaignId, limit = 300) {
   return (data || []).reverse()
 }
 
-// Фолбек, якщо fee_tiers недоступні (значення = відсотки: 0.08 => 0.08%)
-export const FEE_TIERS_FALLBACK = [
-  { level: 'Regular', maker_pct: 0.08, taker_pct: 0.1 },
-  { level: 'VIP1', maker_pct: 0.0675, taker_pct: 0.08 },
-  { level: 'VIP2', maker_pct: 0.06, taker_pct: 0.07 },
-  { level: 'VIP3', maker_pct: 0.055, taker_pct: 0.065 },
-  { level: 'VIP4', maker_pct: 0.03, taker_pct: 0.045 },
-  { level: 'VIP5', maker_pct: 0.025, taker_pct: 0.035 },
-  { level: 'VIP6', maker_pct: 0, taker_pct: 0.03 },
-]
+// Спотові fee-групи OKX (значення = відсотки: 0.08 => 0.08%). Знято з okx.com/ua/fees
+// 2026-07-10. MAKER однаковий у всіх групах (Regular…VIP6); різниця лише в TAKER на
+// VIP4-6 — дрібніші монети мають меншу знижку. Групу монети визначає `groupId` з
+// публічного instruments-API: 12=Група1(мейджори BTC/ETH), 13=Група2, 14=Група3.
+// УСІ trade-to-earn турнірні токени = Група 2 (TAO/CARDS/NES/MON/RE/DATA/SLX —
+// перевірено, groupId=13), тому дефолт калькуляторів = група 2.
+export const FEE_TIERS_BY_GROUP = {
+  1: [
+    { level: 'Regular', maker_pct: 0.08, taker_pct: 0.1 },
+    { level: 'VIP1', maker_pct: 0.0675, taker_pct: 0.08 },
+    { level: 'VIP2', maker_pct: 0.06, taker_pct: 0.07 },
+    { level: 'VIP3', maker_pct: 0.055, taker_pct: 0.065 },
+    { level: 'VIP4', maker_pct: 0.03, taker_pct: 0.045 },
+    { level: 'VIP5', maker_pct: 0.025, taker_pct: 0.035 },
+    { level: 'VIP6', maker_pct: 0, taker_pct: 0.03 },
+  ],
+  2: [
+    { level: 'Regular', maker_pct: 0.08, taker_pct: 0.1 },
+    { level: 'VIP1', maker_pct: 0.0675, taker_pct: 0.08 },
+    { level: 'VIP2', maker_pct: 0.06, taker_pct: 0.07 },
+    { level: 'VIP3', maker_pct: 0.055, taker_pct: 0.065 },
+    { level: 'VIP4', maker_pct: 0.03, taker_pct: 0.05 },
+    { level: 'VIP5', maker_pct: 0.025, taker_pct: 0.045 },
+    { level: 'VIP6', maker_pct: 0, taker_pct: 0.04 },
+  ],
+  3: [
+    { level: 'Regular', maker_pct: 0.08, taker_pct: 0.1 },
+    { level: 'VIP1', maker_pct: 0.0675, taker_pct: 0.08 },
+    { level: 'VIP2', maker_pct: 0.06, taker_pct: 0.07 },
+    { level: 'VIP3', maker_pct: 0.055, taker_pct: 0.065 },
+    { level: 'VIP4', maker_pct: 0.03, taker_pct: 0.055 },
+    { level: 'VIP5', maker_pct: 0.025, taker_pct: 0.05 },
+    { level: 'VIP6', maker_pct: 0, taker_pct: 0.045 },
+  ],
+}
+// Дефолт = група 2 (турнірні токени). Якщо у кампанії є fee_group — беремо його.
+export const feeTiersForGroup = (g) => FEE_TIERS_BY_GROUP[Number(g)] || FEE_TIERS_BY_GROUP[2]
+
+// Фолбек-псевдонім (Група 1 = стандарт) для старого коду.
+export const FEE_TIERS_FALLBACK = FEE_TIERS_BY_GROUP[1]
 
 export async function fetchFeeTiers() {
   try {
