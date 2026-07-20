@@ -359,7 +359,9 @@ export default function Live() {
           OKX Турніри
           {anyLive && <span className="live-pulse live-pulse--sm" />}
         </button>
-        <button className={`live-tab ${tab === 'claims' ? 'on' : ''}`} onClick={() => setTab('claims')}>
+        {/* Клейми ТИМЧАСОВО вимкнено (soon) — повернемось пізніше. Дані в БД і <Claims />
+            нижче НЕ чіпаємо: щоб увімкнути назад — повернути onClick і класи-стан. */}
+        <button className="live-tab off" disabled aria-disabled="true" title="Клейми — скоро">
           <span className="live-tab-logo" style={{ background: '#7c3aed', color: '#fff' }}>
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
               <polyline points="20 12 20 22 4 22 4 12" />
@@ -370,6 +372,7 @@ export default function Live() {
             </svg>
           </span>
           Клейми
+          <span className="live-tab-soon">soon</span>
         </button>
       </div>
 

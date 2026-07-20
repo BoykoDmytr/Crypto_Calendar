@@ -34,6 +34,14 @@
   border-color: color-mix(in oklab, var(--brand) 55%, transparent);
 }
 .live-tab.off { opacity: .45; cursor: default; }
+.live-tab:disabled { cursor: default; pointer-events: none; }
+/* бейдж «soon» на тимчасово вимкненій вкладці */
+.live-tab-soon {
+  font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .06em;
+  padding: 2px 6px; border-radius: 6px; line-height: 1.4;
+  background: color-mix(in oklab, var(--text) 14%, transparent);
+  color: color-mix(in oklab, var(--text) 70%, transparent);
+}
 .live-tab-logo {
   width: 22px; height: 22px; border-radius: 50%;
   display: inline-flex; align-items: center; justify-content: center;
