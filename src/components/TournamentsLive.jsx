@@ -231,21 +231,37 @@ function TournamentCard({ t, history, now }) {
   )
 }
 
-function EndedCard({ t }) {
+function EndedCard({ t, history }) {
+  const [open, setOpen] = useState(false)
   const v = t.vol || {}
   const price = rewardPrice(t)
   const poolUsd = t.reward_pool != null && !STABLES.has(String(t.reward_currency).toUpperCase()) && price != null ? Number(t.reward_pool) * price : null
+  const total = v.total_volume != null ? Number(v.total_volume) : null
+  const chartPts = history && history.length > 120 ? history.slice(-120) : history
   return (
-    <div className="tl-ended">
-      <CoinLogo icon={t.coin_icon} sym={t.coin_symbol} sm />
-      <div className="tl-ended-mid">
-        <div className="tl-ended-name">{t.coin_symbol} <span className="tl-ended-sub">{t.title}</span></div>
-        <div className="tl-ended-meta">
-          приз {t.reward_pool != null ? `${compact(t.reward_pool)} ${t.reward_currency}` : '—'}{poolUsd != null ? ` (${usd(poolUsd)})` : ''}
-          {v.participants != null ? ` · ${fmt.format(v.participants)} уч.` : ''}
+    <div className={`tl-ended ${open ? 'tl-ended--open' : ''}`}>
+      <button className="tl-ended-row" type="button" onClick={() => setOpen((o) => !o)} aria-expanded={open}>
+        <CoinLogo icon={t.coin_icon} sym={t.coin_symbol} sm />
+        <div className="tl-ended-mid">
+          <div className="tl-ended-name">{t.coin_symbol} <span className="tl-ended-sub">{t.title}</span></div>
+          <div className="tl-ended-meta">
+            приз {t.reward_pool != null ? `${compact(t.reward_pool)} ${t.reward_currency}` : '—'}{poolUsd != null ? ` (${usd(poolUsd)})` : ''}
+            {v.participants != null ? ` · ${fmt.format(v.participants)} уч.` : ''}
+          </div>
         </div>
-      </div>
-      <div className="tl-ended-vol">{v.total_volume != null ? compact(v.total_volume) : '—'}<small>обсяг</small></div>
+        <div className="tl-ended-vol">{total != null ? compact(total) : '—'}<small>обсяг</small></div>
+        <span className="tl-ended-chev">{open ? '▾' : '▸'}</span>
+      </button>
+      {open && (
+        <div className="tl-ended-detail">
+          <div className="tl-ended-final">
+            Фінальний обсяг: <b>{total != null ? `${fmt.format(Math.round(total))} USDT` : '—'}</b>
+            {v.participants != null ? ` · ${fmt.format(v.participants)} учасників` : ''}
+          </div>
+          <Chart points={chartPts} accent="#64748b" />
+          {t.page_url && <a className="tl-ended-link" href={t.page_url} target="_blank" rel="noreferrer">сторінка турніру ↗</a>}
+        </div>
+      )}
     </div>
   )
 }
@@ -309,7 +325,7 @@ export default function TournamentsLive() {
             {ended.length > 0 && (
               <div className="tl-ended-wrap">
                 <div className="tl-ended-head">Завершені <span>{ended.length}</span></div>
-                <div className="tl-ended-list">{ended.map((t) => <EndedCard key={t.id} t={t} />)}</div>
+                <div className="tl-ended-list">{ended.map((t) => <EndedCard key={t.id} t={t} history={histById[t.id] || []} />)}</div>
               </div>
             )}
           </div>

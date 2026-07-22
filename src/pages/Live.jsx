@@ -359,17 +359,8 @@ export default function Live() {
               <path d="M14 14.66V17c0 .55.47.98.97 1.21C16.15 18.75 17 20.24 17 22" /><path d="M18 2H6v7a6 6 0 0 0 12 0V2Z" />
             </svg>
           </span>
-          Турніри
-          {anyLive && <span className="live-pulse live-pulse--sm" />}
-        </button>
-        <button className={`live-tab ${tab === 'okx' ? 'on' : ''}`} onClick={() => setTab('okx')}>
-          <img
-            className="live-tab-logo live-tab-logo--img"
-            src="https://static.coinall.ltd/cdn/oksupport/asset/currency/icon/okb20230419112935.png"
-            alt="OKX"
-          />
-          OKX Турніри
-          {anyLive && <span className="live-pulse live-pulse--sm" />}
+          OKX турніри
+          <span className="live-pulse live-pulse--sm" />
         </button>
         {/* Клейми ТИМЧАСОВО вимкнено (soon) — повернемось пізніше. Дані в БД і <Claims />
             нижче НЕ чіпаємо: щоб увімкнути назад — повернути onClick і класи-стан. */}
@@ -391,45 +382,6 @@ export default function Live() {
       {tab === 'tournaments' && <TournamentsLive />}
 
       {tab === 'claims' && <Claims />}
-
-      {tab === 'okx' && (
-        <>
-          {loading && <div className="live-state">Завантаження турнірів…</div>}
-          {error && <div className="live-state live-state--error">Помилка: {error}</div>}
-          {!loading && !error && campaigns.length === 0 && (
-            <div className="live-state">Поки що немає відстежуваних турнірів.</div>
-          )}
-
-          {!loading && !error && selected && (
-            <>
-              <div className="live-section-title">
-                OKX Турніри · {liveCount ? `${liveCount} активн${liveCount === 1 ? 'ий' : 'і'}` : 'немає активних'}
-              </div>
-
-              <SelectedPanel campaign={selected} history={history} now={now} />
-
-              {others.map((c) => (
-                <MiniRow key={c.id} campaign={c} now={now} onSelect={() => setSelectedId(c.id)} />
-              ))}
-
-              {isFlashEarn(selected) ? (
-                <FlashEarnCalculator
-                  campaign={selected}
-                  liveTotal={selected.okx_volume?.total_volume ?? null}
-                  feeTiers={feeTiers}
-                />
-              ) : (
-                <OkxProfitCalculator
-                  campaign={selected}
-                  liveVolume={selected.okx_volume?.total_volume ?? null}
-                  feeTiers={feeTiers}
-                />
-              )}
-            </>
-          )}
-
-        </>
-      )}
     </div>
   )
 }
