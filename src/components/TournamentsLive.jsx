@@ -108,7 +108,8 @@ function Calc({ t, total }) {
   const [open, setOpen] = useState(false)
   const [raw, setRaw] = useState('')
   const v = Math.max(0, Number(raw) || 0)
-  const fee = t.fee_per_1k
+  const fee = t.fee_per_1k != null ? t.fee_per_1k : t.fee_auto != null ? t.fee_auto : null // ручний override › авто-оцінка
+  const feeAuto = t.fee_per_1k == null && t.fee_auto != null
   const price = rewardPrice(t)
   const poolShare = t.mechanic === 'pool-share'
   const rankTiered = t.mechanic === 'rank-tiered'
@@ -140,7 +141,7 @@ function Calc({ t, total }) {
               {rankTiered && (
                 <div className="row"><span>Поріг топ-N</span><b className={inTop ? 'pos' : 'neg'}>{inTop == null ? '—' : inTop ? '✓ у топі' : `× треба ще ${usd(minRank - v)}`}</b></div>
               )}
-              <div className="row"><span>Комса ({fee != null ? `$${fee}/1K` : 'не задано'})</span><b className="neg">{cost != null ? `−${usd(cost)}` : 'n/a'}</b></div>
+              <div className="row"><span>Комса ({fee != null ? `${feeAuto ? '≈$' : '$'}${fee}/1K${feeAuto ? ' авто' : ''}` : 'не задано'})</span><b className="neg">{cost != null ? `−${usd(cost)}` : 'n/a'}</b></div>
               {poolShare && (
                 <div className="row row--total"><span>Прибуток</span><b className={profit == null ? '' : profit >= 0 ? 'pos' : 'neg'}>{profit != null ? (profit >= 0 ? '+' : '') + usd(profit) : fee == null ? 'задай /fee' : '—'}</b></div>
               )}
@@ -211,7 +212,13 @@ function TournamentCard({ t, history, now }) {
       <div className="tl-meta">
         <div className="cell"><div className="k">Приз</div><div className="vv">{t.reward_pool != null ? `${compact(t.reward_pool)} ${t.reward_currency || ''}` : '—'}</div>{poolUsd != null && <div className="uu">≈ {usd(poolUsd)}</div>}</div>
         <div className="cell"><div className="k">Учасників</div><div className="vv">{v.participants != null ? fmt.format(v.participants) : '—'}</div></div>
-        <div className="cell"><div className="k">Комса за 1K</div><div className={`vv ${t.fee_per_1k == null ? 'na' : ''}`}>{t.fee_per_1k != null ? `$${t.fee_per_1k}` : 'n/a'}</div></div>
+        <div className="cell" title={t.fee_per_1k == null && t.fee_auto_note ? t.fee_auto_note : ''}>
+          <div className="k">Комса за 1K</div>
+          <div className={`vv ${t.fee_per_1k == null && t.fee_auto == null ? 'na' : ''}`}>
+            {t.fee_per_1k != null ? `$${t.fee_per_1k}` : t.fee_auto != null ? `≈$${t.fee_auto}` : 'n/a'}
+          </div>
+          {t.fee_per_1k == null && t.fee_auto != null && <div className="uu">авто · ${t.fee_auto_lo}–${t.fee_auto_hi}</div>}
+        </div>
       </div>
 
       <Calc t={t} total={total} />
