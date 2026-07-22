@@ -23,11 +23,14 @@ function compact(v) {
 function usd(v) {
   if (v == null || !Number.isFinite(Number(v))) return null
   const x = Number(v)
-  if (x >= 1e9) return `$${(x / 1e9).toFixed(2)}B`
-  if (x >= 1e6) return `$${(x / 1e6).toFixed(2)}M`
-  if (x >= 1e3) return `$${Math.round(x / 1e3)}K`
-  if (x >= 1) return `$${x.toFixed(2)}`
-  return `$${x.toPrecision(2)}`
+  const sign = x < 0 ? '−' : '' // відʼємне: «−$385», а не «$-3.8e+2»
+  const a = Math.abs(x)
+  if (a >= 1e9) return `${sign}$${(a / 1e9).toFixed(2)}B`
+  if (a >= 1e6) return `${sign}$${(a / 1e6).toFixed(2)}M`
+  if (a >= 1e3) return `${sign}$${Math.round(a / 1e3)}K`
+  if (a >= 1) return `${sign}$${a.toFixed(2)}`
+  if (a === 0) return '$0'
+  return `${sign}$${a.toPrecision(2)}`
 }
 const STABLES = new Set(['USDT', 'USDC', 'USD', 'DAI'])
 const VENUE_LABEL = { okx: 'OKX', binance: 'Binance', bitget: 'Bitget', gate: 'Gate' }
@@ -136,6 +139,18 @@ function Calc({ t, total }) {
   const profit = reward != null && cost != null ? reward - cost : null
   const minRank = t.vol?.min_rank_volume != null ? Number(t.vol.min_rank_volume) : null
   const inTop = rankTiered && minRank != null && v > 0 ? v >= minRank : null
+  // rank-tiered: оцінка тіру за поточним лідербордом — найглибший «вхід», який
+  // покриває введений обсяг (межі глибше топ-100 невідомі → консервативно вниз).
+  const tiers = rankTiered && Array.isArray(t.vol?.extra?.tiers) ? t.vol.extra.tiers : null
+  const projTier = useMemo(() => {
+    if (!tiers || v <= 0) return null
+    let best = null
+    for (const x of tiers) if (x.entry != null && v >= x.entry) { best = x; break } // tiers йдуть від топ-1 вниз
+    return best
+  }, [tiers, v])
+  const projReward = projTier?.reward != null ? projTier.reward : null
+  const projRewardUsd = projReward != null ? (STABLES.has(String(projTier.unit || '').toUpperCase()) ? projReward : price != null ? projReward * price : null) : null
+  const rankProfit = projRewardUsd != null && cost != null ? projRewardUsd - cost : null
 
   return (
     <div className="tl-calc">
@@ -154,14 +169,119 @@ function Calc({ t, total }) {
               {rankTiered && (
                 <div className="row"><span>Поріг топ-N</span><b className={inTop ? 'pos' : 'neg'}>{inTop == null ? '—' : inTop ? '✓ у топі' : `× треба ще ${usd(minRank - v)}`}</b></div>
               )}
+              {rankTiered && projTier && (
+                <div className="row"><span>Орієнтовний тір</span><b className="pos">{projTier.from === projTier.to ? `#${projTier.from}` : `${projTier.from}–${projTier.to}`} → {tierRewardLabel(projReward, projTier.unit, price)}</b></div>
+              )}
               <div className="row"><span>Комса ({fee != null ? `${feeAuto ? '≈$' : '$'}${fee}/1K${feeAuto ? ' авто' : ''}` : 'не задано'})</span><b className="neg">{cost != null ? `−${usd(cost)}` : 'n/a'}</b></div>
               {poolShare && (
                 <div className="row row--total"><span>Прибуток</span><b className={profit == null ? '' : profit >= 0 ? 'pos' : 'neg'}>{profit != null ? (profit >= 0 ? '+' : '') + usd(profit) : fee == null ? 'задай /fee' : '—'}</b></div>
               )}
-              {rankTiered && <div className="tl-calc-note">Точна нагорода залежить від фінального рангу — детальний розрахунок тірів додамо далі.</div>}
+              {rankTiered && projTier && rankProfit != null && (
+                <div className="row row--total"><span>Прибуток (якщо втримаєш тір)</span><b className={rankProfit >= 0 ? 'pos' : 'neg'}>{(rankProfit >= 0 ? '+' : '') + usd(rankProfit)}</b></div>
+              )}
+              {rankTiered && (
+                <div className="tl-calc-note">{projTier ? 'Оцінка за ПОТОЧНИМ лідербордом — до кінця турніру межі тірів зростуть.' : tiers ? 'Обсяг нижче відомих меж тірів (топ-100) — дивись «Тіри нагород» вище.' : 'Тіри зʼявляться після наступного оновлення поллера.'}</div>
+              )}
             </div>
           ) : (
             <div className="tl-calc-hint">Впиши обсяг, щоб побачити нагороду й комсу на основі теперішніх даних.</div>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// Поллер (Fly) — публічний lookup «мій гаманець» для web3-турнірів (/w3rank).
+const POLLER_URL = import.meta.env.VITE_POLLER_URL || 'https://okx-volume-poller.fly.dev'
+const WALLET_LS_KEY = 'tl-w3-wallet'
+
+// Рядок нагороди тіру: у токені + ≈$ (стейбл → $ напряму). ТОЧНЕ число, не
+// компакт: «$1 830» не можна показувати як «$2K» — це межі реальних виплат.
+function tierRewardLabel(reward, unit, price) {
+  if (reward == null) return '—'
+  const u = String(unit || '').toUpperCase()
+  if (STABLES.has(u)) return `$${fmt.format(reward)}`
+  const usdPart = price != null ? ` (≈ $${fmt.format(reward * price)})` : ''
+  return `${fmt2.format(reward)} ${unit || ''}${usdPart}`
+}
+
+// Тір-таблиця web3: ранг · нагорода/юзера · вхід (обсяг останнього рангу тіру з
+// топ-100) · середній обсяг у тірі. Межі глибше топ-100 OKX не віддає → «—».
+// Тут же — поле «мій гаманець»: ранг/обсяг/очікувана нагорода через поллер.
+function TierTable({ t, now }) {
+  const [open, setOpen] = useState(false)
+  const [wallet, setWallet] = useState(() => { try { return localStorage.getItem(WALLET_LS_KEY) || '' } catch { return '' } })
+  const [me, setMe] = useState(null) // {state:'loading'|'ok'|'err', ...}
+  const v = t.vol || {}
+  const tiers = Array.isArray(v.extra?.tiers) ? v.extra.tiers : null
+  const price = rewardPrice(t)
+  const walletOk = /^0x[0-9a-fA-F]{40}$/.test(wallet.trim())
+
+  async function check() {
+    const w = wallet.trim().toLowerCase()
+    if (!/^0x[0-9a-f]{40}$/.test(w) || !t.external_id) return
+    try { localStorage.setItem(WALLET_LS_KEY, w) } catch { /* приватний режим */ }
+    setMe({ state: 'loading' })
+    try {
+      const r = await fetch(`${POLLER_URL}/w3rank?aid=${encodeURIComponent(t.external_id)}&w=${w}`)
+      const j = await r.json().catch(() => null)
+      if (!r.ok || !j?.ok) setMe({ state: 'err', msg: r.status === 429 ? 'забагато запитів — спробуй за хвилину' : 'не вдалося перевірити' })
+      else setMe({ state: 'ok', ...j })
+    } catch {
+      setMe({ state: 'err', msg: 'не вдалося перевірити' })
+    }
+  }
+
+  const myTier = me?.state === 'ok' && me.found && me.rank != null && tiers
+    ? tiers.find((x) => me.rank >= x.from && me.rank <= x.to) || null
+    : null
+
+  if (!tiers && !t.external_id) return null
+  return (
+    <div className="tl-tiers">
+      <button className="tl-calc-btn" onClick={() => setOpen((o) => !o)}>{open ? '▾ Тіри нагород' : '▸ Тіри нагород і мій ранг'}</button>
+      {open && (
+        <div className="tl-tiers-body">
+          {t.external_id && (
+            <div className="tl-wallet">
+              <span className="tl-calc-field tl-wallet-field">
+                <input type="text" spellCheck="false" placeholder="мій гаманець 0x…" value={wallet} onChange={(e) => { setWallet(e.target.value); setMe(null) }} onKeyDown={(e) => e.key === 'Enter' && check()} />
+              </span>
+              <button type="button" className="tl-wallet-btn" disabled={!walletOk || me?.state === 'loading'} onClick={check}>{me?.state === 'loading' ? '…' : 'Перевірити'}</button>
+            </div>
+          )}
+          {me?.state === 'err' && <div className="tl-wallet-out neg">{me.msg}</div>}
+          {me?.state === 'ok' && !me.found && <div className="tl-wallet-out">Гаманця нема в лідерборді цього турніру.</div>}
+          {me?.state === 'ok' && me.found && (
+            <div className="tl-wallet-out pos">
+              Ранг <b>#{me.rank ?? '—'}</b>
+              {me.volume != null && <> · обсяг <b>{fmt.format(Math.round(me.volume))} USDT</b></>}
+              {me.reward != null && <> · нагорода ≈ <b>{tierRewardLabel(me.reward, me.unit, price)}</b></>}
+              {myTier && <> · тір {myTier.from === myTier.to ? `#${myTier.from}` : `${myTier.from}–${myTier.to}`}</>}
+            </div>
+          )}
+          {tiers ? (
+            <>
+              <div className="tl-tiers-scroll">
+                <table className="tl-tiers-table">
+                  <thead><tr><th>Ранг</th><th>Нагорода</th><th>Вхід (обсяг)</th><th>Середній</th></tr></thead>
+                  <tbody>
+                    {tiers.map((x) => (
+                      <tr key={`${x.from}-${x.to}`} className={myTier && myTier.from === x.from ? 'me' : ''}>
+                        <td>{x.from === x.to ? `#${x.from}` : `${x.from}–${x.to}`}</td>
+                        <td>{tierRewardLabel(x.reward, x.unit, price)}</td>
+                        <td>{x.entry != null ? fmt.format(Math.round(x.entry)) : '—'}</td>
+                        <td>{x.avg != null ? fmt.format(Math.round(x.avg)) : '—'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              <div className="tl-tiers-note">вхід/середній — з топ-100 лідерборду{v.extra?.tiersAt ? ` · ${ago(v.extra.tiersAt, now)}` : ''} · глибші межі OKX не віддає</div>
+            </>
+          ) : (
+            <div className="tl-tiers-note">Тіри зʼявляться після наступного оновлення поллера.</div>
           )}
         </div>
       )}
@@ -220,6 +340,8 @@ function TournamentCard({ t, history, now }) {
           <div className="v">{v.min_rank_volume != null ? `${fmt.format(Math.round(Number(v.min_rank_volume)))} USDT` : '—'}</div>
         </div>
       )}
+
+      {rankTiered && <TierTable t={t} now={now} />}
 
       <div className="tl-meta">
         <div className="cell"><div className="k">Приз</div><div className="vv">{t.reward_pool != null ? `${compact(t.reward_pool)} ${t.reward_currency || ''}` : '—'}</div>{poolUsd != null && <div className="uu">≈ {usd(poolUsd)}</div>}</div>

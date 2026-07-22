@@ -96,6 +96,31 @@
 .tl-calc-out .neg { color: #fca5a5; }
 .tl-calc-hint, .tl-calc-note { font-size: 11.5px; color: color-mix(in oklab, var(--text) 48%, transparent); margin-top: 7px; line-height: 1.4; }
 
+/* тіри нагород (web3 rank-tiered) + «мій гаманець» */
+.tl-tiers { margin: 6px 0 2px; }
+.tl-tiers .tl-calc-btn { color: #c4b5fd; background: rgba(139,92,246,.08); border-color: rgba(139,92,246,.2); }
+.tl-tiers .tl-calc-btn:hover { background: rgba(139,92,246,.14); }
+.tl-tiers-body { margin-top: 8px; }
+.tl-tiers-scroll { overflow-x: auto; }
+.tl-tiers-table { width: 100%; border-collapse: collapse; font-size: 12.5px; font-variant-numeric: tabular-nums; }
+.tl-tiers-table th { text-align: left; font-size: 10.5px; text-transform: uppercase; letter-spacing: .06em; font-weight: 700; color: color-mix(in oklab, var(--text) 45%, transparent); padding: 4px 8px; border-bottom: 1px solid var(--glass-border); white-space: nowrap; }
+.tl-tiers-table td { padding: 5px 8px; border-bottom: 1px solid color-mix(in oklab, var(--glass-border) 55%, transparent); white-space: nowrap; }
+.tl-tiers-table tr:last-child td { border-bottom: none; }
+.tl-tiers-table td:first-child { font-weight: 700; color: #c4b5fd; }
+.tl-tiers-table tr.me td { background: rgba(139,92,246,.14); }
+.tl-tiers-table tr.me td:first-child::after { content: ' ←'; font-weight: 800; }
+.tl-tiers-note { font-size: 11px; color: color-mix(in oklab, var(--text) 48%, transparent); margin-top: 6px; line-height: 1.4; }
+.tl-wallet { display: flex; gap: 8px; align-items: center; margin-bottom: 8px; }
+.tl-wallet-field { flex: 1; }
+.tl-wallet-field input { width: 100%; text-align: left; padding: 7px 10px; font-size: 12.5px; font-family: ui-monospace, monospace; }
+.tl-wallet-btn { padding: 7px 12px; border-radius: 9px; font-size: 12.5px; font-weight: 700; cursor: pointer; color: #c4b5fd; background: rgba(139,92,246,.12); border: 1px solid rgba(139,92,246,.28); white-space: nowrap; }
+.tl-wallet-btn:hover:not(:disabled) { background: rgba(139,92,246,.2); }
+.tl-wallet-btn:disabled { opacity: .45; cursor: default; }
+.tl-wallet-out { font-size: 12.5px; margin-bottom: 8px; line-height: 1.5; color: color-mix(in oklab, var(--text) 70%, transparent); }
+.tl-wallet-out b { font-variant-numeric: tabular-nums; color: var(--text); }
+.tl-wallet-out.pos b { color: #6ee7b7; }
+.tl-wallet-out.neg { color: #fca5a5; }
+
 /* завершені (мінімалістичні рядки) */
 .tl-ended-wrap { margin-top: 12px; }
 .tl-ended-head { font-size: 11px; text-transform: uppercase; letter-spacing: .1em; font-weight: 700; color: color-mix(in oklab, var(--text) 45%, transparent); margin: 0 0 8px 2px; }
