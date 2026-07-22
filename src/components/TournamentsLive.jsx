@@ -1,7 +1,14 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { fetchTournaments, fetchTournamentHistory, fetchOkxEndedAsTournaments, fetchOkxHistory, subscribeTournamentVolume } from '../lib/tournamentsApi'
 import { supaRoma } from '../lib/supabaseRoma'
+import { fetchFeeTiers } from '../lib/okxApi'
+import OkxProfitCalculator from './OkxProfitCalculator'
+import FlashEarnCalculator from './FlashEarnCalculator'
 import './TournamentsLive.css'
+
+// CEX (не stocks, не DEX) — має повний VIP-калькулятор старого типу (okx_campaigns).
+const isCexFull = (t) => t.venue === 'okx' && t.market === 'cex' && t.kind !== 'spot-stocks' && t._raw
+const isFlashKind = (t) => /\/flash-earn\//i.test(t._raw?.page_url || '')
 
 const fmt = new Intl.NumberFormat('uk-UA', { maximumFractionDigits: 0 })
 const fmt2 = new Intl.NumberFormat('uk-UA', { maximumFractionDigits: 2 })
@@ -231,7 +238,7 @@ function TournamentCard({ t, history, now }) {
   )
 }
 
-function EndedCard({ t, history }) {
+function EndedCard({ t, history, onCalc }) {
   const [open, setOpen] = useState(false)
   const v = t.vol || {}
   const price = rewardPrice(t)
@@ -259,7 +266,10 @@ function EndedCard({ t, history }) {
             {v.participants != null ? ` · ${fmt.format(v.participants)} учасників` : ''}
           </div>
           <Chart points={chartPts} accent="#64748b" />
-          {t.page_url && <a className="tl-ended-link" href={t.page_url} target="_blank" rel="noreferrer">сторінка турніру ↗</a>}
+          <div className="tl-ended-actions">
+            {t.page_url && <a className="tl-ended-link" href={t.page_url} target="_blank" rel="noreferrer">сторінка турніру ↗</a>}
+            {onCalc && <button type="button" className="tl-ended-link tl-ended-calc" onClick={onCalc}>калькулятор з VIP ↓</button>}
+          </div>
         </div>
       )}
     </div>
@@ -272,6 +282,13 @@ export default function TournamentsLive() {
   const [filter, setFilter] = useState('all')
   const [loading, setLoading] = useState(true)
   const [now, setNow] = useState(() => Date.now())
+  const [feeTiers, setFeeTiers] = useState([])
+  const [calcFor, setCalcFor] = useState(null) // сирий okx_campaigns → повний VIP-калькулятор
+
+  const openCalc = (raw) => {
+    setCalcFor(raw)
+    setTimeout(() => document.getElementById('tl-fullcalc')?.scrollIntoView({ behavior: 'smooth' }), 60)
+  }
 
   async function load() {
     const [fresh, okxEnded] = await Promise.all([fetchTournaments(), fetchOkxEndedAsTournaments().catch(() => [])])
@@ -286,7 +303,7 @@ export default function TournamentsLive() {
 
   useEffect(() => {
     let cancelled = false
-    ;(async () => { try { await load() } catch (e) { console.error('[tournaments]', e) } finally { if (!cancelled) setLoading(false) } })()
+    ;(async () => { try { await load(); const ft = await fetchFeeTiers().catch(() => []); if (!cancelled) setFeeTiers(ft) } catch (e) { console.error('[tournaments]', e) } finally { if (!cancelled) setLoading(false) } })()
     const ch = subscribeTournamentVolume((row) => {
       setItems((prev) => prev.map((t) => (t.id === row.tournament_id ? { ...t, vol: row } : t)))
       setHistById((h) => ({ ...h, [row.tournament_id]: [...(h[row.tournament_id] || []), { total_volume: row.total_volume, min_rank_volume: row.min_rank_volume, observed_at: row.updated_at }].slice(-400) }))
@@ -325,12 +342,26 @@ export default function TournamentsLive() {
             {ended.length > 0 && (
               <div className="tl-ended-wrap">
                 <div className="tl-ended-head">Завершені <span>{ended.length}</span></div>
-                <div className="tl-ended-list">{ended.map((t) => <EndedCard key={t.id} t={t} history={histById[t.id] || []} />)}</div>
+                <div className="tl-ended-list">{ended.map((t) => <EndedCard key={t.id} t={t} history={histById[t.id] || []} onCalc={isCexFull(t) ? () => openCalc(t._raw) : null} />)}</div>
               </div>
             )}
           </div>
         )
       })}
+
+      {calcFor && (
+        <div id="tl-fullcalc" className="tl-fullcalc">
+          <div className="tl-fullcalc-head">
+            <span>Калькулятор прибутку · {calcFor.coin_symbol}</span>
+            <button type="button" className="tl-fullcalc-x" onClick={() => setCalcFor(null)} aria-label="Закрити">✕</button>
+          </div>
+          {/\/flash-earn\//i.test(calcFor.page_url || '') ? (
+            <FlashEarnCalculator campaign={calcFor} liveTotal={calcFor.okx_volume?.total_volume ?? null} feeTiers={feeTiers} />
+          ) : (
+            <OkxProfitCalculator campaign={calcFor} liveVolume={calcFor.okx_volume?.total_volume ?? null} feeTiers={feeTiers} />
+          )}
+        </div>
+      )}
     </div>
   )
 }

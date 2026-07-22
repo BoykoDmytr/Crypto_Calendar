@@ -43,6 +43,7 @@ function normalizeOkx(c) {
   return {
     id: `okx-${c.id}`,
     okxId: c.id,
+    _raw: { ...c, okx_volume: v }, // сирий okx_campaigns для повного VIP-калькулятора (CEX)
     venue: 'okx',
     market: 'cex',
     kind: isFlash ? 'flash' : 'spot',
@@ -65,7 +66,7 @@ function normalizeOkx(c) {
 export async function fetchOkxEndedAsTournaments() {
   const { data, error } = await supaRoma
     .from('okx_campaigns')
-    .select('id, name, coin_symbol, coin_icon, page_url, share_pool, prize_pool, coin_amount, prize_currency, start_at, end_at, status, okx_volume(total_volume, participants, currency, updated_at, token_price_usd)')
+    .select('*, okx_volume(total_volume, raw_volume, participants, currency, updated_at, token_price_usd)')
     .eq('status', 'ended')
     .order('end_at', { ascending: false })
   if (error) throw error
