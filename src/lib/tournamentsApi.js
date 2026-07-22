@@ -34,6 +34,56 @@ export async function fetchTournamentHistory(tournamentId, limit = 400) {
   return (data || []).reverse()
 }
 
+// Завершені OKX-турніри зі старої моделі (okx_campaigns) → нормалізуємо у форму
+// картки, щоб показати їх у вкладці «Турніри» разом з новими (OKX → Завершені).
+// Стару вкладку/пайплайн НЕ чіпаємо — лише читаємо.
+function normalizeOkx(c) {
+  const isFlash = /\/flash-earn\//i.test(c.page_url || '')
+  const v = one(c.okx_volume)
+  return {
+    id: `okx-${c.id}`,
+    okxId: c.id,
+    venue: 'okx',
+    market: 'cex',
+    kind: isFlash ? 'flash' : 'spot',
+    mechanic: 'pool-share',
+    coin_symbol: c.coin_symbol,
+    coin_icon: c.coin_icon,
+    title: c.name,
+    page_url: c.page_url,
+    reward_pool: c.share_pool ?? c.prize_pool ?? c.coin_amount ?? null,
+    reward_currency: c.prize_currency || 'USDT',
+    fee_per_1k: null,
+    start_at: c.start_at,
+    end_at: c.end_at,
+    status: 'ended',
+    approved: true,
+    vol: v ? { total_volume: v.total_volume, participants: v.participants, min_rank_volume: null, token_price_usd: v.token_price_usd, updated_at: v.updated_at } : null,
+  }
+}
+
+export async function fetchOkxEndedAsTournaments() {
+  const { data, error } = await supaRoma
+    .from('okx_campaigns')
+    .select('id, name, coin_symbol, coin_icon, page_url, share_pool, prize_pool, coin_amount, prize_currency, start_at, end_at, status, okx_volume(total_volume, participants, currency, updated_at, token_price_usd)')
+    .eq('status', 'ended')
+    .order('end_at', { ascending: false })
+  if (error) throw error
+  return (data || []).map(normalizeOkx)
+}
+
+// Історія завершеного OKX-турніру (стара таблиця okx_volume_history) — для графіка.
+export async function fetchOkxHistory(campaignId, limit = 300) {
+  const { data, error } = await supaRoma
+    .from('okx_volume_history')
+    .select('total_volume, observed_at')
+    .eq('campaign_id', campaignId)
+    .order('observed_at', { ascending: false })
+    .limit(limit)
+  if (error) throw error
+  return (data || []).reverse()
+}
+
 export function subscribeTournamentVolume(onRow) {
   return supaRoma
     .channel(`tournament-volume-${Math.random().toString(36).slice(2)}`)
