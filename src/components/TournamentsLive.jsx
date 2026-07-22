@@ -56,6 +56,12 @@ function ago(ts, now) {
   if (s < 5400) return `оновлено ${Math.round(s / 60)}хв тому`
   return `оновлено ${Math.round(s / 3600)}г тому`
 }
+function endDateLabel(endAt) {
+  if (!endAt) return null
+  const d = new Date(endAt)
+  if (Number.isNaN(d.getTime())) return null
+  return `${String(d.getDate()).padStart(2, '0')}.${String(d.getMonth() + 1).padStart(2, '0')} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
+}
 function sparkTime(ts) {
   const d = new Date(ts)
   if (Number.isNaN(d.getTime())) return ''
@@ -190,7 +196,6 @@ function TournamentCard({ t, history, now }) {
         </div>
         <div className="tl-badges">
           <span className={`tl-pill tl-pill--${isDex ? 'dex' : 'cex'}`}>{MARKET_LABEL[t.market] || t.market}</span>
-          {st === 'live' && <span className="tl-pill tl-pill--live">● LIVE</span>}
           {st === 'soon' && <span className="tl-pill tl-pill--soon">СКОРО</span>}
         </div>
       </div>
@@ -231,7 +236,10 @@ function TournamentCard({ t, history, now }) {
       <Calc t={t} total={total} />
 
       <div className="tl-foot">
-        <span className="tl-upd">{ago(v.updated_at, now)}{left ? ` · до кінця ${left}` : ''}</span>
+        <span className="tl-upd">
+          {ago(v.updated_at, now)}
+          {t.end_at && <> · кінець {endDateLabel(t.end_at)}{left ? ` · ${left}` : ''}</>}
+        </span>
         {t.page_url && <a href={t.page_url} target="_blank" rel="noreferrer">турнір ↗</a>}
       </div>
     </div>
