@@ -113,8 +113,12 @@ function Calc({ t, total }) {
   const poolShare = t.mechanic === 'pool-share'
   const rankTiered = t.mechanic === 'rank-tiered'
   const cost = fee != null && v > 0 ? (v / 1000) * fee : null
-  // pool-share: твоя частка × пул × ціна нагородного токена
-  const reward = poolShare && v > 0 && total != null && price != null && t.reward_pool != null ? (v / (total + v)) * Number(t.reward_pool) * price : null
+  // pool-share: твоя частка × ПУЛ-ОБСЯГУ × ціна нагородного токена. Для xStocks
+  // pool-share рахує саме volume-share пул (Activity2 = 400 XSPY), не весь приз 700.
+  const sharePool = t.config?.volumePool != null ? Number(t.config.volumePool) : t.reward_pool != null ? Number(t.reward_pool) : null
+  const stableReward = STABLES.has(String(t.reward_currency).toUpperCase())
+  const rewardTokens = poolShare && v > 0 && total != null && sharePool != null ? (v / (total + v)) * sharePool : null
+  const reward = rewardTokens != null && price != null ? rewardTokens * price : null // у $
   const profit = reward != null && cost != null ? reward - cost : null
   const minRank = t.vol?.min_rank_volume != null ? Number(t.vol.min_rank_volume) : null
   const inTop = rankTiered && minRank != null && v > 0 ? v >= minRank : null
@@ -131,7 +135,7 @@ function Calc({ t, total }) {
           {v > 0 ? (
             <div className="tl-calc-out">
               {poolShare && (
-                <div className="row"><span>Орієнтовна нагорода</span><b className="pos">{reward != null ? usd(reward) : '—'}</b></div>
+                <div className="row"><span>Орієнтовна нагорода</span><b className="pos">{rewardTokens == null ? '—' : stableReward ? usd(reward) : `${fmt2.format(rewardTokens)} ${t.reward_currency}${reward != null ? ` (≈ ${usd(reward)})` : ''}`}</b></div>
               )}
               {rankTiered && (
                 <div className="row"><span>Поріг топ-N</span><b className={inTop ? 'pos' : 'neg'}>{inTop == null ? '—' : inTop ? '✓ у топі' : `× треба ще ${usd(minRank - v)}`}</b></div>
