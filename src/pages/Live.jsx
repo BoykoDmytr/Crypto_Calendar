@@ -9,6 +9,7 @@ import { supaRoma } from '../lib/supabaseRoma'
 import OkxProfitCalculator from '../components/OkxProfitCalculator'
 import FlashEarnCalculator from '../components/FlashEarnCalculator'
 import Claims from './Claims'
+import TournamentsLive from '../components/TournamentsLive'
 import './Live.css'
 
 const fmt = new Intl.NumberFormat('uk-UA', { maximumFractionDigits: 0 })
@@ -208,7 +209,7 @@ function Sparkline({ points }) {
 }
 
 export default function Live() {
-  const [tab, setTab] = useState('okx')
+  const [tab, setTab] = useState('tournaments')
   const [campaigns, setCampaigns] = useState([])
   const [feeTiers, setFeeTiers] = useState([])
   const [history, setHistory] = useState([])
@@ -350,6 +351,17 @@ export default function Live() {
       </div>
 
       <div className="live-tabs">
+        <button className={`live-tab ${tab === 'tournaments' ? 'on' : ''}`} onClick={() => setTab('tournaments')}>
+          <span className="live-tab-logo" style={{ background: '#3B82F6', color: '#fff' }}>
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <path d="M6 9H4.5a2.5 2.5 0 0 1 0-5H6" /><path d="M18 9h1.5a2.5 2.5 0 0 0 0-5H18" />
+              <path d="M4 22h16" /><path d="M10 14.66V17c0 .55-.47.98-.97 1.21C7.85 18.75 7 20.24 7 22" />
+              <path d="M14 14.66V17c0 .55.47.98.97 1.21C16.15 18.75 17 20.24 17 22" /><path d="M18 2H6v7a6 6 0 0 0 12 0V2Z" />
+            </svg>
+          </span>
+          Турніри
+          {anyLive && <span className="live-pulse live-pulse--sm" />}
+        </button>
         <button className={`live-tab ${tab === 'okx' ? 'on' : ''}`} onClick={() => setTab('okx')}>
           <img
             className="live-tab-logo live-tab-logo--img"
@@ -375,6 +387,8 @@ export default function Live() {
           <span className="live-tab-soon">soon</span>
         </button>
       </div>
+
+      {tab === 'tournaments' && <TournamentsLive />}
 
       {tab === 'claims' && <Claims />}
 
