@@ -120,12 +120,14 @@ function Chart({ points, accent }) {
 }
 
 // Калькулятор: вписуєш обсяг → нагорода / комса / прибуток на основі теперішніх даних.
-function Calc({ t, total }) {
+// feeOverride (з реф-ребейтом на DEX-картці) має пріоритет над t.fee_auto.
+function Calc({ t, total, feeOverride, refPct }) {
   const [open, setOpen] = useState(false)
   const [raw, setRaw] = useState('')
   const v = Math.max(0, Number(raw) || 0)
-  const fee = t.fee_per_1k != null ? t.fee_per_1k : t.fee_auto != null ? t.fee_auto : null // ручний override › авто-оцінка
-  const feeAuto = t.fee_per_1k == null && t.fee_auto != null
+  const feeRaw = t.fee_per_1k != null ? t.fee_per_1k : feeOverride != null ? feeOverride : t.fee_auto != null ? t.fee_auto : null // ручний override › реф › авто
+  const fee = feeRaw != null ? Number(feeRaw) : null
+  const feeAuto = t.fee_per_1k == null && (feeOverride != null || t.fee_auto != null)
   const price = rewardPrice(t)
   const poolShare = t.mechanic === 'pool-share'
   const rankTiered = t.mechanic === 'rank-tiered'
@@ -172,7 +174,7 @@ function Calc({ t, total }) {
               {rankTiered && projTier && (
                 <div className="row"><span>Орієнтовний тір</span><b className="pos">{projTier.from === projTier.to ? `#${projTier.from}` : `${projTier.from}–${projTier.to}`} → {tierRewardLabel(projReward, projTier.unit, price)}</b></div>
               )}
-              <div className="row"><span>Комса ({fee != null ? `${feeAuto ? '≈$' : '$'}${fee}/1K${feeAuto ? ' авто' : ''}` : 'не задано'})</span><b className="neg">{cost != null ? `−${usd(cost)}` : 'n/a'}</b></div>
+              <div className="row"><span>Комса ({fee != null ? `${feeAuto ? '≈$' : '$'}${fee.toFixed(2)}/1K${feeAuto ? (refPct ? ` реф ${refPct}%` : ' авто') : ''}` : 'не задано'})</span><b className="neg">{cost != null ? `−${usd(cost)}` : 'n/a'}</b></div>
               {poolShare && (
                 <div className="row row--total"><span>Прибуток</span><b className={profit == null ? '' : profit >= 0 ? 'pos' : 'neg'}>{profit != null ? (profit >= 0 ? '+' : '') + usd(profit) : fee == null ? 'задай /fee' : '—'}</b></div>
               )}
@@ -289,6 +291,9 @@ function TierTable({ t, now }) {
   )
 }
 
+// Ребейт (refback) на DEX-турнірах: юзеру повертається ref% від OKX свап-фі (=$2/1k
+// = 2 ноги × 0.1%). Пул/слипедж НЕ ребейтяться. Ефективна комса = комса − ref×$2.
+const DEX_REBATE_BASE = 2.0
 function TournamentCard({ t, history, now }) {
   const st = state(t, now)
   const v = t.vol || {}
@@ -297,6 +302,16 @@ function TournamentCard({ t, history, now }) {
   const rankTiered = t.mechanic === 'rank-tiered'
   const accent = isDex ? '#8b5cf6' : '#3B82F6'
   const price = rewardPrice(t)
+  // REF-ребейт лише для DEX-авто-комси (не для ручного /fee і не для CEX/stocks).
+  const isDexRef = isDex && t.fee_per_1k == null && t.fee_auto != null
+  const [refPct, setRefPct] = useState(() => { try { return Number(localStorage.getItem('tl-ref-' + t.id)) || 0 } catch { return 0 } })
+  const changeRef = (p) => { setRefPct(p); try { localStorage.setItem('tl-ref-' + t.id, String(p)) } catch { /* приватний режим */ } }
+  const refCut = isDexRef ? (refPct / 100) * DEX_REBATE_BASE : 0
+  const feeLoBase = t.fee_auto_lo != null ? Number(t.fee_auto_lo) : t.fee_auto != null ? Number(t.fee_auto) : null
+  const feeHiBase = t.fee_auto_hi != null ? Number(t.fee_auto_hi) : t.fee_auto != null ? Number(t.fee_auto) : null
+  const effLo = feeLoBase != null ? Math.max(0, feeLoBase - refCut) : null
+  const effHi = feeHiBase != null ? Math.max(0, feeHiBase - refCut) : null
+  const effFee = t.fee_auto != null ? Math.max(0, Number(t.fee_auto) - refCut) : null
   const poolUsd = t.reward_pool != null && !STABLES.has(String(t.reward_currency).toUpperCase()) && price != null ? Number(t.reward_pool) * price : null
   const left = timeLeft(t.end_at, now)
   const anchorTs = v.updated_at ? new Date(v.updated_at).getTime() : null
@@ -348,14 +363,28 @@ function TournamentCard({ t, history, now }) {
         <div className="cell"><div className="k">Учасників</div><div className="vv">{v.participants != null ? fmt.format(v.participants) : '—'}</div></div>
         <div className="cell" title={t.fee_per_1k == null && t.fee_auto_note ? t.fee_auto_note : ''}>
           <div className="k">Комса за 1K</div>
-          <div className={`vv ${t.fee_per_1k == null && t.fee_auto == null ? 'na' : ''}`}>
-            {t.fee_per_1k != null ? `$${t.fee_per_1k}` : t.fee_auto != null ? `≈$${t.fee_auto}` : 'n/a'}
-          </div>
-          {t.fee_per_1k == null && t.fee_auto != null && <div className="uu">авто · ${t.fee_auto_lo}–${t.fee_auto_hi}</div>}
+          {isDexRef ? (
+            <>
+              <div className="vv">{effLo != null ? `$${effLo.toFixed(2)}–$${effHi.toFixed(2)}` : 'n/a'}</div>
+              <label className="uu tl-ref">REF:
+                <select value={refPct} onChange={(e) => changeRef(Number(e.target.value))}>
+                  <option value={0}>—</option>
+                  {[20, 25, 30, 35, 40, 45, 50].map((p) => <option key={p} value={p}>{p}%</option>)}
+                </select>
+              </label>
+            </>
+          ) : (
+            <>
+              <div className={`vv ${t.fee_per_1k == null && t.fee_auto == null ? 'na' : ''}`}>
+                {t.fee_per_1k != null ? `$${t.fee_per_1k}` : t.fee_auto != null ? `≈$${t.fee_auto}` : 'n/a'}
+              </div>
+              {t.fee_per_1k == null && t.fee_auto != null && <div className="uu">авто · ${t.fee_auto_lo}–${t.fee_auto_hi}</div>}
+            </>
+          )}
         </div>
       </div>
 
-      <Calc t={t} total={total} />
+      <Calc t={t} total={total} feeOverride={isDexRef ? effFee : null} refPct={isDexRef ? refPct : 0} />
 
       <div className="tl-foot">
         <span className="tl-upd">
