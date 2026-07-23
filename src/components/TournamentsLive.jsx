@@ -361,11 +361,22 @@ function TournamentCard({ t, history, now }) {
       <div className="tl-meta">
         <div className="cell"><div className="k">Приз</div><div className="vv">{t.reward_pool != null ? `${compact(t.reward_pool)} ${t.reward_currency || ''}` : '—'}</div>{poolUsd != null && <div className="uu">≈ {usd(poolUsd)}</div>}</div>
         <div className="cell"><div className="k">Учасників</div><div className="vv">{v.participants != null ? fmt.format(v.participants) : '—'}</div></div>
-        <div className="cell" title={t.fee_per_1k == null && t.fee_auto_note ? t.fee_auto_note : ''}>
-          <div className="k">Комса за 1K</div>
-          {isDexRef ? (
+        {/* Без title на комірці (юзер: підказки не потрібні). Час авто-тесту — біля
+            заголовка, зі СВОЄЮ підказкою. Діапазон — одразу білим, без сірого «авто·». */}
+        <div className="cell">
+          <div className="k">
+            Комса за 1K
+            {t.fee_per_1k == null && t.fee_auto_at && (
+              <span className="tl-fee-at" title="Час, коли був здійснений авто-тест на перевірку комісії"> · {sparkTime(t.fee_auto_at)}</span>
+            )}
+          </div>
+          {t.fee_per_1k != null ? (
+            <div className="vv">${t.fee_per_1k}</div>
+          ) : t.fee_auto == null ? (
+            <div className="vv na">n/a</div>
+          ) : isDexRef ? (
             <>
-              <div className="vv">{effLo != null ? `$${effLo.toFixed(2)}–$${effHi.toFixed(2)}` : 'n/a'}</div>
+              <div className="vv">{`$${effLo.toFixed(2)}–$${effHi.toFixed(2)}`}</div>
               <label className="uu tl-ref">REF:
                 <select value={refPct} onChange={(e) => changeRef(Number(e.target.value))}>
                   <option value={0}>—</option>
@@ -374,12 +385,7 @@ function TournamentCard({ t, history, now }) {
               </label>
             </>
           ) : (
-            <>
-              <div className={`vv ${t.fee_per_1k == null && t.fee_auto == null ? 'na' : ''}`}>
-                {t.fee_per_1k != null ? `$${t.fee_per_1k}` : t.fee_auto != null ? `≈$${t.fee_auto}` : 'n/a'}
-              </div>
-              {t.fee_per_1k == null && t.fee_auto != null && <div className="uu">авто · ${t.fee_auto_lo}–${t.fee_auto_hi}</div>}
-            </>
+            <div className="vv">{`$${Number(t.fee_auto_lo ?? t.fee_auto).toFixed(2)}–$${Number(t.fee_auto_hi ?? t.fee_auto).toFixed(2)}`}</div>
           )}
         </div>
       </div>
