@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { fetchTournaments, fetchTournamentHistory, fetchOkxEndedAsTournaments, fetchOkxHistory, subscribeTournamentVolume } from '../lib/tournamentsApi'
+import { fetchTournaments, fetchTournamentHistory, fetchTournamentFeeHistory, fetchOkxEndedAsTournaments, fetchOkxHistory, subscribeTournamentVolume } from '../lib/tournamentsApi'
 import { supaRoma } from '../lib/supabaseRoma'
 import { fetchFeeTiers } from '../lib/okxApi'
 import OkxProfitCalculator from './OkxProfitCalculator'
@@ -320,7 +320,7 @@ function TournamentCard({ t, history, now }) {
         </div>
       </div>
 
-      <div className="tl-vol-label">Загальний накручений обсяг</div>
+      <div className="tl-vol-label">Загальний накручений обсяг{v.extra?.volPartial ? ' (топ-100)' : ''}</div>
       {total != null ? (
         <>
           <div className="tl-vol">{fmt.format(Math.round(total))} <small>USDT</small></div>
@@ -368,13 +368,22 @@ function TournamentCard({ t, history, now }) {
   )
 }
 
-function EndedCard({ t, history, onCalc }) {
+function EndedCard({ t, history, feeHist, onCalc }) {
   const [open, setOpen] = useState(false)
   const v = t.vol || {}
   const price = rewardPrice(t)
   const poolUsd = t.reward_pool != null && !STABLES.has(String(t.reward_currency).toUpperCase()) && price != null ? Number(t.reward_pool) * price : null
   const total = v.total_volume != null ? Number(v.total_volume) : null
   const chartPts = history && history.length > 120 ? history.slice(-120) : history
+  const tiers = Array.isArray(v.extra?.tiers) ? v.extra.tiers : null
+  // Середня авто-комса за ОСТАННІ 24 ГОДИНИ до кінця турніру (з tournament_fee_history).
+  const avgFee24 = useMemo(() => {
+    if (!feeHist?.length || !t.end_at) return null
+    const end = new Date(t.end_at).getTime()
+    const pts = feeHist.map((f) => [new Date(f.observed_at).getTime(), Number(f.fee_auto)]).filter(([a, b]) => Number.isFinite(a) && Number.isFinite(b) && a <= end && a >= end - 86400_000)
+    if (!pts.length) return null
+    return { avg: pts.reduce((s, p) => s + p[1], 0) / pts.length, n: pts.length }
+  }, [feeHist, t.end_at])
   return (
     <div className={`tl-ended ${open ? 'tl-ended--open' : ''}`}>
       <button className="tl-ended-row" type="button" onClick={() => setOpen((o) => !o)} aria-expanded={open}>
@@ -392,10 +401,31 @@ function EndedCard({ t, history, onCalc }) {
       {open && (
         <div className="tl-ended-detail">
           <div className="tl-ended-final">
-            Фінальний обсяг: <b>{total != null ? `${fmt.format(Math.round(total))} USDT` : '—'}</b>
+            Фінальний обсяг: <b>{total != null ? `${fmt.format(Math.round(total))} USDT${v.extra?.volPartial ? ' (топ-100)' : ''}` : '—'}</b>
             {v.participants != null ? ` · ${fmt.format(v.participants)} учасників` : ''}
           </div>
+          <div className="tl-ended-final">
+            Сер. комса за 24г до кінця: <b>{avgFee24 ? `≈$${avgFee24.avg.toFixed(2)}/1K` : '—'}</b>
+            {avgFee24 ? <span className="tl-ended-sub"> ({avgFee24.n} замірів)</span> : <span className="tl-ended-sub"> (нема історії комси)</span>}
+          </div>
           <Chart points={chartPts} accent="#64748b" />
+          {tiers && (
+            <div className="tl-tiers-scroll" style={{ marginTop: 8 }}>
+              <table className="tl-tiers-table">
+                <thead><tr><th>Ранг</th><th>Нагорода</th><th>Вхід (обсяг)</th><th>Середній</th></tr></thead>
+                <tbody>
+                  {tiers.map((x) => (
+                    <tr key={`${x.from}-${x.to}`}>
+                      <td>{x.from === x.to ? `#${x.from}` : `${x.from}–${x.to}`}</td>
+                      <td>{tierRewardLabel(x.reward, x.unit, price)}</td>
+                      <td>{x.entry != null ? fmt.format(Math.round(x.entry)) : '—'}</td>
+                      <td>{x.avg != null ? fmt.format(Math.round(x.avg)) : '—'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
           <div className="tl-ended-actions">
             {t.page_url && <a className="tl-ended-link" href={t.page_url} target="_blank" rel="noreferrer">сторінка турніру ↗</a>}
             {onCalc && <button type="button" className="tl-ended-link tl-ended-calc" onClick={onCalc}>калькулятор з VIP ↓</button>}
@@ -409,6 +439,7 @@ function EndedCard({ t, history, onCalc }) {
 export default function TournamentsLive() {
   const [items, setItems] = useState([])
   const [histById, setHistById] = useState({})
+  const [feeHistById, setFeeHistById] = useState({})
   const [filter, setFilter] = useState('all')
   const [loading, setLoading] = useState(true)
   const [now, setNow] = useState(() => Date.now())
@@ -429,6 +460,13 @@ export default function TournamentsLive() {
       hs[t.id] = t.okxId != null ? await fetchOkxHistory(t.okxId).catch(() => []) : await fetchTournamentHistory(t.id).catch(() => [])
     }))
     setHistById(hs)
+    // Історія комси — лише для завершених турнірів нової моделі (для «сер. комса 24г»).
+    const endedNew = all.filter((t) => t.okxId == null && (t.status === 'ended' || (t.end_at && new Date(t.end_at).getTime() <= Date.now())))
+    if (endedNew.length) {
+      const fh = {}
+      await Promise.all(endedNew.map(async (t) => { fh[t.id] = await fetchTournamentFeeHistory(t.id).catch(() => []) }))
+      setFeeHistById((prev) => ({ ...prev, ...fh }))
+    }
   }
 
   useEffect(() => {
@@ -444,11 +482,10 @@ export default function TournamentsLive() {
   }, [])
 
   const shown = useMemo(() => items.filter((t) => filter === 'all' || t.market === filter), [items, filter])
-  const groups = useMemo(() => {
-    const m = new Map()
-    for (const t of shown) { const k = t.venue || 'other'; if (!m.has(k)) m.set(k, []); m.get(k).push(t) }
-    return [...m.entries()].sort((a, b) => (VENUE_ORDER[a[0]] ?? 9) - (VENUE_ORDER[b[0]] ?? 9))
-  }, [shown])
+  // Глобальний поділ Актуальні / Завершені (не по біржах): всередині — сорт по біржі.
+  const byVenue = (a, b) => (VENUE_ORDER[a.venue] ?? 9) - (VENUE_ORDER[b.venue] ?? 9)
+  const active = useMemo(() => shown.filter((t) => state(t, now) !== 'ended').sort(byVenue), [shown, now])
+  const ended = useMemo(() => shown.filter((t) => state(t, now) === 'ended').sort(byVenue), [shown, now])
   const counts = useMemo(() => ({ all: items.length, cex: items.filter((t) => t.market === 'cex').length, dex: items.filter((t) => t.market === 'dex').length }), [items])
 
   return (
@@ -462,22 +499,20 @@ export default function TournamentsLive() {
       {loading && <div className="tl-state">Завантаження турнірів…</div>}
       {!loading && shown.length === 0 && <div className="tl-state">Немає турнірів у цій категорії.</div>}
 
-      {groups.map(([venue, list]) => {
-        const active = list.filter((t) => state(t, now) !== 'ended')
-        const ended = list.filter((t) => state(t, now) === 'ended')
-        return (
-          <div key={venue} className="tl-group">
-            <div className="tl-group-title">{VENUE_LABEL[venue] || venue} <span className="tl-group-count">{list.length}</span></div>
-            {active.length > 0 && <div className="tl-grid">{active.map((t) => <TournamentCard key={t.id} t={t} history={histById[t.id] || []} now={now} />)}</div>}
-            {ended.length > 0 && (
-              <div className="tl-ended-wrap">
-                <div className="tl-ended-head">Завершені <span>{ended.length}</span></div>
-                <div className="tl-ended-list">{ended.map((t) => <EndedCard key={t.id} t={t} history={histById[t.id] || []} onCalc={isCexFull(t) ? () => openCalc(t._raw) : null} />)}</div>
-              </div>
-            )}
+      {active.length > 0 && (
+        <div className="tl-group">
+          <div className="tl-group-title">Актуальні <span className="tl-group-count">{active.length}</span></div>
+          <div className="tl-grid">{active.map((t) => <TournamentCard key={t.id} t={t} history={histById[t.id] || []} now={now} />)}</div>
+        </div>
+      )}
+      {ended.length > 0 && (
+        <div className="tl-group">
+          <div className="tl-ended-wrap">
+            <div className="tl-ended-head">Завершені <span>{ended.length}</span></div>
+            <div className="tl-ended-list">{ended.map((t) => <EndedCard key={t.id} t={t} history={histById[t.id] || []} feeHist={feeHistById[t.id] || null} onCalc={isCexFull(t) ? () => openCalc(t._raw) : null} />)}</div>
           </div>
-        )
-      })}
+        </div>
+      )}
 
       {calcFor && (
         <div id="tl-fullcalc" className="tl-fullcalc">

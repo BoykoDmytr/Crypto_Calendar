@@ -34,6 +34,18 @@ export async function fetchTournamentHistory(tournamentId, limit = 400) {
   return (data || []).reverse()
 }
 
+// Історія авто-комси турніру (для «сер. комса за 24г до кінця» на завершених).
+export async function fetchTournamentFeeHistory(tournamentId, limit = 200) {
+  const { data, error } = await supaRoma
+    .from('tournament_fee_history')
+    .select('fee_auto, observed_at')
+    .eq('tournament_id', tournamentId)
+    .order('observed_at', { ascending: false })
+    .limit(limit)
+  if (error) throw error
+  return (data || []).reverse()
+}
+
 // Завершені OKX-турніри зі старої моделі (okx_campaigns) → нормалізуємо у форму
 // картки, щоб показати їх у вкладці «Турніри» разом з новими (OKX → Завершені).
 // Стару вкладку/пайплайн НЕ чіпаємо — лише читаємо.
