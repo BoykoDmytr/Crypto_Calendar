@@ -69,6 +69,9 @@
 .tl-meta .k { font-size: 11px; color: color-mix(in oklab, var(--text) 55%, transparent); margin-bottom: 2px; }
 .tl-meta .vv { font-size: 14.5px; font-weight: 700; font-variant-numeric: tabular-nums; }
 .tl-meta .vv.na { color: #fbbf24; opacity: .85; }
+.tl-pdelta { font-size: 11px; font-weight: 700; margin-left: 5px; vertical-align: 1px; font-variant-numeric: tabular-nums; cursor: help; }
+.tl-pdelta.up { color: #6ee7b7; }
+.tl-pdelta.down { color: #fca5a5; }
 .tl-meta .uu { font-size: 11px; color: color-mix(in oklab, var(--text) 55%, transparent); }
 .tl-ref { display: inline-flex; align-items: center; gap: 4px; margin-top: 2px; color: color-mix(in oklab, var(--text) 60%, transparent); }
 /* color-scheme:dark → нативний випадаючий список рендериться ТЕМНИМ (Chromium),

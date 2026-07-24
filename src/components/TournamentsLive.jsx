@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { fetchTournaments, fetchTournamentHistory, fetchTournamentFeeHistory, fetchOkxEndedAsTournaments, fetchOkxHistory, subscribeTournamentVolume } from '../lib/tournamentsApi'
+import { fetchTournaments, fetchTournamentHistory, fetchTournamentFeeHistory, fetchParticipantSnapshots, fetchOkxEndedAsTournaments, fetchOkxHistory, subscribeTournamentVolume } from '../lib/tournamentsApi'
 import { supaRoma } from '../lib/supabaseRoma'
 import { fetchFeeTiers } from '../lib/okxApi'
 import OkxProfitCalculator from './OkxProfitCalculator'
@@ -294,10 +294,12 @@ function TierTable({ t, now }) {
 // Ребейт (refback) на DEX-турнірах: юзеру повертається ref% від OKX свап-фі (=$2/1k
 // = 2 ноги × 0.1%). Пул/слипедж НЕ ребейтяться. Ефективна комса = комса − ref×$2.
 const DEX_REBATE_BASE = 2.0
-function TournamentCard({ t, history, now }) {
+function TournamentCard({ t, history, snap, now }) {
   const st = state(t, now)
   const v = t.vol || {}
   const total = v.total_volume != null ? Number(v.total_volume) : null
+  // Приріст учасників з опівночі Києва (денний снепшот). Показуємо лише коли є база.
+  const partDelta = snap?.participants != null && v.participants != null ? Number(v.participants) - Number(snap.participants) : null
   const isDex = t.market === 'dex'
   const rankTiered = t.mechanic === 'rank-tiered'
   const accent = isDex ? '#8b5cf6' : '#3B82F6'
@@ -360,7 +362,7 @@ function TournamentCard({ t, history, now }) {
 
       <div className="tl-meta">
         <div className="cell"><div className="k">Приз</div><div className="vv">{t.reward_pool != null ? `${compact(t.reward_pool)} ${t.reward_currency || ''}` : '—'}</div>{poolUsd != null && <div className="uu">≈ {usd(poolUsd)}</div>}</div>
-        <div className="cell"><div className="k">Учасників</div><div className="vv">{v.participants != null ? fmt.format(v.participants) : '—'}</div></div>
+        <div className="cell"><div className="k">Учасників</div><div className="vv">{v.participants != null ? fmt.format(v.participants) : '—'}{partDelta != null && partDelta !== 0 && <span className={`tl-pdelta ${partDelta > 0 ? 'up' : 'down'}`} title="Приріст учасників з 00:00 за Києвом">{partDelta > 0 ? '+' : '−'}{fmt.format(Math.abs(partDelta))}</span>}</div></div>
         {/* Без title на комірці (юзер: підказки не потрібні). Час авто-тесту — біля
             заголовка, зі СВОЄЮ підказкою. Діапазон — одразу білим, без сірого «авто·». */}
         <div className="cell">
@@ -475,6 +477,7 @@ export default function TournamentsLive() {
   const [items, setItems] = useState([])
   const [histById, setHistById] = useState({})
   const [feeHistById, setFeeHistById] = useState({})
+  const [partSnap, setPartSnap] = useState({}) // tournament_id → {snap_date, participants} (денний снепшот)
   const [filter, setFilter] = useState('all')
   const [loading, setLoading] = useState(true)
   const [now, setNow] = useState(() => Date.now())
@@ -495,6 +498,7 @@ export default function TournamentsLive() {
       hs[t.id] = t.okxId != null ? await fetchOkxHistory(t.okxId).catch(() => []) : await fetchTournamentHistory(t.id).catch(() => [])
     }))
     setHistById(hs)
+    fetchParticipantSnapshots().then(setPartSnap).catch(() => {})
     // Історія комси — лише для завершених турнірів нової моделі (для «сер. комса 24г»).
     const endedNew = all.filter((t) => t.okxId == null && (t.status === 'ended' || (t.end_at && new Date(t.end_at).getTime() <= Date.now())))
     if (endedNew.length) {
@@ -537,7 +541,7 @@ export default function TournamentsLive() {
       {active.length > 0 && (
         <div className="tl-group">
           <div className="tl-group-title">Актуальні <span className="tl-group-count">{active.length}</span></div>
-          <div className="tl-grid">{active.map((t) => <TournamentCard key={t.id} t={t} history={histById[t.id] || []} now={now} />)}</div>
+          <div className="tl-grid">{active.map((t) => <TournamentCard key={t.id} t={t} history={histById[t.id] || []} snap={partSnap[t.id]} now={now} />)}</div>
         </div>
       )}
       {ended.length > 0 && (

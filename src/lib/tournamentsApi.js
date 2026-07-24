@@ -34,6 +34,18 @@ export async function fetchTournamentHistory(tournamentId, limit = 400) {
   return (data || []).reverse()
 }
 
+// Денні снепшоти к-сті учасників (найсвіжіший на турнір) — для приросту «+N».
+export async function fetchParticipantSnapshots() {
+  const { data, error } = await supaRoma
+    .from('tournament_participants_daily')
+    .select('tournament_id, snap_date, participants')
+    .order('snap_date', { ascending: false })
+  if (error) throw error
+  const latest = {} // tournament_id → {snap_date, participants} (перший = найсвіжіший)
+  for (const r of data || []) if (!(r.tournament_id in latest)) latest[r.tournament_id] = r
+  return latest
+}
+
 // Історія авто-комси турніру (для «сер. комса за 24г до кінця» на завершених).
 export async function fetchTournamentFeeHistory(tournamentId, limit = 200) {
   const { data, error } = await supaRoma
