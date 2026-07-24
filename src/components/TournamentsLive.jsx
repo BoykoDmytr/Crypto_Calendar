@@ -119,19 +119,22 @@ function Chart({ points, accent }) {
   )
 }
 
-// Калькулятор: вписуєш обсяг → нагорода / комса / прибуток на основі теперішніх даних.
-// feeOverride (з реф-ребейтом на DEX-картці) має пріоритет над t.fee_auto.
-function Calc({ t, total, feeOverride, refPct }) {
+// Калькулятор: вписуєш обсяг → нагорода / комса / рефбек / прибуток.
+// rebatePct (на DEX-турнірах) — % рефбеку від КОМСИ; тоді cost = чиста комса.
+function Calc({ t, total, rebatePct }) {
   const [open, setOpen] = useState(false)
   const [raw, setRaw] = useState('')
   const v = Math.max(0, Number(raw) || 0)
-  const feeRaw = t.fee_per_1k != null ? t.fee_per_1k : feeOverride != null ? feeOverride : t.fee_auto != null ? t.fee_auto : null // ручний override › реф › авто
-  const fee = feeRaw != null ? Number(feeRaw) : null
-  const feeAuto = t.fee_per_1k == null && (feeOverride != null || t.fee_auto != null)
+  const feeBase = t.fee_per_1k != null ? Number(t.fee_per_1k) : t.fee_auto != null ? Number(t.fee_auto) : null // базова комса $/1k
+  const feeAuto = t.fee_per_1k == null && t.fee_auto != null
+  const hasReb = rebatePct != null && rebatePct > 0 && t.fee_per_1k == null // рефбек лише на авто-DEX
   const price = rewardPrice(t)
   const poolShare = t.mechanic === 'pool-share'
   const rankTiered = t.mechanic === 'rank-tiered'
-  const cost = fee != null && v > 0 ? (v / 1000) * fee : null
+  const baseCost = feeBase != null && v > 0 ? (v / 1000) * feeBase : null // комса ДО рефбеку
+  const rebate = hasReb && baseCost != null ? (baseCost * rebatePct) / 100 : 0 // сума рефбеку
+  const cost = baseCost != null ? baseCost - rebate : null // ЧИСТА комса (у прибуток іде вона)
+  const fee = feeBase // для сумісності нижче (лейбли)
   // pool-share: твоя частка × ПУЛ-ОБСЯГУ × ціна нагородного токена. Для xStocks
   // pool-share рахує саме volume-share пул (Activity2 = 400 XSPY), не весь приз 700.
   const sharePool = t.config?.volumePool != null ? Number(t.config.volumePool) : t.reward_pool != null ? Number(t.reward_pool) : null
@@ -204,7 +207,15 @@ function Calc({ t, total, feeOverride, refPct }) {
               {rankTiered && proj?.kind === 'below' && (
                 <div className="row"><span>Орієнтовний тір</span><b className="pos">поза топ-100 · {tierRewardLabel(proj.worst.reward, proj.worst.unit, price)}–{tierRewardLabel(proj.best.reward, proj.best.unit, price)}</b></div>
               )}
-              <div className="row"><span>Комса ({fee != null ? `${feeAuto ? '≈$' : '$'}${fee.toFixed(2)}/1K${feeAuto ? (refPct ? ` реф ${refPct}%` : ' авто') : ''}` : 'не задано'})</span><b className="neg">{cost != null ? `−${usd(cost)}` : 'n/a'}</b></div>
+              {hasReb ? (
+                <>
+                  <div className="row"><span>Комса (базова {feeAuto ? '≈$' : '$'}{feeBase.toFixed(2)}/1K)</span><b className="neg">{baseCost != null ? `−${usd(baseCost)}` : 'n/a'}</b></div>
+                  <div className="row"><span>Рефбек ({rebatePct}%)</span><b className="pos">{rebate ? `+${usd(rebate)}` : '—'}</b></div>
+                  <div className="row"><span>Чиста комса</span><b className="neg">{cost != null ? `−${usd(cost)}` : 'n/a'}</b></div>
+                </>
+              ) : (
+                <div className="row"><span>Комса ({feeBase != null ? `${feeAuto ? '≈$' : '$'}${feeBase.toFixed(2)}/1K${feeAuto ? ' авто' : ''}` : 'не задано'})</span><b className="neg">{cost != null ? `−${usd(cost)}` : 'n/a'}</b></div>
+              )}
               {poolShare && (
                 <div className="row row--total"><span>Прибуток</span><b className={profit == null ? '' : profit >= 0 ? 'pos' : 'neg'}>{profit != null ? (profit >= 0 ? '+' : '') + usd(profit) : fee == null ? 'задай /fee' : '—'}</b></div>
               )}
@@ -213,6 +224,9 @@ function Calc({ t, total, feeOverride, refPct }) {
               )}
               {rankTiered && proj?.kind === 'below' && belowWorst != null && (
                 <div className="row row--total"><span>Прибуток (поза топ-100)</span><b className={belowBest >= 0 ? 'pos' : 'neg'}>{usd(belowWorst)}…{usd(belowBest)}</b></div>
+              )}
+              {hasReb && (
+                <div className="tl-calc-note">Рефбек: 20% авто (OKX, усім) + до 30% через реф-лінк = до 50%. Комса за $1k ОБСЯГУ (обидві ноги round-trip).</div>
               )}
               {rankTiered && (
                 <div className="tl-calc-note">{
@@ -329,9 +343,9 @@ function TierTable({ t, now }) {
   )
 }
 
-// Ребейт (refback) на DEX-турнірах: юзеру повертається ref% від OKX свап-фі (=$2/1k
-// = 2 ноги × 0.1%). Пул/слипедж НЕ ребейтяться. Ефективна комса = комса − ref×$2.
-const DEX_REBATE_BASE = 2.0
+// Рефбек на DEX-турнірах = % ВІД КОМСИ, що повертається (не $ від службової частини).
+// На X LAYER: 20% авто (OKX, усім) + до 30% через реф-лінк = до 50%. Чиста = комса×(1−%).
+const REB_OPTS = [0, 20, 30, 40, 50]
 function TournamentCard({ t, history, snap, now }) {
   const st = state(t, now)
   const v = t.vol || {}
@@ -342,16 +356,15 @@ function TournamentCard({ t, history, snap, now }) {
   const rankTiered = t.mechanic === 'rank-tiered'
   const accent = isDex ? '#8b5cf6' : '#3B82F6'
   const price = rewardPrice(t)
-  // REF-ребейт лише для DEX-авто-комси (не для ручного /fee і не для CEX/stocks).
+  // REF-рефбек лише для DEX-авто-комси (не для ручного /fee і не для CEX/stocks).
   const isDexRef = isDex && t.fee_per_1k == null && t.fee_auto != null
-  const [refPct, setRefPct] = useState(() => { try { return Number(localStorage.getItem('tl-ref-' + t.id)) || 0 } catch { return 0 } })
+  const [refPct, setRefPct] = useState(() => { try { const s = Number(localStorage.getItem('tl-ref-' + t.id)); return REB_OPTS.includes(s) ? s : 20 } catch { return 20 } })
   const changeRef = (p) => { setRefPct(p); try { localStorage.setItem('tl-ref-' + t.id, String(p)) } catch { /* приватний режим */ } }
-  const refCut = isDexRef ? (refPct / 100) * DEX_REBATE_BASE : 0
+  const keep = isDexRef ? 1 - refPct / 100 : 1 // частка комси, що лишається після рефбеку
   const feeLoBase = t.fee_auto_lo != null ? Number(t.fee_auto_lo) : t.fee_auto != null ? Number(t.fee_auto) : null
   const feeHiBase = t.fee_auto_hi != null ? Number(t.fee_auto_hi) : t.fee_auto != null ? Number(t.fee_auto) : null
-  const effLo = feeLoBase != null ? Math.max(0, feeLoBase - refCut) : null
-  const effHi = feeHiBase != null ? Math.max(0, feeHiBase - refCut) : null
-  const effFee = t.fee_auto != null ? Math.max(0, Number(t.fee_auto) - refCut) : null
+  const effLo = feeLoBase != null ? feeLoBase * keep : null
+  const effHi = feeHiBase != null ? feeHiBase * keep : null
   const poolUsd = t.reward_pool != null && !STABLES.has(String(t.reward_currency).toUpperCase()) && price != null ? Number(t.reward_pool) * price : null
   const left = timeLeft(t.end_at, now)
   const anchorTs = v.updated_at ? new Date(v.updated_at).getTime() : null
@@ -416,13 +429,13 @@ function TournamentCard({ t, history, snap, now }) {
             <div className="vv na">n/a</div>
           ) : isDexRef ? (
             <>
-              <div className="vv">{`$${effLo.toFixed(2)}–$${effHi.toFixed(2)}`}</div>
-              <label className="uu tl-ref">REF:
+              <div className="vv">{`$${feeLoBase.toFixed(2)}–$${feeHiBase.toFixed(2)}`}</div>
+              <div className="uu tl-ref">рефбек
                 <select value={refPct} onChange={(e) => changeRef(Number(e.target.value))}>
-                  <option value={0}>—</option>
-                  {[20, 25, 30, 35, 40, 45, 50].map((p) => <option key={p} value={p}>{p}%</option>)}
+                  {REB_OPTS.map((p) => <option key={p} value={p}>{p}%</option>)}
                 </select>
-              </label>
+                {refPct > 0 && <span className="tl-net"> → ${effLo.toFixed(2)}–${effHi.toFixed(2)}</span>}
+              </div>
             </>
           ) : (
             <div className="vv">{`$${Number(t.fee_auto_lo ?? t.fee_auto).toFixed(2)}–$${Number(t.fee_auto_hi ?? t.fee_auto).toFixed(2)}`}</div>
@@ -430,7 +443,7 @@ function TournamentCard({ t, history, snap, now }) {
         </div>
       </div>
 
-      <Calc t={t} total={total} feeOverride={isDexRef ? effFee : null} refPct={isDexRef ? refPct : 0} />
+      <Calc t={t} total={total} rebatePct={isDexRef ? refPct : null} />
 
       <div className="tl-foot">
         <span className="tl-upd">

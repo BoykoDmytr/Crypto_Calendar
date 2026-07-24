@@ -80,6 +80,7 @@
 .tl-ref select option { background: #0f172a; color: #e2e8f0; font-weight: 600; }
 .tl-ref select:focus { outline: none; border-color: color-mix(in oklab, var(--brand) 70%, transparent); }
 .tl-fee-at { font-size: 10px; font-weight: 600; opacity: .65; cursor: help; white-space: nowrap; }
+.tl-net { color: #6ee7b7; font-weight: 700; }
 
 .tl-foot { display: flex; justify-content: space-between; align-items: center; gap: 8px; font-size: 11.5px; color: color-mix(in oklab, var(--text) 55%, transparent); }
 .tl-foot a { color: color-mix(in oklab, var(--brand) 85%, var(--text)); text-decoration: none; }
