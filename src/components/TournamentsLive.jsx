@@ -195,9 +195,7 @@ function Calc({ t, total, rebatePct }) {
           </label>
           {v > 0 ? (
             <div className="tl-calc-out">
-              {poolShare && (
-                <div className="row"><span>Орієнтовна нагорода</span><b className="pos">{rewardTokens == null ? '—' : stableReward ? usd(reward) : `${fmt2.format(rewardTokens)} ${t.reward_currency}${reward != null ? ` (≈ ${usd(reward)})` : ''}`}</b></div>
-              )}
+              {/* Порядок: Поріг → Орієнтовний тір → Комса → Рефбек(%) → Прибуток */}
               {rankTiered && (
                 <div className="row"><span>Поріг топ-N</span><b className={inTop ? 'pos' : 'neg'}>{inTop == null ? '—' : inTop ? '✓ у топі' : `× треба ще ${usd(minRank - v)}`}</b></div>
               )}
@@ -207,34 +205,21 @@ function Calc({ t, total, rebatePct }) {
               {rankTiered && proj?.kind === 'below' && (
                 <div className="row"><span>Орієнтовний тір</span><b className="pos">поза топ-100 · {tierRewardLabel(proj.worst.reward, proj.worst.unit, price)}–{tierRewardLabel(proj.best.reward, proj.best.unit, price)}</b></div>
               )}
-              {hasReb ? (
-                <>
-                  <div className="row"><span>Комса (базова {feeAuto ? '≈$' : '$'}{feeBase.toFixed(2)}/1K)</span><b className="neg">{baseCost != null ? `−${usd(baseCost)}` : 'n/a'}</b></div>
-                  <div className="row"><span>Рефбек ({rebatePct}%)</span><b className="pos">{rebate ? `+${usd(rebate)}` : '—'}</b></div>
-                  <div className="row"><span>Чиста комса</span><b className="neg">{cost != null ? `−${usd(cost)}` : 'n/a'}</b></div>
-                </>
-              ) : (
-                <div className="row"><span>Комса ({feeBase != null ? `${feeAuto ? '≈$' : '$'}${feeBase.toFixed(2)}/1K${feeAuto ? ' авто' : ''}` : 'не задано'})</span><b className="neg">{cost != null ? `−${usd(cost)}` : 'n/a'}</b></div>
+              {poolShare && (
+                <div className="row"><span>Орієнтовна нагорода</span><b className="pos">{rewardTokens == null ? '—' : stableReward ? usd(reward) : `${fmt2.format(rewardTokens)} ${t.reward_currency}${reward != null ? ` (≈ ${usd(reward)})` : ''}`}</b></div>
+              )}
+              <div className="row"><span>Комса ({feeBase != null ? `${feeAuto ? '≈$' : '$'}${feeBase.toFixed(2)}/1K` : 'не задано'})</span><b className="neg">{baseCost != null ? `−${usd(baseCost)}` : 'n/a'}</b></div>
+              {hasReb && (
+                <div className="row"><span>Рефбек ({rebatePct}%)</span><b className="pos">{rebate ? `+${usd(rebate)}` : '—'}</b></div>
               )}
               {poolShare && (
-                <div className="row row--total"><span>Прибуток</span><b className={profit == null ? '' : profit >= 0 ? 'pos' : 'neg'}>{profit != null ? (profit >= 0 ? '+' : '') + usd(profit) : fee == null ? 'задай /fee' : '—'}</b></div>
+                <div className="row row--total"><span>Прибуток</span><b className={profit == null ? '' : profit >= 0 ? 'pos' : 'neg'}>{profit != null ? (profit >= 0 ? '+' : '') + usd(profit) : feeBase == null ? 'задай /fee' : '—'}</b></div>
               )}
               {rankTiered && projTierNow && projProfit != null && (
-                <div className="row row--total"><span>Прибуток (якщо втримаєш тір)</span><b className={projProfit >= 0 ? 'pos' : 'neg'}>{(projProfit >= 0 ? '+' : '') + usd(projProfit)}</b></div>
+                <div className="row row--total"><span>Прибуток</span><b className={projProfit >= 0 ? 'pos' : 'neg'}>{(projProfit >= 0 ? '+' : '') + usd(projProfit)}</b></div>
               )}
               {rankTiered && proj?.kind === 'below' && belowWorst != null && (
-                <div className="row row--total"><span>Прибуток (поза топ-100)</span><b className={belowBest >= 0 ? 'pos' : 'neg'}>{usd(belowWorst)}…{usd(belowBest)}</b></div>
-              )}
-              {hasReb && (
-                <div className="tl-calc-note">Рефбек: 20% авто (OKX, усім) + до 30% через реф-лінк = до 50%. Комса за $1k ОБСЯГУ (обидві ноги round-trip).</div>
-              )}
-              {rankTiered && (
-                <div className="tl-calc-note">{
-                  proj?.kind === 'exact' ? 'Оцінка за ПОТОЧНИМ лідербордом — до кінця турніру межі тірів зростуть.'
-                  : proj?.kind === 'est' ? 'Ранг оцінено екстраполяцією нижче топ-100 (межі OKX не віддає) — точний тір перевір гаманцем ↑.'
-                  : proj?.kind === 'below' ? 'Ти поза топ-100 — точний тір OKX не розкриває. Встав гаманець вище ↑ для точного рангу.'
-                  : tiers ? 'Обсяг нижче порогу ранкінгу — нагороди не буде.' : 'Тіри зʼявляться після наступного оновлення поллера.'
-                }</div>
+                <div className="row row--total"><span>Прибуток</span><b className={belowBest >= 0 ? 'pos' : 'neg'}>{usd(belowWorst)}…{usd(belowBest)}</b></div>
               )}
             </div>
           ) : (
@@ -332,7 +317,6 @@ function TierTable({ t, now }) {
                   </tbody>
                 </table>
               </div>
-              <div className="tl-tiers-note">вхід/середній — з топ-100 лідерборду{v.extra?.tiersAt ? ` · ${ago(v.extra.tiersAt, now)}` : ''} · глибші межі OKX не віддає</div>
             </>
           ) : (
             <div className="tl-tiers-note">Тіри зʼявляться після наступного оновлення поллера.</div>
@@ -343,9 +327,9 @@ function TierTable({ t, now }) {
   )
 }
 
-// Рефбек на DEX-турнірах = % ВІД КОМСИ, що повертається (не $ від службової частини).
-// На X LAYER: 20% авто (OKX, усім) + до 30% через реф-лінк = до 50%. Чиста = комса×(1−%).
-const REB_OPTS = [0, 20, 30, 40, 50]
+// Рефбек на DEX-турнірах = % ВІД КОМСИ. Два тумблери (сума = загальний рефбек 0–50%).
+const REB_A = [0, 5, 10, 15, 20]
+const REB_B = [0, 5, 10, 15, 20, 25, 30]
 function TournamentCard({ t, history, snap, now }) {
   const st = state(t, now)
   const v = t.vol || {}
@@ -358,13 +342,13 @@ function TournamentCard({ t, history, snap, now }) {
   const price = rewardPrice(t)
   // REF-рефбек лише для DEX-авто-комси (не для ручного /fee і не для CEX/stocks).
   const isDexRef = isDex && t.fee_per_1k == null && t.fee_auto != null
-  const [refPct, setRefPct] = useState(() => { try { const s = Number(localStorage.getItem('tl-ref-' + t.id)); return REB_OPTS.includes(s) ? s : 20 } catch { return 20 } })
-  const changeRef = (p) => { setRefPct(p); try { localStorage.setItem('tl-ref-' + t.id, String(p)) } catch { /* приватний режим */ } }
-  const keep = isDexRef ? 1 - refPct / 100 : 1 // частка комси, що лишається після рефбеку
+  const [refA, setRefA] = useState(() => { try { const s = Number(localStorage.getItem('tl-refA-' + t.id)); return REB_A.includes(s) ? s : 0 } catch { return 0 } })
+  const [refB, setRefB] = useState(() => { try { const s = Number(localStorage.getItem('tl-refB-' + t.id)); return REB_B.includes(s) ? s : 0 } catch { return 0 } })
+  const changeA = (p) => { setRefA(p); try { localStorage.setItem('tl-refA-' + t.id, String(p)) } catch { /* приватний режим */ } }
+  const changeB = (p) => { setRefB(p); try { localStorage.setItem('tl-refB-' + t.id, String(p)) } catch { /* приватний режим */ } }
+  const refPct = isDexRef ? refA + refB : 0 // загальний рефбек = сума двох тумблерів
   const feeLoBase = t.fee_auto_lo != null ? Number(t.fee_auto_lo) : t.fee_auto != null ? Number(t.fee_auto) : null
   const feeHiBase = t.fee_auto_hi != null ? Number(t.fee_auto_hi) : t.fee_auto != null ? Number(t.fee_auto) : null
-  const effLo = feeLoBase != null ? feeLoBase * keep : null
-  const effHi = feeHiBase != null ? feeHiBase * keep : null
   const poolUsd = t.reward_pool != null && !STABLES.has(String(t.reward_currency).toUpperCase()) && price != null ? Number(t.reward_pool) * price : null
   const left = timeLeft(t.end_at, now)
   const anchorTs = v.updated_at ? new Date(v.updated_at).getTime() : null
@@ -431,10 +415,8 @@ function TournamentCard({ t, history, snap, now }) {
             <>
               <div className="vv">{`$${feeLoBase.toFixed(2)}–$${feeHiBase.toFixed(2)}`}</div>
               <div className="uu tl-ref">рефбек
-                <select value={refPct} onChange={(e) => changeRef(Number(e.target.value))}>
-                  {REB_OPTS.map((p) => <option key={p} value={p}>{p}%</option>)}
-                </select>
-                {refPct > 0 && <span className="tl-net"> → ${effLo.toFixed(2)}–${effHi.toFixed(2)}</span>}
+                <select value={refA} onChange={(e) => changeA(Number(e.target.value))}>{REB_A.map((p) => <option key={p} value={p}>{p}%</option>)}</select>
+                <select value={refB} onChange={(e) => changeB(Number(e.target.value))}>{REB_B.map((p) => <option key={p} value={p}>{p}%</option>)}</select>
               </div>
             </>
           ) : (
