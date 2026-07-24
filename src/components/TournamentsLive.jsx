@@ -148,17 +148,36 @@ function Calc({ t, total, feeOverride, refPct }) {
   const tiers = rankTiered && Array.isArray(t.vol?.extra?.tiers) ? t.vol.extra.tiers : null
   const proj = useMemo(() => {
     if (!tiers || v <= 0) return null
+    // 1) ТОП-100 — точний тір (є межі-входи). Дорогою запамʼятовуємо два найглибші
+    //    відомі входи, щоб оцінити локальну щільність обсягу (USDT на ранг).
+    let deepest = null, above = null
     for (const x of tiers) {
-      if (x.entry == null) break // невідома зона — виходимо, НЕ падаємо на дно
-      if (v >= x.entry) return { kind: 'exact', tier: x } // найвищий тір, чий вхід перекрито
+      if (x.entry == null) break
+      if (v >= x.entry) return { kind: 'exact', tier: x }
+      above = deepest
+      deepest = x
     }
     const last = tiers[tiers.length - 1]
+    if (!deepest || last?.entry == null || v < last.entry) return { kind: 'unranked' } // нижче порогу ранкінгу
+    // 2) НИЖЧЕ ТОП-100: OKX меж не віддає → ОЦІНЮЄМО ранг лінійною екстраполяцією
+    //    локальної щільності (обсяг на ранг біля рангу 100) і знаходимо тір.
+    let estRank = null
+    if (above && above.entry > deepest.entry && deepest.to > above.to) {
+      const densPerRank = (above.entry - deepest.entry) / (deepest.to - above.to) // USDT на 1 ранг
+      if (densPerRank > 0) estRank = Math.round(deepest.to + (deepest.entry - v) / densPerRank)
+    }
+    if (estRank != null && estRank > deepest.to) {
+      const r = Math.min(estRank, last.to)
+      const tier = tiers.find((x) => r >= x.from && r <= x.to) || last
+      return { kind: 'est', tier, estRank: r }
+    }
+    // фолбек (не змогли оцінити щільність) — діапазон нагороди
     const firstUnknown = tiers.find((x) => x.entry == null)
-    if (last?.entry != null && firstUnknown && v >= last.entry) return { kind: 'below', best: firstUnknown, worst: last }
-    return null // нижче порогу ранкінгу
+    return { kind: 'below', best: firstUnknown || last, worst: last }
   }, [tiers, v])
   const tierUsd = (reward, unit) => (reward == null ? null : STABLES.has(String(unit || '').toUpperCase()) ? reward : price != null ? reward * price : null)
-  const exactProfit = proj?.kind === 'exact' && cost != null ? (tierUsd(proj.tier.reward, proj.tier.unit) ?? 0) - cost : null
+  const projTierNow = proj?.kind === 'exact' || proj?.kind === 'est' ? proj.tier : null
+  const projProfit = projTierNow && cost != null ? (tierUsd(projTierNow.reward, projTierNow.unit) ?? 0) - cost : null
   const belowBest = proj?.kind === 'below' && cost != null ? (tierUsd(proj.best.reward, proj.best.unit) ?? 0) - cost : null
   const belowWorst = proj?.kind === 'below' && cost != null ? (tierUsd(proj.worst.reward, proj.worst.unit) ?? 0) - cost : null
 
@@ -179,8 +198,8 @@ function Calc({ t, total, feeOverride, refPct }) {
               {rankTiered && (
                 <div className="row"><span>Поріг топ-N</span><b className={inTop ? 'pos' : 'neg'}>{inTop == null ? '—' : inTop ? '✓ у топі' : `× треба ще ${usd(minRank - v)}`}</b></div>
               )}
-              {rankTiered && proj?.kind === 'exact' && (
-                <div className="row"><span>Орієнтовний тір</span><b className="pos">{proj.tier.from === proj.tier.to ? `#${proj.tier.from}` : `${proj.tier.from}–${proj.tier.to}`} → {tierRewardLabel(proj.tier.reward, proj.tier.unit, price)}</b></div>
+              {rankTiered && projTierNow && (
+                <div className="row"><span>Орієнтовний тір</span><b className="pos">{proj.kind === 'est' ? '≈ ' : ''}{projTierNow.from === projTierNow.to ? `#${projTierNow.from}` : `${projTierNow.from}–${projTierNow.to}`}{proj.kind === 'est' ? ` (ранг ~${proj.estRank})` : ''} → {tierRewardLabel(projTierNow.reward, projTierNow.unit, price)}</b></div>
               )}
               {rankTiered && proj?.kind === 'below' && (
                 <div className="row"><span>Орієнтовний тір</span><b className="pos">поза топ-100 · {tierRewardLabel(proj.worst.reward, proj.worst.unit, price)}–{tierRewardLabel(proj.best.reward, proj.best.unit, price)}</b></div>
@@ -189,8 +208,8 @@ function Calc({ t, total, feeOverride, refPct }) {
               {poolShare && (
                 <div className="row row--total"><span>Прибуток</span><b className={profit == null ? '' : profit >= 0 ? 'pos' : 'neg'}>{profit != null ? (profit >= 0 ? '+' : '') + usd(profit) : fee == null ? 'задай /fee' : '—'}</b></div>
               )}
-              {rankTiered && proj?.kind === 'exact' && exactProfit != null && (
-                <div className="row row--total"><span>Прибуток (якщо втримаєш тір)</span><b className={exactProfit >= 0 ? 'pos' : 'neg'}>{(exactProfit >= 0 ? '+' : '') + usd(exactProfit)}</b></div>
+              {rankTiered && projTierNow && projProfit != null && (
+                <div className="row row--total"><span>Прибуток (якщо втримаєш тір)</span><b className={projProfit >= 0 ? 'pos' : 'neg'}>{(projProfit >= 0 ? '+' : '') + usd(projProfit)}</b></div>
               )}
               {rankTiered && proj?.kind === 'below' && belowWorst != null && (
                 <div className="row row--total"><span>Прибуток (поза топ-100)</span><b className={belowBest >= 0 ? 'pos' : 'neg'}>{usd(belowWorst)}…{usd(belowBest)}</b></div>
@@ -198,7 +217,8 @@ function Calc({ t, total, feeOverride, refPct }) {
               {rankTiered && (
                 <div className="tl-calc-note">{
                   proj?.kind === 'exact' ? 'Оцінка за ПОТОЧНИМ лідербордом — до кінця турніру межі тірів зростуть.'
-                  : proj?.kind === 'below' ? 'Ти поза топ-100 — точний тір OKX не розкриває. Встав гаманець вище ↑ для точного рангу й нагороди.'
+                  : proj?.kind === 'est' ? 'Ранг оцінено екстраполяцією нижче топ-100 (межі OKX не віддає) — точний тір перевір гаманцем ↑.'
+                  : proj?.kind === 'below' ? 'Ти поза топ-100 — точний тір OKX не розкриває. Встав гаманець вище ↑ для точного рангу.'
                   : tiers ? 'Обсяг нижче порогу ранкінгу — нагороди не буде.' : 'Тіри зʼявляться після наступного оновлення поллера.'
                 }</div>
               )}
