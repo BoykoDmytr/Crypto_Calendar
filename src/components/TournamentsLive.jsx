@@ -93,6 +93,16 @@ function CoinLogo({ icon, sym, sm }) {
   return <span className={cls}>{(sym || '?')[0]}</span>
 }
 
+// Проріджування історії для рендеру графіка: показуємо ВЕСЬ турнір (від старту), але
+// не більше target точок (рівномірно, з першою й останньою) — щоб SVG лишався легким.
+function downsample(arr, target = 200) {
+  if (!arr || arr.length <= target) return arr
+  const step = (arr.length - 1) / (target - 1)
+  const out = []
+  for (let i = 0; i < target; i++) out.push(arr[Math.round(i * step)])
+  return out
+}
+
 function Chart({ points, accent }) {
   const [hi, setHi] = useState(null)
   if (!points || points.length < 2) return <div className="tl-chart tl-chart--empty">графік зʼявиться, коли набереться історія обсягу</div>
@@ -335,7 +345,7 @@ function TournamentCard({ t, history, snap, now }) {
     if (total == null || anchorTs == null) return []
     return DELTA_WINDOWS.map((w) => { const p = valueAt(history, anchorTs - w.ms); return p == null ? null : { ...w, d: Math.max(0, total - p) } }).filter((w) => w && w.d > 0)
   }, [history, total, anchorTs])
-  const chartPts = history && history.length > 120 ? history.slice(-120) : history
+  const chartPts = downsample(history, 200) // весь турнір від старту, прорідж. для рендеру
 
   return (
     <div className="tl-card">
@@ -423,7 +433,7 @@ function EndedCard({ t, history, feeHist, onCalc }) {
   const price = rewardPrice(t)
   const poolUsd = t.reward_pool != null && !STABLES.has(String(t.reward_currency).toUpperCase()) && price != null ? Number(t.reward_pool) * price : null
   const total = v.total_volume != null ? Number(v.total_volume) : null
-  const chartPts = history && history.length > 120 ? history.slice(-120) : history
+  const chartPts = downsample(history, 200) // весь турнір від старту, прорідж. для рендеру
   const tiers = Array.isArray(v.extra?.tiers) ? v.extra.tiers : null
   // Середня авто-комса за ОСТАННІ 24 ГОДИНИ до кінця турніру (з tournament_fee_history).
   const avgFee24 = useMemo(() => {
@@ -525,7 +535,7 @@ export default function TournamentsLive() {
     ;(async () => { try { await load(); const ft = await fetchFeeTiers().catch(() => []); if (!cancelled) setFeeTiers(ft) } catch (e) { console.error('[tournaments]', e) } finally { if (!cancelled) setLoading(false) } })()
     const ch = subscribeTournamentVolume((row) => {
       setItems((prev) => prev.map((t) => (t.id === row.tournament_id ? { ...t, vol: row } : t)))
-      setHistById((h) => ({ ...h, [row.tournament_id]: [...(h[row.tournament_id] || []), { total_volume: row.total_volume, min_rank_volume: row.min_rank_volume, observed_at: row.updated_at }].slice(-400) }))
+      setHistById((h) => ({ ...h, [row.tournament_id]: [...(h[row.tournament_id] || []), { total_volume: row.total_volume, min_rank_volume: row.min_rank_volume, observed_at: row.updated_at }].slice(-3000) }))
     })
     const poll = setInterval(() => load().catch(() => {}), 60_000)
     const tick = setInterval(() => setNow(Date.now()), 1000)

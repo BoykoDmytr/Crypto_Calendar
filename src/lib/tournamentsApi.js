@@ -23,7 +23,7 @@ export async function fetchTournaments() {
   return (data || []).map((t) => ({ ...t, vol: one(t.tournament_volume) }))
 }
 
-export async function fetchTournamentHistory(tournamentId, limit = 400) {
+export async function fetchTournamentHistory(tournamentId, limit = 3000) {
   const { data, error } = await supaRoma
     .from('tournament_volume_history')
     .select('total_volume, min_rank_volume, observed_at')
@@ -98,7 +98,7 @@ export async function fetchOkxEndedAsTournaments() {
 }
 
 // Історія завершеного OKX-турніру (стара таблиця okx_volume_history) — для графіка.
-export async function fetchOkxHistory(campaignId, limit = 300) {
+export async function fetchOkxHistory(campaignId, limit = 3000) {
   const { data, error } = await supaRoma
     .from('okx_volume_history')
     .select('total_volume, observed_at')
