@@ -58,9 +58,10 @@ export async function fetchTournamentFeeHistory(tournamentId, limit = 200) {
   return (data || []).reverse()
 }
 
-// Завершені OKX-турніри зі старої моделі (okx_campaigns) → нормалізуємо у форму
-// картки, щоб показати їх у вкладці «Турніри» разом з новими (OKX → Завершені).
-// Стару вкладку/пайплайн НЕ чіпаємо — лише читаємо.
+// OKX-турніри зі старої моделі (okx_campaigns: flash-earn + спот) → нормалізуємо у
+// форму картки, щоб показати у вкладці «Турніри» разом з новими. Стару пайплайн НЕ
+// чіпаємо — лише читаємо. status беремо РЕАЛЬНИЙ (не хардкод) → фронт `state()` сам
+// покладе живі в «Актуальні», завершені в «Завершені».
 function normalizeOkx(c) {
   const isFlash = /\/flash-earn\//i.test(c.page_url || '')
   const v = one(c.okx_volume)
@@ -81,16 +82,32 @@ function normalizeOkx(c) {
     fee_per_1k: null,
     start_at: c.start_at,
     end_at: c.end_at,
-    status: 'ended',
+    status: c.status || 'active', // РЕАЛЬНИЙ статус (active/ended) — а не хардкод 'ended'
     approved: true,
     vol: v ? { total_volume: v.total_volume, participants: v.participants, min_rank_volume: null, token_price_usd: v.token_price_usd, updated_at: v.updated_at } : null,
   }
 }
 
+const OKX_SEL = '*, okx_volume(total_volume, raw_volume, participants, currency, updated_at, token_price_usd)'
+
+// АКТИВНІ okx_campaigns (flash-earn як AEON + спот) — щоб живі показувались у «Актуальні».
+// Раніше фронт тягнув лише ended → нові flash-earn не зʼявлялись (RE/DATA/SLX завершились
+// ще до нового UI, тож AEON перший це виявив).
+export async function fetchOkxActiveAsTournaments() {
+  const { data, error } = await supaRoma
+    .from('okx_campaigns')
+    .select(OKX_SEL)
+    .eq('status', 'active')
+    .eq('watch', true)
+    .order('end_at', { ascending: true })
+  if (error) throw error
+  return (data || []).map(normalizeOkx)
+}
+
 export async function fetchOkxEndedAsTournaments() {
   const { data, error } = await supaRoma
     .from('okx_campaigns')
-    .select('*, okx_volume(total_volume, raw_volume, participants, currency, updated_at, token_price_usd)')
+    .select(OKX_SEL)
     .eq('status', 'ended')
     .order('end_at', { ascending: false })
   if (error) throw error

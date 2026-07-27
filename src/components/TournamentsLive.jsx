@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { fetchTournaments, fetchTournamentHistory, fetchTournamentFeeHistory, fetchParticipantSnapshots, fetchOkxEndedAsTournaments, fetchOkxHistory, subscribeTournamentVolume } from '../lib/tournamentsApi'
+import { fetchTournaments, fetchTournamentHistory, fetchTournamentFeeHistory, fetchParticipantSnapshots, fetchOkxActiveAsTournaments, fetchOkxEndedAsTournaments, fetchOkxHistory, subscribeTournamentVolume } from '../lib/tournamentsApi'
 import { supaRoma } from '../lib/supabaseRoma'
 import { fetchFeeTiers } from '../lib/okxApi'
 import OkxProfitCalculator from './OkxProfitCalculator'
@@ -512,8 +512,8 @@ export default function TournamentsLive() {
   }
 
   async function load() {
-    const [fresh, okxEnded] = await Promise.all([fetchTournaments(), fetchOkxEndedAsTournaments().catch(() => [])])
-    const all = [...fresh, ...okxEnded]
+    const [fresh, okxActive, okxEnded] = await Promise.all([fetchTournaments(), fetchOkxActiveAsTournaments().catch(() => []), fetchOkxEndedAsTournaments().catch(() => [])])
+    const all = [...fresh, ...okxActive, ...okxEnded]
     setItems(all)
     const hs = {}
     await Promise.all(all.map(async (t) => {
