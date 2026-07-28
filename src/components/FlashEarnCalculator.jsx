@@ -134,6 +134,9 @@ export default function FlashEarnCalculator({ campaign, liveTotal }) {
   const [tOverride, setTOverride] = useState(null) // ручний загальний обсяг
   const [tFocused, setTFocused] = useState(false)
   const [tText, setTText] = useState('')
+  // Скільки днів планую торгувати. 1 = «тільки сьогодні» → бонусу за активність
+  // немає, і множник дорівнює тому, що OKX показує на своїй сторінці зараз.
+  const [planDays, setPlanDays] = useState(1)
 
   const cfg = campaign?.flash_config || DEFAULT_RE_CONFIG
   const now = Date.now()
@@ -147,11 +150,14 @@ export default function FlashEarnCalculator({ campaign, liveTotal }) {
   const day = cfg.currentDay || computeCurrentDay(cfg, now)
   const days = cfg.activityDays || 11
   const remaining = Math.max(1, days - day + 1)
-  const todayMult = cfg.timeCoefficients.find((t) => t.day === day)?.mult ?? 1
   const tokenCoefs = cfg.tokenCoefficients || []
   const bestToken = [...tokenCoefs].sort((a, b) => b.mult - a.mult)[0]
-  const cumMax = cumMultFor(cfg, remaining)
-  // множник за оптимальної гри: трейд сьогодні × найкраща пара × активність щодня
+  // Бонус за активні дні — ВИБІР користувача, а не припущення калькулятора. За
+  // замовчуванням «торгую сьогодні» (×1), тож множник збігається з тим, що OKX
+  // показує на своїй сторінці саме зараз.
+  const dayBrackets = (cfg.cumulativeCoefficients || []).filter((b) => b.minDays <= remaining)
+  const cumMax = cumMultFor(cfg, Math.min(planDays, remaining))
+  const todayMult = cfg.timeCoefficients.find((t) => t.day === day)?.mult ?? 1
   const effMult = todayMult * (bestToken?.mult ?? 1) * cumMax
 
   const tNow = liveTotal != null ? Number(liveTotal) : null
@@ -378,7 +384,30 @@ export default function FlashEarnCalculator({ campaign, liveTotal }) {
       />
       <div className="okxcalc-feeline num">
         Зарахований (з множником): <b>{fmt.format(Math.round(V * effMult))} USDT</b> (×{effMult.toFixed(2)})
+        <span className="okxcalc-multparts">
+          {' '}день {day} ×{todayMult}
+          {bestToken && bestToken.mult !== 1 ? ` · ${bestToken.token} ×${bestToken.mult}` : ''}
+          {cumMax !== 1 ? ` · активність ×${cumMax}` : ''}
+        </span>
       </div>
+
+      {dayBrackets.length > 1 && (
+        <div className="okxcalc-days">
+          <span className="okxcalc-label">Скільки днів торгуватиму</span>
+          <div className="okxcalc-seg" role="group" aria-label="Скільки днів торгуватиму">
+            {dayBrackets.map((b) => (
+              <button
+                key={b.minDays}
+                type="button"
+                className={cumMultFor(cfg, Math.min(planDays, remaining)) === b.mult ? 'on' : ''}
+                onClick={() => setPlanDays(b.minDays)}
+              >
+                {b.minDays === 1 ? 'сьогодні' : `${b.minDays}+`} ×{b.mult}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
 
       {curve && (
         <div className="okxcalc-curvebox">

@@ -243,6 +243,9 @@
 .okxcalc-rbstep-val { min-width: 52px; text-align: center; font-weight: 800; font-size: .95rem; color: #6ee7b7; }
 .okxcalc-feeline { grid-column: 1 / -1; font-size: .78rem; color: rgba(255,255,255,.55); }
 .okxcalc-feeline b { color: rgba(255,255,255,.85); }
+/* розклад множника: з чого саме склалось ×N (день / пара / активність) */
+.okxcalc-multparts { color: rgba(255,255,255,.38); }
+.okxcalc-days { grid-column: 1 / -1; margin-top: 2px; }
 .okxcalc-volhead { display: flex; justify-content: space-between; align-items: baseline; margin-top: 16px; }
 .okxcalc-volval { font-size: 1.25rem; font-weight: 800; }
 .okxcalc-range {

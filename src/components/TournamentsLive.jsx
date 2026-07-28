@@ -281,6 +281,17 @@ function ProfitPanel({ t, total, curve, rebatePct, onRank, onFullCalc }) {
 
   const tierLabel = (x) => (x.from === x.to ? `#${x.from}` : `${x.from}–${x.to}`)
 
+  // Trade to Earn (Flash Earn) має власний повний калькулятор: там коефіцієнт дня,
+  // пари й активності, рівні VIP і беззбитковість. Спрощений блок поруч із ним лише
+  // збивав — для цієї групи одразу відкриваємо повний.
+  if (flashShare && onFullCalc) {
+    return (
+      <div className="tl-pnl">
+        <button className="tl-calc-btn" onClick={onFullCalc}>▸ Мій прибуток · калькулятор Trade to Earn</button>
+      </div>
+    )
+  }
+
   return (
     <div className={`tl-pnl${t.market === 'dex' ? ' tl-pnl--dex' : ''}`}>
       <button className="tl-calc-btn" onClick={() => setOpen((o) => !o)}>{open ? '▾ Мій прибуток' : '▸ Мій прибуток'}</button>
@@ -511,8 +522,12 @@ function TournamentCard({ t, history, snap, now, rankPoints, onCalc }) {
         <div className="cell">
           <div className="k">
             Комса за 1K
-            {fee.approx && t.fee_auto_at && (
-              <span className="tl-fee-at" title="Час, коли був здійснений авто-тест на перевірку комісії"> · {sparkTime(t.fee_auto_at)}</span>
+            {/* Авто-перевірка нікуди не зникла — вона просто більше не визначає саме
+                число комси (воно тепер детерміноване, % від обсягу). Тепер вона
+                міряє маршрут і прослизання; час останнього прогону лишається на
+                виду, а деталі заміру — у підказці. */}
+            {t.fee_auto_at && (
+              <span className="tl-fee-at" title={t.fee_auto_note || 'Останній авто-тест комісії'}> · {sparkTime(t.fee_auto_at)}</span>
             )}
           </div>
           {fee.per1k == null ? (
