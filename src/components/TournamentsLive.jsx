@@ -347,12 +347,19 @@ function tierRewardLabel(reward, unit, price) {
 // топ-100) · середній обсяг у тірі. Межі глибше топ-100 OKX списком не віддає →
 // «—» (заповнюються лише через криву в «Мій прибуток»). highlightRank підсвічує
 // рядок, у який ти потрапляєш — приходить з блоку прибутку.
-function TierTable({ t, highlightRank }) {
+function TierTable({ t, highlightRank, curve }) {
   const [open, setOpen] = useState(false)
   const tiers = Array.isArray(t.vol?.extra?.tiers) ? t.vol.extra.tiers : null
   const price = rewardPrice(t)
   const myTier = tierForRank(tiers, highlightRank)
   if (!tiers) return null
+  // Вхід у тір = обсяг ОСТАННЬОГО його місця. Для топ-100 він відомий точно, глибше
+  // OKX списку не дає — там показуємо оцінку з кривої, помічену «≈».
+  const entryCell = (x) => {
+    if (x.entry != null) return fmt.format(Math.round(x.entry))
+    const est = curve?.volFor(x.to)
+    return est != null ? <span className="tl-est">≈ {fmt.format(Math.round(est))}</span> : '—'
+  }
   return (
     <div className="tl-tiers">
       <button className="tl-calc-btn" onClick={() => setOpen((o) => !o)}>{open ? '▾ Тіри нагород' : '▸ Тіри нагород'}</button>
@@ -366,7 +373,7 @@ function TierTable({ t, highlightRank }) {
                   <tr key={`${x.from}-${x.to}`} className={myTier && myTier.from === x.from ? 'me' : ''}>
                     <td>{x.from === x.to ? `#${x.from}` : `${x.from}–${x.to}`}</td>
                     <td>{tierRewardLabel(x.reward, x.unit, price)}</td>
-                    <td>{x.entry != null ? fmt.format(Math.round(x.entry)) : '—'}</td>
+                    <td>{entryCell(x)}</td>
                     <td>{x.avg != null ? fmt.format(Math.round(x.avg)) : '—'}</td>
                   </tr>
                 ))}
@@ -464,7 +471,7 @@ function TournamentCard({ t, history, snap, now, rankPoints }) {
         </div>
       )}
 
-      {rankTiered && <TierTable t={t} highlightRank={myRank} />}
+      {rankTiered && <TierTable t={t} highlightRank={myRank} curve={curve} />}
 
       <div className="tl-meta">
         <div className="cell"><div className="k">Приз</div><div className="vv">{t.reward_pool != null ? `${compact(t.reward_pool)} ${t.reward_currency || ''}` : '—'}</div>{poolUsd != null && <div className="uu">≈ {usd(poolUsd)}</div>}</div>

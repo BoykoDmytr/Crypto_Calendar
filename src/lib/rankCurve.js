@@ -85,12 +85,30 @@ export function buildRankCurve({ tiers, points, v100, minRankVolume, tiersPartia
     return null // глибше за найглибший вузол — це вже поза нагородами
   }
 
+  // Ранг → обсяг (зворотний хід): скільки треба накрутити, щоб бути на цьому місці.
+  // Заповнює порожні «входи» глибоких тірів, яких OKX списком не показує.
+  function volFor(rank) {
+    const r = Number(rank)
+    if (!nodes.length || !(r >= 1)) return null
+    if (r <= nodes[0].rank) return nodes[0].vol
+    for (let i = 1; i < nodes.length; i++) {
+      const a = nodes[i - 1]
+      const b = nodes[i]
+      if (r <= b.rank) {
+        const f = (ln(r) - ln(a.rank)) / (ln(b.rank) - ln(a.rank) || 1)
+        return Math.exp(ln(a.vol) + f * (ln(b.vol) - ln(a.vol)))
+      }
+    }
+    return null
+  }
+
   return {
     nodes,
     deepUsed, // скільки реальних глибоких замірів лягло в криву (для чесного підпису)
     exactAbove: nodes.find((n) => n.rank === 100)?.vol ?? null, // вище — тір визначається точно
     maxRank: nodes.length ? nodes[nodes.length - 1].rank : null,
     rankFor,
+    volFor,
   }
 }
 
