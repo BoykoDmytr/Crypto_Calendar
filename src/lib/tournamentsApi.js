@@ -14,7 +14,7 @@ export async function fetchTournaments() {
   let q = supaRoma
     .from('tournaments')
     .select(
-      'id, venue, market, kind, mechanic, external_id, coin_symbol, coin_icon, title, page_url, reward_pool, reward_currency, fee_per_1k, fee_auto, fee_auto_lo, fee_auto_hi, fee_auto_note, fee_auto_at, start_at, end_at, status, approved, config, ' +
+      'id, venue, market, kind, mechanic, external_id, coin_symbol, coin_icon, title, page_url, reward_pool, reward_currency, fee_per_1k, fee_ui_pct, fee_auto, fee_auto_lo, fee_auto_hi, fee_auto_note, fee_auto_at, start_at, end_at, status, approved, config, ' +
         'tournament_volume(total_volume, min_rank_volume, participants, token_price_usd, extra, updated_at)'
     )
   if (!import.meta.env.DEV) q = q.eq('approved', true)
@@ -32,6 +32,21 @@ export async function fetchTournamentHistory(tournamentId, limit = 3000) {
     .limit(limit)
   if (error) throw error
   return (data || []).reverse()
+}
+
+// Точки глибокого лідерборду (ранг > 100) — з них будується крива «обсяг → ранг».
+// Пише поллер: зонди (гаманці, що випали з топ-100) + перевірки користувачів.
+// Анонімно — адрес у таблиці немає. Беремо всі турніри одним запитом.
+export async function fetchRankPoints(limit = 3000) {
+  const { data, error } = await supaRoma
+    .from('tournament_rank_points')
+    .select('tournament_id, rank, volume, v100, observed_at')
+    .order('observed_at', { ascending: false })
+    .limit(limit)
+  if (error) throw error
+  const by = {}
+  for (const r of data || []) (by[r.tournament_id] ||= []).push(r)
+  return by
 }
 
 // Денні снепшоти к-сті учасників (найсвіжіший на турнір) — для приросту «+N».

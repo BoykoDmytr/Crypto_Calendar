@@ -107,7 +107,33 @@
 .tl-calc-out .neg { color: #fca5a5; }
 .tl-calc-hint, .tl-calc-note { font-size: 11.5px; color: color-mix(in oklab, var(--text) 48%, transparent); margin-top: 7px; line-height: 1.4; }
 
-/* тіри нагород (web3 rank-tiered) + «мій гаманець» */
+/* «Мій прибуток»: дві вкладки (гаманець / обсяг) — один набір рядків результату */
+.tl-pnl { margin: 6px 0 4px; }
+.tl-pnl-body { margin-top: 8px; }
+.tl-pnl-tabs {
+  display: flex; gap: 4px; padding: 3px; margin-bottom: 9px;
+  background: rgba(255,255,255,.04); border-radius: 10px;
+}
+.tl-pnl-tabs button {
+  flex: 1; padding: 6px 8px; border: none; border-radius: 8px; cursor: pointer;
+  font-size: 12px; font-weight: 600; font-family: inherit;
+  color: color-mix(in oklab, var(--text) 55%, transparent); background: none; transition: .14s;
+}
+.tl-pnl-tabs button:hover { color: var(--text); }
+.tl-pnl-tabs button.on {
+  color: var(--text); background: color-mix(in oklab, var(--brand) 22%, transparent);
+  box-shadow: 0 1px 3px rgba(0,0,0,.18);
+}
+.tl-pnl-msg { font-size: 12.5px; margin: 2px 0 6px; color: color-mix(in oklab, var(--text) 62%, transparent); }
+.tl-pnl-msg.neg { color: #fca5a5; }
+/* DEX-картка вся фіолетова (графік, поріг, тіри) — блок прибутку тримає той самий акцент */
+.tl-pnl--dex .tl-calc-btn { color: #c4b5fd; background: rgba(139,92,246,.08); border-color: rgba(139,92,246,.2); }
+.tl-pnl--dex .tl-calc-btn:hover { background: rgba(139,92,246,.14); }
+.tl-pnl--dex .tl-pnl-tabs button.on { background: rgba(139,92,246,.24); }
+.tl-pnl--dex .tl-calc-field input:focus { border-color: rgba(139,92,246,.6); }
+.tl-fee-pct { font-size: 11px; font-weight: 600; opacity: .55; }
+
+/* тіри нагород (web3 rank-tiered) */
 .tl-tiers { margin: 6px 0 2px; }
 .tl-tiers .tl-calc-btn { color: #c4b5fd; background: rgba(139,92,246,.08); border-color: rgba(139,92,246,.2); }
 .tl-tiers .tl-calc-btn:hover { background: rgba(139,92,246,.14); }
