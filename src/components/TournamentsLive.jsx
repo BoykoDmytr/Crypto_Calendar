@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { fetchTournaments, fetchTournamentHistory, fetchTournamentFeeHistory, fetchParticipantSnapshots, fetchRankPoints, fetchOkxActiveAsTournaments, fetchOkxEndedAsTournaments, fetchOkxHistory, subscribeTournamentVolume } from '../lib/tournamentsApi'
 import { supaRoma } from '../lib/supabaseRoma'
 import { buildRankCurve, tierForRank, exactTierByVolume } from '../lib/rankCurve'
+import { flashReward } from '../lib/flashMath'
 import { fetchFeeTiers } from '../lib/okxApi'
 import OkxProfitCalculator from './OkxProfitCalculator'
 import FlashEarnCalculator from './FlashEarnCalculator'
@@ -164,10 +165,11 @@ const tierUsd = (reward, unit, price) =>
 //   За обсягом  — «а якщо накручу N?» → ранг з кривої, тір і нагорода з нього.
 // Рядки в обох режимах однакові, тож і читаються однаково.
 // ============================================================================
-function ProfitPanel({ t, total, curve, rebatePct, onRank }) {
+function ProfitPanel({ t, total, curve, rebatePct, onRank, onFullCalc }) {
   const [open, setOpen] = useState(false)
   const rankTiered = t.mechanic === 'rank-tiered'
   const poolShare = t.mechanic === 'pool-share'
+  const flashShare = t.mechanic === 'flash-share'
   const hasWallet = rankTiered && !!t.external_id
   const [mode, setMode] = useState(hasWallet ? 'wallet' : 'volume')
   const [wallet, setWallet] = useState(() => { try { return localStorage.getItem(WALLET_LS_KEY) || '' } catch { return '' } })
@@ -178,6 +180,10 @@ function ProfitPanel({ t, total, curve, rebatePct, onRank }) {
   const fee = feeModel(t)
   const tiers = Array.isArray(t.vol?.extra?.tiers) ? t.vol.extra.tiers : null
   const minRank = t.vol?.min_rank_volume != null ? Number(t.vol.min_rank_volume) : null
+  // Поріг участі за правилами турніру (Flash Earn: minVolume з конфігу; xStocks
+  // Activity 2: 5 000 USDT). Нижче нього нагороди немає взагалі, скільки б не
+  // накрутив, — без цієї перевірки калькулятор обіцяв би виплату тим, хто не в грі.
+  const minVolume = Number(t.flashConfig?.minVolume ?? t.config?.minVolume ?? 0)
   const walletOk = /^0x[0-9a-fA-F]{40}$/.test(wallet.trim())
 
   async function check() {
@@ -235,11 +241,27 @@ function ProfitPanel({ t, total, curve, rebatePct, onRank }) {
           rewardLabel = '$0'
         }
       }
+    } else if (flashShare) {
+      // Flash Earn: нагорода = твій ЕФЕКТИВНИЙ обсяг / загальний ефективний × пул,
+      // без розмивання, з кепом на юзера. Загальна пул-шерна формула тут не працює.
+      const tokens = volume < minVolume ? 0 : flashReward(t.flashConfig, volume, total)
+      if (tokens === 0) {
+        rewardUsd = 0
+        rewardLabel = `$0 · мін. ${fmt.format(minVolume)}`
+      } else if (tokens != null) {
+        rewardUsd = price != null ? tokens * price : null
+        rewardLabel = STABLES.has(String(t.reward_currency).toUpperCase())
+          ? money(rewardUsd)
+          : `${fmt2.format(tokens)} ${t.reward_currency}${rewardUsd != null ? ` (≈ ${money(rewardUsd)})` : ''}`
+      }
     } else if (poolShare) {
       // Частка від пулу-обсягу × ціна нагородного токена. Для xStocks це саме
       // volume-share пул (400 XSPY), а не весь приз 700.
       const pool = t.config?.volumePool != null ? Number(t.config.volumePool) : t.reward_pool != null ? Number(t.reward_pool) : null
-      if (pool != null && total != null) {
+      if (volume < minVolume) {
+        rewardUsd = 0
+        rewardLabel = `$0 · мін. ${fmt.format(minVolume)}`
+      } else if (pool != null && total != null) {
         const tokens = (volume / (total + volume)) * pool
         rewardUsd = price != null ? tokens * price : null
         rewardLabel = STABLES.has(String(t.reward_currency).toUpperCase())
@@ -252,7 +274,7 @@ function ProfitPanel({ t, total, curve, rebatePct, onRank }) {
     const rebate = cost != null && rebatePct ? (cost * rebatePct) / 100 : 0
     const net = rewardUsd != null && cost != null ? rewardUsd - cost + rebate : null
     return { volume, rank, exactRank, tier, rewardUsd, rewardLabel, unranked, cost, rebate, net, byWallet }
-  }, [raw, mode, me, tiers, curve, minRank, price, total, fee.per1k, rebatePct, rankTiered, poolShare, t.config, t.reward_pool, t.reward_currency])
+  }, [raw, mode, me, tiers, curve, minRank, minVolume, price, total, fee.per1k, rebatePct, rankTiered, poolShare, flashShare, t.config, t.flashConfig, t.reward_pool, t.reward_currency])
 
   // Ранг наверх — щоб у таблиці тірів підсвітився саме твій рядок.
   useEffect(() => { onRank?.(calc?.rank ?? null) }, [calc?.rank, onRank])
@@ -323,6 +345,13 @@ function ProfitPanel({ t, total, curve, rebatePct, onRank }) {
               {mode === 'wallet' ? 'Встав адресу — покажу твій ранг, нагороду, комсу й що лишається чистими.' : 'Впиши обсяг — покажу, який ранг і нагорода вийдуть за теперішнім лідербордом.'}
             </div>
           )}
+
+          {/* Спот і Flash Earn на OKX мають свій повний калькулятор: рівні VIP,
+              maker/taker, коефіцієнти днів і пар, беззбитковість по загальному
+              обсягу. Тут — швидка оцінка, там — уся механіка. */}
+          {onFullCalc && (
+            <button type="button" className="tl-pnl-full" onClick={onFullCalc}>калькулятор з VIP і коефіцієнтами ↓</button>
+          )}
         </div>
       )}
     </div>
@@ -391,7 +420,7 @@ function TierTable({ t, highlightRank, curve }) {
 // 33 / 105,40 = 31,3%) — це чесніша відправна точка, ніж нуль чи максимум.
 const REB_A = [0, 5, 10, 15, 20]
 const REB_B = [0, 5, 10, 15, 20, 25, 30]
-function TournamentCard({ t, history, snap, now, rankPoints }) {
+function TournamentCard({ t, history, snap, now, rankPoints, onCalc }) {
   const st = state(t, now)
   const v = t.vol || {}
   const total = v.total_volume != null ? Number(v.total_volume) : null
@@ -502,7 +531,7 @@ function TournamentCard({ t, history, snap, now, rankPoints }) {
         </div>
       </div>
 
-      <ProfitPanel t={t} total={total} curve={curve} rebatePct={refPct} onRank={setMyRank} />
+      <ProfitPanel t={t} total={total} curve={curve} rebatePct={refPct} onRank={setMyRank} onFullCalc={onCalc} />
 
       <div className="tl-foot">
         <span className="tl-upd">
@@ -653,7 +682,7 @@ export default function TournamentsLive() {
       {active.length > 0 && (
         <div className="tl-group">
           <div className="tl-group-title">Актуальні <span className="tl-group-count">{active.length}</span></div>
-          <div className="tl-grid">{active.map((t) => <TournamentCard key={t.id} t={t} history={histById[t.id] || []} snap={partSnap[t.id]} rankPoints={rankPts[t.id]} now={now} />)}</div>
+          <div className="tl-grid">{active.map((t) => <TournamentCard key={t.id} t={t} history={histById[t.id] || []} snap={partSnap[t.id]} rankPoints={rankPts[t.id]} now={now} onCalc={isCexFull(t) ? () => openCalc(t._raw) : null} />)}</div>
         </div>
       )}
       {ended.length > 0 && (

@@ -1,5 +1,8 @@
 import { useMemo, useState } from 'react'
 import { feeTiersForGroup } from '../lib/okxApi'
+// Одне джерело правди для flash-механіки — його ж використовує швидкий блок
+// «Мій прибуток» на картці, щоб два калькулятори не розʼїхались у числах.
+import { computeCurrentDay, cumMultFor } from '../lib/flashMath'
 
 // Калькулятор нагороди для OKX Flash Earn trade-to-earn (SLX / RE / DATA).
 // Формула — 1:1 з OKX «Calculate my reward»:
@@ -90,22 +93,6 @@ const DEFAULT_RE_CONFIG = {
   rewardCurrency: 'RE',
 }
 
-// День турніру = доба UTC+8 (межа 16:00 UTC). Фолбек, коли поллер не дав currentDay.
-function computeCurrentDay(cfg, now) {
-  const start = new Date(cfg.startTime).getTime()
-  if (!Number.isFinite(start) || now < start) return 1
-  const B = 16 * 3600_000
-  const dayIndexAt = (t) => Math.floor((t - B) / 86_400_000)
-  return Math.min(cfg.activityDays || 11, dayIndexAt(now) - dayIndexAt(start) + 1)
-}
-
-function cumMultFor(cfg, days) {
-  const br = (cfg.cumulativeCoefficients || []).find((b) => days >= b.minDays && days <= b.maxDays)
-  if (br) return br.mult
-  const last = (cfg.cumulativeCoefficients || [])[cfg.cumulativeCoefficients.length - 1]
-  return days > 0 && last && days > last.maxDays ? last.mult : 1
-}
-
 // Прогноз фінального загального еф. обсягу (для довідки/швидкої підстановки).
 function projectFinalT(cfg, tNow, now) {
   const start = new Date(cfg.startTime).getTime()
@@ -133,9 +120,11 @@ function projectFinalT(cfg, tNow, now) {
   return { linear, damped: Math.sqrt(tNow * linear) }
 }
 
-export default function FlashEarnCalculator({ campaign, liveTotal, feeTiers }) {
+export default function FlashEarnCalculator({ campaign, liveTotal }) {
   // Fee-таблиця за групою монети OKX. Поллер резолвить групу пари (groupId) і кладе
   // у flash_config.feeGroup; дефолт = 2 (усі trade-to-earn токени = Група 2).
+  // Спільну таблицю fee_tiers тут НЕ використовуємо навмисно: групи відрізняються
+  // ставками VIP4-6, і feeTiersForGroup дає саме потрібну.
   const tiers = feeTiersForGroup(campaign?.fee_group ?? campaign?.flash_config?.feeGroup)
   const [vipIdx, setVipIdx] = useState(0)
   const [order, setOrder] = useState('maker')

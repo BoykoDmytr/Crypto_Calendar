@@ -84,10 +84,14 @@ function normalizeOkx(c) {
     id: `okx-${c.id}`,
     okxId: c.id,
     _raw: { ...c, okx_volume: v }, // сирий okx_campaigns для повного VIP-калькулятора (CEX)
+    flashConfig: isFlash ? c.flash_config || null : null, // коефіцієнти дня/пари/активності
     venue: 'okx',
     market: 'cex',
     kind: isFlash ? 'flash' : 'spot',
-    mechanic: 'pool-share',
+    // Flash Earn рахує нагороду інакше за звичайний пул-шер (ефективний обсяг,
+    // без розмивання, з кепом) — позначаємо окремою механікою, щоб калькулятор
+    // не застосував до нього формулу розмивання.
+    mechanic: isFlash ? 'flash-share' : 'pool-share',
     coin_symbol: c.coin_symbol,
     coin_icon: c.coin_icon,
     title: c.name,
@@ -95,6 +99,10 @@ function normalizeOkx(c) {
     reward_pool: c.share_pool ?? c.prize_pool ?? c.coin_amount ?? null,
     reward_currency: c.prize_currency || 'USDT',
     fee_per_1k: null,
+    // Комса спота OKX = taker базового рівня (0,1% від обсягу; обидві ноги
+    // рахуються в турнірний обсяг, тож ставка застосовується просто до нього).
+    // Нижчі ставки VIP1-6 — у повному калькуляторі під карткою.
+    fee_ui_pct: 0.1,
     start_at: c.start_at,
     end_at: c.end_at,
     status: c.status || 'active', // РЕАЛЬНИЙ статус (active/ended) — а не хардкод 'ended'

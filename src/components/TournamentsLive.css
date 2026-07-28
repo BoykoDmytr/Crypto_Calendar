@@ -131,6 +131,13 @@
 }
 .tl-pnl-msg { font-size: 12.5px; margin: 2px 0 6px; color: color-mix(in oklab, var(--text) 62%, transparent); }
 .tl-pnl-msg.neg { color: #fca5a5; }
+.tl-pnl-full {
+  display: block; width: 100%; margin-top: 9px; padding: 7px 8px;
+  background: none; border: 1px dashed var(--glass-border); border-radius: 9px; cursor: pointer;
+  font: inherit; font-size: 12px; font-weight: 600;
+  color: color-mix(in oklab, var(--brand) 85%, var(--text)); transition: .14s;
+}
+.tl-pnl-full:hover { border-style: solid; background: rgba(255,255,255,.03); }
 /* DEX-картка вся фіолетова (графік, поріг, тіри) — блок прибутку тримає той самий акцент */
 .tl-pnl--dex .tl-calc-btn { color: #c4b5fd; background: rgba(139,92,246,.08); border-color: rgba(139,92,246,.2); }
 .tl-pnl--dex .tl-calc-btn:hover { background: rgba(139,92,246,.14); }
