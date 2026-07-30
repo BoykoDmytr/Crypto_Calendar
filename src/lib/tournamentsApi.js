@@ -14,7 +14,7 @@ export async function fetchTournaments() {
   let q = supaRoma
     .from('tournaments')
     .select(
-      'id, venue, market, kind, mechanic, external_id, coin_symbol, coin_icon, title, page_url, reward_pool, reward_currency, fee_per_1k, fee_ui_pct, fee_auto, fee_auto_lo, fee_auto_hi, fee_auto_note, fee_auto_at, start_at, end_at, status, approved, config, ' +
+      'id, venue, market, kind, mechanic, external_id, coin_symbol, coin_icon, title, page_url, reward_pool, reward_currency, fee_per_1k, fee_ui_pct, fee_slip_per_1k, fee_auto, fee_auto_lo, fee_auto_hi, fee_auto_note, fee_auto_at, start_at, end_at, status, approved, config, ' +
         'tournament_volume(total_volume, min_rank_volume, participants, token_price_usd, extra, updated_at)'
     )
   if (!import.meta.env.DEV) q = q.eq('approved', true)
@@ -102,7 +102,9 @@ function normalizeOkx(c) {
     // Комса спота OKX = taker базового рівня (0,1% від обсягу; обидві ноги
     // рахуються в турнірний обсяг, тож ставка застосовується просто до нього).
     // Нижчі ставки VIP1-6 — у повному калькуляторі під карткою.
-    fee_ui_pct: 0.1,
+    fee_ui_pct: c.fee_ui_pct != null ? Number(c.fee_ui_pct) : 0.1,
+    fee_slip_per_1k: c.fee_slip_per_1k, // живий замір зі стакану (поллер, щогодини)
+    fee_auto_at: c.fee_checked_at,
     start_at: c.start_at,
     end_at: c.end_at,
     status: c.status || 'active', // РЕАЛЬНИЙ статус (active/ended) — а не хардкод 'ended'

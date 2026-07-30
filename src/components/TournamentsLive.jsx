@@ -145,14 +145,37 @@ function Chart({ points, accent }) {
 // з афіліат-дашбордом: обсяг $80 366,96 → комса $80,37 → повернення $24,12 = рівно
 // 30% від неї. Ніяких діапазонів і буферів: те, що людина бачить у себе, — це воно.
 // CEX/stocks поки лишаються на авто-замірі (fee_auto), ручний /fee — над усім.
+// Прослизання — ОКРЕМА складова: це ціна виконання (спред + просідання по стакану
+// чи пулу), її ніхто не ребейтить і в жодному дашборді комісій вона не видна. Але
+// вона реальна, і на тонких парах більша за саму комсу (AEON ≈$1,46/1k проти
+// $1,00). Тому: комса — одне число, прослизання — друге, у сумі «вартість за 1K».
 function feeModel(t) {
-  if (t.fee_per_1k != null) return { per1k: Number(t.fee_per_1k), label: `$${Number(t.fee_per_1k).toFixed(2)}/1K` }
+  const slip = t.fee_slip_per_1k != null ? Number(t.fee_slip_per_1k) : null
+  if (t.fee_per_1k != null) return { per1k: Number(t.fee_per_1k), label: `$${Number(t.fee_per_1k).toFixed(2)}/1K`, slip: null, manual: true }
   if (t.fee_ui_pct != null) {
     const pct = Number(t.fee_ui_pct)
-    return { per1k: pct * 10, label: `${fmt2.format(pct)}%`, pct }
+    return { per1k: pct * 10, label: `${fmt2.format(pct)}%`, pct, slip }
   }
-  if (t.fee_auto != null) return { per1k: Number(t.fee_auto), label: `≈$${Number(t.fee_auto).toFixed(2)}/1K`, approx: true }
-  return { per1k: null, label: 'не задано' }
+  if (t.fee_auto != null) return { per1k: Number(t.fee_auto), label: `≈$${Number(t.fee_auto).toFixed(2)}/1K`, approx: true, slip }
+  return { per1k: null, label: 'не задано', slip }
+}
+
+// Рефбек (% від КОМСИ) — два тумблери, сума 0–50%. Живе в localStorage на турнір,
+// щоб не перевибирати щоразу. Спільний для активних і завершених карток.
+function useRebate(t, enabled) {
+  const [refA, setRefA] = useState(() => { try { const s = localStorage.getItem('tl-refA-' + t.id); return s != null && REB_A.includes(Number(s)) ? Number(s) : 0 } catch { return 0 } })
+  const [refB, setRefB] = useState(() => { try { const s = localStorage.getItem('tl-refB-' + t.id); return s != null && REB_B.includes(Number(s)) ? Number(s) : 30 } catch { return 30 } })
+  const set = (key, fn) => (p) => { fn(p); try { localStorage.setItem(`tl-${key}-${t.id}`, String(p)) } catch { /* приватний режим */ } }
+  return { refA, refB, pct: enabled ? refA + refB : 0, changeA: set('refA', setRefA), changeB: set('refB', setRefB) }
+}
+
+function RebateSelects({ reb }) {
+  return (
+    <div className="uu tl-ref">рефбек
+      <select value={reb.refA} onChange={(e) => reb.changeA(Number(e.target.value))}>{REB_A.map((p) => <option key={p} value={p}>{p}%</option>)}</select>
+      <select value={reb.refB} onChange={(e) => reb.changeB(Number(e.target.value))}>{REB_B.map((p) => <option key={p} value={p}>{p}%</option>)}</select>
+    </div>
+  )
 }
 
 // Нагорода тіру у доларах (стейбл → напряму, токен → через ціну).
@@ -271,10 +294,11 @@ function ProfitPanel({ t, total, curve, rebatePct, onRank, onFullCalc }) {
     }
 
     const cost = fee.per1k != null ? (volume / 1000) * fee.per1k : null
-    const rebate = cost != null && rebatePct ? (cost * rebatePct) / 100 : 0
-    const net = rewardUsd != null && cost != null ? rewardUsd - cost + rebate : null
-    return { volume, rank, exactRank, tier, rewardUsd, rewardLabel, unranked, cost, rebate, net, byWallet }
-  }, [raw, mode, me, tiers, curve, minRank, minVolume, price, total, fee.per1k, rebatePct, rankTiered, poolShare, flashShare, t.config, t.flashConfig, t.reward_pool, t.reward_currency])
+    const slipCost = fee.slip != null ? (volume / 1000) * fee.slip : null
+    const rebate = cost != null && rebatePct ? (cost * rebatePct) / 100 : 0 // рефбек — лише з комси
+    const net = rewardUsd != null && cost != null ? rewardUsd - cost - (slipCost || 0) + rebate : null
+    return { volume, rank, exactRank, tier, rewardUsd, rewardLabel, unranked, cost, slipCost, rebate, net, byWallet }
+  }, [raw, mode, me, tiers, curve, minRank, minVolume, price, total, fee.per1k, fee.slip, rebatePct, rankTiered, poolShare, flashShare, t.config, t.flashConfig, t.reward_pool, t.reward_currency])
 
   // Ранг наверх — щоб у таблиці тірів підсвітився саме твій рядок.
   useEffect(() => { onRank?.(calc?.rank ?? null) }, [calc?.rank, onRank])
@@ -341,6 +365,9 @@ function ProfitPanel({ t, total, curve, rebatePct, onRank, onFullCalc }) {
                 <b className={calc.rewardUsd ? 'pos' : ''}>{calc.rewardLabel ? (calc.rewardUsd ? '+' : '') + calc.rewardLabel : '—'}</b>
               </div>
               <div className="row"><span>Комса ({fee.label})</span><b className="neg">{calc.cost != null ? money(-calc.cost) : 'n/a'}</b></div>
+              {calc.slipCost != null && (
+                <div className="row"><span>Проковзування (≈${fee.slip.toFixed(2)}/1K)</span><b className="neg">{money(-calc.slipCost)}</b></div>
+              )}
               {rebatePct > 0 && (
                 <div className="row"><span>Рефбек ({rebatePct}%)</span><b className="pos">{calc.rebate ? `+${money(calc.rebate)}` : '—'}</b></div>
               )}
@@ -387,12 +414,10 @@ function tierRewardLabel(reward, unit, price) {
 // топ-100) · середній обсяг у тірі. Межі глибше топ-100 OKX списком не віддає →
 // «—» (заповнюються лише через криву в «Мій прибуток»). highlightRank підсвічує
 // рядок, у який ти потрапляєш — приходить з блоку прибутку.
-function TierTable({ t, highlightRank, curve }) {
-  const [open, setOpen] = useState(false)
-  const tiers = Array.isArray(t.vol?.extra?.tiers) ? t.vol.extra.tiers : null
-  const price = rewardPrice(t)
+// Сама таблиця (без обгортки-розкривачки) — потрібна і в активній картці, і в
+// завершеній, де вона показує фінальний зріз топу.
+function TierRows({ tiers, price, curve, highlightRank }) {
   const myTier = tierForRank(tiers, highlightRank)
-  if (!tiers) return null
   // Вхід у тір = обсяг ОСТАННЬОГО його місця. Для топ-100 він відомий точно, глибше
   // OKX списку не дає — там показуємо оцінку з кривої, помічену «≈».
   const entryCell = (x) => {
@@ -401,25 +426,34 @@ function TierTable({ t, highlightRank, curve }) {
     return est != null ? <span className="tl-est">≈ {fmt.format(Math.round(est))}</span> : '—'
   }
   return (
+    <div className="tl-tiers-scroll">
+      <table className="tl-tiers-table">
+        <thead><tr><th>Ранг</th><th>Нагорода</th><th>Вхід (обсяг)</th><th>Середній</th></tr></thead>
+        <tbody>
+          {tiers.map((x) => (
+            <tr key={`${x.from}-${x.to}`} className={myTier && myTier.from === x.from ? 'me' : ''}>
+              <td>{x.from === x.to ? `#${x.from}` : `${x.from}–${x.to}`}</td>
+              <td>{tierRewardLabel(x.reward, x.unit, price)}</td>
+              <td>{entryCell(x)}</td>
+              <td>{x.avg != null ? fmt.format(Math.round(x.avg)) : '—'}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  )
+}
+
+function TierTable({ t, highlightRank, curve }) {
+  const [open, setOpen] = useState(false)
+  const tiers = Array.isArray(t.vol?.extra?.tiers) ? t.vol.extra.tiers : null
+  if (!tiers) return null
+  return (
     <div className="tl-tiers">
       <button className="tl-calc-btn" onClick={() => setOpen((o) => !o)}>{open ? '▾ Тіри нагород' : '▸ Тіри нагород'}</button>
       {open && (
         <div className="tl-tiers-body">
-          <div className="tl-tiers-scroll">
-            <table className="tl-tiers-table">
-              <thead><tr><th>Ранг</th><th>Нагорода</th><th>Вхід (обсяг)</th><th>Середній</th></tr></thead>
-              <tbody>
-                {tiers.map((x) => (
-                  <tr key={`${x.from}-${x.to}`} className={myTier && myTier.from === x.from ? 'me' : ''}>
-                    <td>{x.from === x.to ? `#${x.from}` : `${x.from}–${x.to}`}</td>
-                    <td>{tierRewardLabel(x.reward, x.unit, price)}</td>
-                    <td>{entryCell(x)}</td>
-                    <td>{x.avg != null ? fmt.format(Math.round(x.avg)) : '—'}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          <TierRows tiers={tiers} price={rewardPrice(t)} curve={curve} highlightRank={highlightRank} />
         </div>
       )}
     </div>
@@ -445,14 +479,8 @@ function TournamentCard({ t, history, snap, now, rankPoints, onCalc }) {
   const [myRank, setMyRank] = useState(null) // ранг з блоку прибутку → підсвітка тіру
   // REF-рефбек лише на DEX і лише коли комсу не перебито вручну через /fee.
   const isDexRef = isDex && t.fee_per_1k == null && fee.per1k != null
-  // ⚠️ null з localStorage не можна гнати через Number() — Number(null)===0, а 0 є
-  // валідним значенням списку, тож «нічого не збережено» мовчки ставало нулем і
-  // дефолт 30% ніколи не спрацьовував би.
-  const [refA, setRefA] = useState(() => { try { const s = localStorage.getItem('tl-refA-' + t.id); return s != null && REB_A.includes(Number(s)) ? Number(s) : 0 } catch { return 0 } })
-  const [refB, setRefB] = useState(() => { try { const s = localStorage.getItem('tl-refB-' + t.id); return s != null && REB_B.includes(Number(s)) ? Number(s) : 30 } catch { return 30 } })
-  const changeA = (p) => { setRefA(p); try { localStorage.setItem('tl-refA-' + t.id, String(p)) } catch { /* приватний режим */ } }
-  const changeB = (p) => { setRefB(p); try { localStorage.setItem('tl-refB-' + t.id, String(p)) } catch { /* приватний режим */ } }
-  const refPct = isDexRef ? refA + refB : 0 // загальний рефбек = сума двох тумблерів
+  const reb = useRebate(t, isDexRef)
+  const refPct = reb.pct
   const poolUsd = t.reward_pool != null && !STABLES.has(String(t.reward_currency).toUpperCase()) && price != null ? Number(t.reward_pool) * price : null
   // Крива «обсяг → ранг»: точні межі топ-100 + реальні глибокі заміри + якір хвоста.
   const curve = useMemo(
@@ -519,28 +547,27 @@ function TournamentCard({ t, history, snap, now, rankPoints, onCalc }) {
         {/* Комса — ОДНЕ число. Для DEX це інтерфейсна комса OKX (плаский % від
             обсягу) — вона детермінована, тож ні діапазону, ні «≈» тут не місце.
             Час авто-тесту лишається тільки там, де комса справді ЗАМІРЯНА (CEX). */}
+        {/* ВАРТІСТЬ, а не лише комса: головне число — це те, що людина реально
+            віддає за $1K обсягу (комса + проковзування). Комса сама детермінована
+            (ставка × обсяг), проковзування переміряється щогодини — час прогону
+            видно біля заголовка, деталі заміру в підказці. */}
         <div className="cell">
           <div className="k">
-            Комса за 1K
-            {/* Авто-перевірка нікуди не зникла — вона просто більше не визначає саме
-                число комси (воно тепер детерміноване, % від обсягу). Тепер вона
-                міряє маршрут і прослизання; час останнього прогону лишається на
-                виду, а деталі заміру — у підказці. */}
+            Вартість за 1K
             {t.fee_auto_at && (
-              <span className="tl-fee-at" title={t.fee_auto_note || 'Останній авто-тест комісії'}> · {sparkTime(t.fee_auto_at)}</span>
+              <span className="tl-fee-at" title={t.fee_auto_note || 'Останній авто-замір проковзування'}> · {sparkTime(t.fee_auto_at)}</span>
             )}
           </div>
           {fee.per1k == null ? (
             <div className="vv na">n/a</div>
           ) : (
             <>
-              <div className="vv">{`${fee.approx ? '≈' : ''}$${fee.per1k.toFixed(2)}`}{fee.pct != null && <span className="tl-fee-pct"> · {fmt2.format(fee.pct)}%</span>}</div>
-              {isDexRef && (
-                <div className="uu tl-ref">рефбек
-                  <select value={refA} onChange={(e) => changeA(Number(e.target.value))}>{REB_A.map((p) => <option key={p} value={p}>{p}%</option>)}</select>
-                  <select value={refB} onChange={(e) => changeB(Number(e.target.value))}>{REB_B.map((p) => <option key={p} value={p}>{p}%</option>)}</select>
-                </div>
-              )}
+              <div className="vv">{`${fee.approx || fee.slip != null ? '≈' : ''}$${(fee.per1k + (fee.slip || 0)).toFixed(2)}`}</div>
+              <div className="uu">
+                ${fee.per1k.toFixed(2)} комса{fee.pct != null ? ` (${fmt2.format(fee.pct)}%)` : ''}
+                {fee.slip != null ? ` + $${fee.slip.toFixed(2)} проковз.` : ''}
+              </div>
+              {isDexRef && <RebateSelects reb={reb} />}
             </>
           )}
         </div>
@@ -559,10 +586,29 @@ function TournamentCard({ t, history, snap, now, rankPoints, onCalc }) {
   )
 }
 
-function EndedCard({ t, history, feeHist, onCalc }) {
+function EndedCard({ t, history, feeHist, rankPoints, onCalc }) {
   const [open, setOpen] = useState(false)
+  const [myRank, setMyRank] = useState(null)
   const v = t.vol || {}
   const price = rewardPrice(t)
+  const rankTiered = t.mechanic === 'rank-tiered'
+  const isDexRef = t.market === 'dex' && t.fee_per_1k == null
+  const reb = useRebate(t, isDexRef)
+  // Крива фінального зрізу: точні межі топ-100 + зібрані глибокі заміри + якір
+  // хвоста. Тіри й обсяг заморожені mark-ended, тож це знімок на момент кінця.
+  const curve = useMemo(
+    () =>
+      rankTiered
+        ? buildRankCurve({
+            tiers: v.extra?.tiers || null,
+            points: rankPoints || [],
+            v100: v.extra?.v100 != null ? Number(v.extra.v100) : null,
+            minRankVolume: v.min_rank_volume != null ? Number(v.min_rank_volume) : null,
+            tiersPartial: !!v.extra?.tiersPartial,
+          })
+        : null,
+    [rankTiered, v.extra?.tiers, v.extra?.v100, v.extra?.tiersPartial, v.min_rank_volume, rankPoints]
+  )
   const poolUsd = t.reward_pool != null && !STABLES.has(String(t.reward_currency).toUpperCase()) && price != null ? Number(t.reward_pool) * price : null
   const total = v.total_volume != null ? Number(v.total_volume) : null
   const chartPts = downsample(history, 200) // весь турнір від старту, прорідж. для рендеру
@@ -601,25 +647,23 @@ function EndedCard({ t, history, feeHist, onCalc }) {
           </div>
           <Chart points={chartPts} accent="#64748b" />
           {tiers && (
-            <div className="tl-tiers-scroll" style={{ marginTop: 8 }}>
-              <table className="tl-tiers-table">
-                <thead><tr><th>Ранг</th><th>Нагорода</th><th>Вхід (обсяг)</th><th>Середній</th></tr></thead>
-                <tbody>
-                  {tiers.map((x) => (
-                    <tr key={`${x.from}-${x.to}`}>
-                      <td>{x.from === x.to ? `#${x.from}` : `${x.from}–${x.to}`}</td>
-                      <td>{tierRewardLabel(x.reward, x.unit, price)}</td>
-                      <td>{x.entry != null ? fmt.format(Math.round(x.entry)) : '—'}</td>
-                      <td>{x.avg != null ? fmt.format(Math.round(x.avg)) : '—'}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+            <div style={{ marginTop: 8 }}>
+              <div className="tl-ended-final">Топ на момент завершення:</div>
+              <TierRows tiers={tiers} price={price} curve={curve} highlightRank={myRank} />
             </div>
           )}
+          {/* Порахувати свій результат постфактум: OKX і після кінця віддає
+              лідерборд, тож перевірка гаманця тут працює так само, як у живому. */}
+          <div className="tl-ended-pnl">
+            {isDexRef && (
+              <div className="tl-ended-reb">
+                <RebateSelects reb={reb} />
+              </div>
+            )}
+            <ProfitPanel t={t} total={total} curve={curve} rebatePct={reb.pct} onRank={setMyRank} onFullCalc={onCalc} />
+          </div>
           <div className="tl-ended-actions">
             {t.page_url && <a className="tl-ended-link" href={t.page_url} target="_blank" rel="noreferrer">сторінка турніру ↗</a>}
-            {onCalc && <button type="button" className="tl-ended-link tl-ended-calc" onClick={onCalc}>калькулятор з VIP ↓</button>}
           </div>
         </div>
       )}
@@ -704,7 +748,7 @@ export default function TournamentsLive() {
         <div className="tl-group">
           <div className="tl-ended-wrap">
             <div className="tl-ended-head">Завершені <span>{ended.length}</span></div>
-            <div className="tl-ended-list">{ended.map((t) => <EndedCard key={t.id} t={t} history={histById[t.id] || []} feeHist={feeHistById[t.id] || null} onCalc={isCexFull(t) ? () => openCalc(t._raw) : null} />)}</div>
+            <div className="tl-ended-list">{ended.map((t) => <EndedCard key={t.id} t={t} history={histById[t.id] || []} feeHist={feeHistById[t.id] || null} rankPoints={rankPts[t.id]} onCalc={isCexFull(t) ? () => openCalc(t._raw) : null} />)}</div>
           </div>
         </div>
       )}
