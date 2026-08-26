@@ -13,7 +13,7 @@ import Gifts from './pages/Gifts';
 import Stats from './pages/Stats';
 import Claims from './pages/Claims';
 import Live from './pages/Live';
-import Earn from './pages/Earn';
+import Creators from './pages/Creators';
 
 // ✅ Vercel Analytics + Speed Insights для будь-якого SPA
 import { inject } from '@vercel/analytics'
@@ -49,7 +49,7 @@ const router = createBrowserRouter([
       { path: 'claims', element: <Claims /> },
       { path: 'live', element: <Live /> }, // лінк у навбарі (Календар / Івенти / Live)
       // ПРИХОВАНА вкладка креатор-кампаній: лінка в навбарі свідомо немає
-      { path: 'creators', element: <Earn /> },
+      { path: 'creators', element: <Creators /> },
 
     ],
   },

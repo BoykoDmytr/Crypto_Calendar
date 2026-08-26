@@ -1,17 +1,12 @@
 import { useEffect, useState } from 'react'
-import {
-  fetchCreatorCampaigns, fetchCampaignStats, updateCampaign,
-  adminSignIn, adminSession,
-} from '../lib/earnApi'
+import { fetchCreatorCampaigns, updateCampaign, deleteCampaign } from '../lib/creatorsApi'
 import ExchangeIcon, { exchangeMeta } from './ExchangeIcon'
 
 // Секція «Креатор-кампанії» всередині ЄДИНОЇ адмінки сайту (/admin).
-// Дані живуть у базі romasya06 (пише бот), тому редагування йде під окремою
-// supaRoma-сесією: разовий інпут пароля тут же, в секції. Після переносу
-// таблиці в основну базу цей інпут зникне — редагуватиме рідна сесія адмінки.
+// Кампанії лежать в основній базі сайту, тож тут працює та сама сесія, що й
+// у решті адмінки — жодних окремих логінів і паролів.
 
 const STATUS_LABEL = { draft: '📝 чернетка', published: '🟢 опубліковано', archived: '🗄 архів' }
-const ADMIN_EMAIL = 'earn-admin@cryptoeventscalendar.com'
 
 function Editor({ c, onSaved }) {
   const [form, setForm] = useState({
@@ -52,6 +47,13 @@ function Editor({ c, onSaved }) {
     } finally {
       setBusy(false)
     }
+  }
+
+  async function remove() {
+    if (!confirm('Видалити картку назавжди?')) return
+    setBusy(true)
+    try { await deleteCampaign(c.id); onSaved() }
+    catch (e) { setMsg('❌ ' + e.message); setBusy(false) }
   }
 
   return (
@@ -98,6 +100,9 @@ function Editor({ c, onSaved }) {
         <button className="btn" disabled={busy} onClick={save}>
           {busy ? 'Зберігаю…' : 'Зберегти'}
         </button>
+        <button className="btn-secondary" disabled={busy} onClick={remove}>
+          Видалити
+        </button>
         {msg && <span className="text-sm">{msg}</span>}
       </div>
     </div>
@@ -105,51 +110,20 @@ function Editor({ c, onSaved }) {
 }
 
 export default function CreatorCampaignsAdmin() {
-  const [session, setSession] = useState(undefined)
-  const [pass, setPass] = useState('')
-  const [authErr, setAuthErr] = useState('')
+  const [err, setErr] = useState('')
   const [rows, setRows] = useState([])
-  const [stats, setStats] = useState({})
   const [open, setOpen] = useState(null)
 
-  useEffect(() => { adminSession().then(setSession) }, [])
-
   async function load() {
-    const [r, s] = await Promise.all([fetchCreatorCampaigns({ all: true }), fetchCampaignStats()])
-    setRows(r); setStats(s)
+    setRows(await fetchCreatorCampaigns({ all: true }))
   }
-  useEffect(() => { if (session) load().catch((e) => setAuthErr(e.message)) }, [session])
-
-  async function login(e) {
-    e.preventDefault()
-    setAuthErr('')
-    try { setSession(await adminSignIn(ADMIN_EMAIL, pass)) }
-    catch (err) { setAuthErr(err.message) }
-  }
-
-  if (session === undefined) return <p className="text-sm text-gray-500">…</p>
-
-  if (!session) {
-    return (
-      <form onSubmit={login} className="flex items-center gap-2 max-w-md">
-        <input
-          className="input"
-          type="password"
-          value={pass}
-          onChange={(e) => setPass(e.target.value)}
-          placeholder="пароль секції кампаній"
-        />
-        <button className="btn shrink-0" type="submit">Відкрити</button>
-        {authErr && <span className="text-red-500 text-sm">{authErr}</span>}
-      </form>
-    )
-  }
+  useEffect(() => { load().catch((e) => setErr(e.message)) }, [])
 
   return (
     <div className="grid gap-3">
+      {err && <p className="text-red-500 text-sm">{err}</p>}
       {rows.map((c) => {
         const meta = exchangeMeta(c.exchange)
-        const st = c.cp_campaign_id != null ? stats[c.cp_campaign_id] : null
         return (
           <div key={c.id} className="card p-4 border-l-4" style={{ borderLeftColor: meta.color }}>
             <button
@@ -161,14 +135,14 @@ export default function CreatorCampaignsAdmin() {
               <span className="font-medium truncate">{c.title}</span>
               <span className="text-xs text-gray-500 ml-auto shrink-0">
                 {STATUS_LABEL[c.status] || c.status}
-                {st ? ` · 📝${st.posts_observed}` : ''}
+                {c.posts_observed != null ? ` · 📝${c.posts_observed}` : ''}
               </span>
             </button>
             {open === c.id && <Editor c={c} onSaved={load} />}
           </div>
         )
       })}
-      {!rows.length && (
+      {!rows.length && !err && (
         <p className="text-sm text-gray-500">Кампаній ще немає — тисни «🌐 На сайт» у боті.</p>
       )}
     </div>

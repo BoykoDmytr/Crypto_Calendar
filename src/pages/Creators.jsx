@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useState } from 'react'
-import { fetchCreatorCampaigns, fetchCampaignStats } from '../lib/earnApi'
+import { fetchCreatorCampaigns } from '../lib/creatorsApi'
 import ExchangeIcon, { exchangeMeta } from '../components/ExchangeIcon'
 
-// Прихована вкладка /earn: креатор-кампанії бірж (пости, стріми) — що зробити,
+// Прихована вкладка /creators: креатор-кампанії бірж (пости, стріми) — що зробити,
 // яка нагорода і скільки людей уже пише. Лінка в навбарі свідомо немає.
 
 const REWARD_BADGE = {
@@ -30,11 +30,12 @@ function fmtDate(iso) {
   })
 }
 
-function CampaignCard({ c, stats }) {
+function CampaignCard({ c }) {
   const badge = REWARD_BADGE[c.reward_class] || REWARD_BADGE.unclear
   const left = timeLeft(c.ends_at)
   const meta = exchangeMeta(c.exchange)
-  const st = c.cp_campaign_id != null ? stats[c.cp_campaign_id] : null
+  // лічильники тепер лежать у самій картці (їх пише колектор)
+  const st = c.posts_observed != null ? c : null
   const steps = Array.isArray(c.steps) ? c.steps : []
   const hashtags = Array.isArray(c.hashtags) ? c.hashtags : []
 
@@ -148,9 +149,9 @@ function CampaignCard({ c, stats }) {
             Взяти участь →
           </a>
         )}
-        {st?.last_synced && (
+        {st?.stats_synced_at && (
           <span className="text-[11px] text-gray-400 dark:text-gray-500 ml-auto">
-            дані: {fmtDate(st.last_synced)}
+            дані: {fmtDate(st.stats_synced_at)}
           </span>
         )}
       </div>
@@ -158,20 +159,20 @@ function CampaignCard({ c, stats }) {
   )
 }
 
-export default function Earn() {
+export default function Creators() {
   const [rows, setRows] = useState(null)
-  const [stats, setStats] = useState({})
   const [error, setError] = useState('')
   const [filter, setFilter] = useState('all')
 
   useEffect(() => {
     let alive = true
-    Promise.all([fetchCreatorCampaigns(), fetchCampaignStats()])
-      .then(([r, s]) => { if (alive) { setRows(r); setStats(s) } })
-      .catch((e) => alive && setError(e.message))
-    const t = setInterval(() => {
-      fetchCampaignStats().then((s) => alive && setStats(s)).catch(() => {})
-    }, 120e3)
+    const load = () =>
+      fetchCreatorCampaigns()
+        .then((r) => alive && setRows(r))
+        .catch((e) => alive && setError(e.message))
+    load()
+    // картки вже містять лічильники — просто перечитуємо їх раз на 2 хв
+    const t = setInterval(load, 120e3)
     return () => { alive = false; clearInterval(t) }
   }, [])
 
@@ -241,7 +242,7 @@ export default function Earn() {
 
       <div className="grid gap-4 sm:grid-cols-2">
         {visible.map((c) => (
-          <CampaignCard key={c.id} c={c} stats={stats} />
+          <CampaignCard key={c.id} c={c} />
         ))}
       </div>
 
