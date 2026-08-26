@@ -1,14 +1,17 @@
 import { useEffect, useState } from 'react'
 import {
   fetchCreatorCampaigns, fetchCampaignStats, updateCampaign,
-  adminSignIn, adminSession, adminSignOut,
+  adminSignIn, adminSession,
 } from '../lib/earnApi'
-import ExchangeIcon, { exchangeMeta } from '../components/ExchangeIcon'
+import ExchangeIcon, { exchangeMeta } from './ExchangeIcon'
 
-// Адмінка вкладки /earn: правка тексту карток, публікація/архів.
-// Auth — Supabase Auth бази romasya06 (окремий від основної адмінки користувач).
+// Секція «Креатор-кампанії» всередині ЄДИНОЇ адмінки сайту (/admin).
+// Дані живуть у базі romasya06 (пише бот), тому редагування йде під окремою
+// supaRoma-сесією: разовий інпут пароля тут же, в секції. Після переносу
+// таблиці в основну базу цей інпут зникне — редагуватиме рідна сесія адмінки.
 
 const STATUS_LABEL = { draft: '📝 чернетка', published: '🟢 опубліковано', archived: '🗄 архів' }
+const ADMIN_EMAIL = 'earn-admin@cryptoeventscalendar.com'
 
 function Editor({ c, onSaved }) {
   const [form, setForm] = useState({
@@ -101,9 +104,8 @@ function Editor({ c, onSaved }) {
   )
 }
 
-export default function EarnAdmin() {
-  const [session, setSession] = useState(undefined) // undefined = ще перевіряємо
-  const [email, setEmail] = useState('earn-admin@cryptoeventscalendar.com')
+export default function CreatorCampaignsAdmin() {
+  const [session, setSession] = useState(undefined)
   const [pass, setPass] = useState('')
   const [authErr, setAuthErr] = useState('')
   const [rows, setRows] = useState([])
@@ -121,62 +123,54 @@ export default function EarnAdmin() {
   async function login(e) {
     e.preventDefault()
     setAuthErr('')
-    try { setSession(await adminSignIn(email.trim(), pass)) }
+    try { setSession(await adminSignIn(ADMIN_EMAIL, pass)) }
     catch (err) { setAuthErr(err.message) }
   }
 
-  if (session === undefined) return <div className="p-8 text-gray-500">…</div>
+  if (session === undefined) return <p className="text-sm text-gray-500">…</p>
 
   if (!session) {
     return (
-      <div className="max-w-sm mx-auto px-4 py-16">
-        <h1 className="text-xl font-bold mb-4">Адмінка /earn</h1>
-        <form onSubmit={login} className="card p-5 grid gap-3">
-          <input className="input" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="email" />
-          <input className="input" type="password" value={pass} onChange={(e) => setPass(e.target.value)} placeholder="пароль" />
-          {authErr && <div className="text-red-500 text-sm">{authErr}</div>}
-          <button className="btn" type="submit">Увійти</button>
-        </form>
-      </div>
+      <form onSubmit={login} className="flex items-center gap-2 max-w-md">
+        <input
+          className="input"
+          type="password"
+          value={pass}
+          onChange={(e) => setPass(e.target.value)}
+          placeholder="пароль секції кампаній"
+        />
+        <button className="btn shrink-0" type="submit">Відкрити</button>
+        {authErr && <span className="text-red-500 text-sm">{authErr}</span>}
+      </form>
     )
   }
 
   return (
-    <div className="max-w-4xl mx-auto px-4 py-8">
-      <div className="flex items-center mb-6">
-        <h1 className="text-2xl font-bold">Адмінка /earn · {rows.length}</h1>
-        <button
-          className="btn-secondary ml-auto text-sm"
-          onClick={() => adminSignOut().then(() => setSession(null))}
-        >
-          Вийти
-        </button>
-      </div>
-
-      <div className="grid gap-3">
-        {rows.map((c) => {
-          const meta = exchangeMeta(c.exchange)
-          const st = c.cp_campaign_id != null ? stats[c.cp_campaign_id] : null
-          return (
-            <div key={c.id} className="card p-4 border-l-4" style={{ borderLeftColor: meta.color }}>
-              <button
-                type="button"
-                className="w-full flex items-center gap-2 text-left"
-                onClick={() => setOpen(open === c.id ? null : c.id)}
-              >
-                <ExchangeIcon exchange={c.exchange} size={18} />
-                <span className="font-medium truncate">{c.title}</span>
-                <span className="text-xs text-gray-500 ml-auto shrink-0">
-                  {STATUS_LABEL[c.status] || c.status}
-                  {st ? ` · 📝${st.posts_observed}` : ''}
-                </span>
-              </button>
-              {open === c.id && <Editor c={c} onSaved={load} />}
-            </div>
-          )
-        })}
-        {!rows.length && <div className="card p-8 text-center text-gray-500">Кампаній ще немає — тисни «🌐 На сайт» у боті.</div>}
-      </div>
+    <div className="grid gap-3">
+      {rows.map((c) => {
+        const meta = exchangeMeta(c.exchange)
+        const st = c.cp_campaign_id != null ? stats[c.cp_campaign_id] : null
+        return (
+          <div key={c.id} className="card p-4 border-l-4" style={{ borderLeftColor: meta.color }}>
+            <button
+              type="button"
+              className="w-full flex items-center gap-2 text-left"
+              onClick={() => setOpen(open === c.id ? null : c.id)}
+            >
+              <ExchangeIcon exchange={c.exchange} size={18} />
+              <span className="font-medium truncate">{c.title}</span>
+              <span className="text-xs text-gray-500 ml-auto shrink-0">
+                {STATUS_LABEL[c.status] || c.status}
+                {st ? ` · 📝${st.posts_observed}` : ''}
+              </span>
+            </button>
+            {open === c.id && <Editor c={c} onSaved={load} />}
+          </div>
+        )
+      })}
+      {!rows.length && (
+        <p className="text-sm text-gray-500">Кампаній ще немає — тисни «🌐 На сайт» у боті.</p>
+      )}
     </div>
   )
 }

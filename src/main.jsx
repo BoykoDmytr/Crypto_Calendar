@@ -14,7 +14,6 @@ import Stats from './pages/Stats';
 import Claims from './pages/Claims';
 import Live from './pages/Live';
 import Earn from './pages/Earn';
-import EarnAdmin from './pages/EarnAdmin';
 
 // ✅ Vercel Analytics + Speed Insights для будь-якого SPA
 import { inject } from '@vercel/analytics'
@@ -50,8 +49,7 @@ const router = createBrowserRouter([
       { path: 'claims', element: <Claims /> },
       { path: 'live', element: <Live /> }, // лінк у навбарі (Календар / Івенти / Live)
       // ПРИХОВАНА вкладка креатор-кампаній: лінка в навбарі свідомо немає
-      { path: 'earn', element: <Earn /> },
-      { path: 'earn-admin', element: <EarnAdmin /> },
+      { path: 'creators', element: <Earn /> },
 
     ],
   },

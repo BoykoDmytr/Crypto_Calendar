@@ -130,6 +130,16 @@ export default function Claims() {
     const dates = events.map((e) => e.next_predicted).filter(Boolean).sort();
     return dates.length ? dates[dates.length - 1] : null;
   }, [events]);
+  // Наступна ПЛАНОВА дата розлоку (для вестингу з засідженим розкладом): найближча
+  // announced-подія з promised_date сьогодні або в майбутньому.
+  const nextScheduled = useMemo(() => {
+    const today = new Date().toISOString().slice(0, 10);
+    const upcoming = events
+      .filter((e) => e.status === 'announced' && e.promised_date && e.promised_date >= today)
+      .map((e) => e.promised_date)
+      .sort();
+    return upcoming[0] || null;
+  }, [events]);
 
   return (
     <div className="claims">
@@ -174,6 +184,7 @@ export default function Claims() {
             token={token}
             liveEvent={liveEvent}
             nextPredicted={nextPredicted}
+            nextScheduled={nextScheduled}
             lastCompleted={lastCompleted}
           />
 
@@ -192,9 +203,16 @@ export default function Claims() {
             const d = eventDate(ev);
             const pct = pctOf(ev);
             const color = isLive(ev) ? '#f87171' : statusColor(ev.status);
-            const claims = ev.claims_count ? `${new Intl.NumberFormat('en-US').format(ev.claims_count)} клеймів` : null;
+            const noPool = ev.amount_pool == null; // вестинг-транш: пулу немає
+            const isFuture = ev.status === 'announced' && ev.amount_claimed == null;
+            const claims = ev.claims_count
+              ? `${new Intl.NumberFormat('en-US').format(ev.claims_count)} ${noPool ? 'гаманців' : 'клеймів'}`
+              : null;
             const subParts = [ev.label, ev.chain && cap(ev.chain), claims].filter(Boolean);
             const src = (ev.claim_event_sources || [])[0];
+            // Прогрес-бар: для вестингу пулу немає → показуємо повну смугу як маркер
+            // статусу (завершено/триває), для майбутніх — порожню.
+            const barPct = noPool ? (isFuture ? 0 : 100) : pct;
             return (
               <div className="card claim-row" key={ev.id}>
                 <div className="claim-row-top">
@@ -203,17 +221,24 @@ export default function Claims() {
                     <span className="time">{fmtTimeUTC(ev)}</span>
                   </div>
                   <div className="claimed">
-                    {fmtAmount(ev.amount_claimed)}{' '}
-                    {ev.amount_pool != null && <span className="of">/ {fmtAmount(ev.amount_pool)}</span>}
+                    {isFuture ? (
+                      <span className="of">заплановано</span>
+                    ) : (
+                      <>
+                        {fmtAmount(ev.amount_claimed)}{' '}
+                        {ev.amount_pool != null && <span className="of">/ {fmtAmount(ev.amount_pool)}</span>}
+                        {noPool && <span className="of"> роздано</span>}
+                      </>
+                    )}
                   </div>
                 </div>
                 <div className="claim-bar">
-                  <div className="claim-fill" style={{ width: `${pct}%`, background: color }} />
+                  <div className="claim-fill" style={{ width: `${barPct}%`, background: color }} />
                 </div>
                 <div className="claim-row-sub">
                   <span>{subParts.join(' · ')}</span>
                   <span className="claim-pct" style={{ color }}>
-                    {pct ? `${pct.toFixed(1).replace(/\.0$/, '')}% · ` : ''}
+                    {!noPool && pct ? `${pct.toFixed(1).replace(/\.0$/, '')}% · ` : ''}
                     {isLive(ev) ? 'триває' : STATUS_LABEL[ev.status] || ev.status}
                   </span>
                 </div>
@@ -239,13 +264,17 @@ export default function Claims() {
   );
 }
 
-function NextBanner({ token, liveEvent, nextPredicted, lastCompleted }) {
+function NextBanner({ token, liveEvent, nextPredicted, nextScheduled, lastCompleted }) {
   if (liveEvent) {
+    const isVesting = liveEvent.amount_pool == null; // місячний вестинг: пулу немає, показуємо роздано+гаманці
     const pct = pctOf(liveEvent);
+    const wallets = liveEvent.claims_count
+      ? `${new Intl.NumberFormat('en-US').format(liveEvent.claims_count)} гаманців`
+      : null;
     return (
       <div className="card claim-next">
         <div>
-          <div className="lab">Наступний розлок</div>
+          <div className="lab">Розлок</div>
           <div className="d">Клеймиться зараз</div>
           <div className="meta">
             {[liveEvent.label, `старт ${fmtDateUTC(eventDate(liveEvent))} ${fmtTimeUTC(liveEvent)}`,
@@ -254,27 +283,41 @@ function NextBanner({ token, liveEvent, nextPredicted, lastCompleted }) {
         </div>
         <div className="amt">
           <div className="v">{fmtAmount(liveEvent.amount_claimed)}</div>
-          <div className="meta">з {fmtAmount(liveEvent.amount_pool)} роздано · {pct.toFixed(1).replace(/\.0$/, '')}%</div>
+          <div className="meta">
+            {isVesting
+              ? ['роздано цього траншу', wallets].filter(Boolean).join(' · ')
+              : `з ${fmtAmount(liveEvent.amount_pool)} роздано · ${pct.toFixed(1).replace(/\.0$/, '')}%`}
+          </div>
         </div>
         <span className="claim-badge claim-badge--live">● LIVE</span>
       </div>
     );
   }
 
-  if (nextPredicted) {
+  // Планова дата з розкладу вестингу (пріоритет) або on-chain прогноз.
+  const upcoming = nextScheduled || nextPredicted;
+  if (upcoming) {
+    const today = new Date().toISOString().slice(0, 10);
+    const isToday = nextScheduled != null && nextScheduled <= today;
     const est = lastCompleted?.amount_claimed;
     return (
       <div className="card claim-next">
         <div>
           <div className="lab">Наступний розлок</div>
-          <div className="d">{fmtPromised(nextPredicted)}</div>
-          <div className="meta">Прогноз за on-chain циклом · {token.cadence || 'розклад уточнюється'}</div>
+          <div className="d">{fmtPromised(upcoming)}{isToday ? ' · сьогодні' : ''}</div>
+          <div className="meta">
+            {nextScheduled
+              ? `За розкладом вестингу · ${cadenceLabel(token.cadence)}`
+              : `Прогноз за on-chain циклом · ${token.cadence || 'розклад уточнюється'}`}
+          </div>
         </div>
         <div className="amt">
-          <div className="v">{est ? `≈${fmtAmount(est)}` : token.symbol}</div>
-          <div className="meta">очікується</div>
+          <div className="v">{isToday ? 'чекаємо транш' : est ? `≈${fmtAmount(est)}` : token.symbol}</div>
+          <div className="meta">{isToday ? 'трекер увімкнеться на сплеску' : 'очікується'}</div>
         </div>
-        <span className="claim-badge claim-badge--soon">ОЧІКУЄТЬСЯ</span>
+        <span className={`claim-badge ${isToday ? 'claim-badge--live' : 'claim-badge--soon'}`}>
+          {isToday ? '● СЬОГОДНІ' : 'ОЧІКУЄТЬСЯ'}
+        </span>
       </div>
     );
   }

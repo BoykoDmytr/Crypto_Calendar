@@ -10,6 +10,7 @@ import { supabase } from '../lib/supabase';
 import EventForm from '../components/EventForm';
 import { formatQuantity as formatTokenQuantity } from '../hooks/useTokenPrice';
 import Toast from '../components/Toast';
+import CreatorCampaignsAdmin from '../components/CreatorCampaignsAdmin';
 import { extractCoinEntries, coinEntriesEqual } from '../utils/coins';
 import {
   approvePendingEvent,
@@ -1531,6 +1532,12 @@ const payload = {
           Alpha, Token Sales, Claim / Airdrop, Unlocks тощо) залишай як звичайні — для них час
           опційний у формах і відображенні.
         </p>
+      </section>
+
+      {/* Креатор-кампанії — вкладка /creators (пише бот, тут правиться текст) */}
+      <section>
+        <h2 className="font-semibold mb-2">Креатор-кампанії (/creators)</h2>
+        <CreatorCampaignsAdmin />
       </section>
     </div>
     </>
