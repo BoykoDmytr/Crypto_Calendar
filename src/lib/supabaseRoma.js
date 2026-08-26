@@ -11,6 +11,8 @@ const key =
   'sb_publishable_tMlzL2lli6sjAb1CnBUcwQ_mmL4Cs9Q'
 
 export const supaRoma = createClient(url, key, {
-  // читаємо анонімно; окремий storageKey, щоб не конфліктувати з основним клієнтом
-  auth: { persistSession: false, autoRefreshToken: false, storageKey: 'sb-roma-live' },
+  // Читання /live анонімне. Але секція «Креатор-кампанії» в /admin логіниться саме
+  // цим клієнтом, тому сесію ТРЕБА зберігати — інакше пароль питається щоразу.
+  // Окремий storageKey ізолює її від основного клієнта сайту.
+  auth: { persistSession: true, autoRefreshToken: true, storageKey: 'sb-roma-live' },
 })
