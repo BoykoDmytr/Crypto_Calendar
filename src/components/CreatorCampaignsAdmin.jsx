@@ -20,6 +20,7 @@ function Editor({ c, onSaved }) {
     hashtags: (Array.isArray(c.hashtags) ? c.hashtags : []).join(' '),
     ends_at: c.ends_at ? c.ends_at.slice(0, 16) : '',
     status: c.status,
+    track_enabled: c.track_enabled !== false,
   })
   const [busy, setBusy] = useState(false)
   const [msg, setMsg] = useState('')
@@ -39,6 +40,7 @@ function Editor({ c, onSaved }) {
         hashtags: form.hashtags.split(/\s+/).filter(Boolean),
         ends_at: form.ends_at ? new Date(form.ends_at).toISOString() : null,
         status: form.status,
+        track_enabled: form.track_enabled,
       })
       setMsg('✅ Збережено')
       onSaved()
@@ -91,6 +93,38 @@ function Editor({ c, onSaved }) {
       <input className="input" value={form.url} onChange={set('url')} />
       <label className="label">Теги (через пробіл)</label>
       <input className="input font-mono" value={form.hashtags} onChange={set('hashtags')} />
+
+      {/* Трекінг: система визначає його сама, тут видно результат і можна вимкнути */}
+      <div className="rounded-xl px-3 py-2 mt-1 bg-gray-50 dark:bg-gray-800/60 text-xs">
+        {c.track_source ? (
+          <>
+            <div className="flex items-center gap-2">
+              <span className="text-emerald-500 font-medium">📊 Лічильник: {c.track_source}</span>
+              <label className="ml-auto flex items-center gap-1.5">
+                <input
+                  type="checkbox"
+                  checked={form.track_enabled}
+                  onChange={(e) => setForm((f) => ({ ...f, track_enabled: e.target.checked }))}
+                />
+                увімкнено
+              </label>
+            </div>
+            <div className="text-gray-500 mt-1 font-mono break-all">
+              {JSON.stringify(c.track_config)}
+            </div>
+          </>
+        ) : (
+          <span className="text-gray-500">
+            📊 Лічильника немає — {c.track_note || 'джерело недоступне'}
+          </span>
+        )}
+        {c.stats_synced_at && (
+          <div className="text-gray-400 mt-1">
+            останнє оновлення: {new Date(c.stats_synced_at).toLocaleString('uk-UA')}
+          </div>
+        )}
+      </div>
+
       <div className="flex items-center gap-2 mt-1">
         <select className="input !w-auto" value={form.status} onChange={set('status')}>
           <option value="draft">📝 чернетка</option>
