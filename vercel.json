@@ -1,5 +1,7 @@
 {
-  "regions": ["fra1"],
+  "regions": [
+    "fra1"
+  ],
   "functions": {
     "api/mexc-ticker.js": {
       "maxDuration": 10
@@ -12,46 +14,42 @@
     },
     "api/cron/telegram-broadcast.js": {
       "maxDuration": 60
-    },
-    "api/cron/claim-watcher.js": {
-      "maxDuration": 60
     }
   },
   "rewrites": [
-    { "source": "/(.*)", "destination": "/index.html" }
-  ],
-  "crons": [
     {
-      "path": "/api/cron/telegram-scrape",
-      "schedule": "*/5 * * * *"
-    },
-    {
-      "path": "/api/cron/delete-old-events",
-      "schedule": "0 3 * * *"
-    },
-    {
-      "path": "/api/cron/telegram-broadcast",
-      "schedule": "* * * * *"
-    },
-    {
-      "path": "/api/cron/telegram-notify-pending",
-      "schedule": "*/5 * * * *"
-    },
-    {
-      "path": "/api/cron/claim-watcher",
-      "schedule": "*/5 * * * *"
+      "source": "/(.*)",
+      "destination": "/index.html"
     }
   ],
   "headers": [
     {
       "source": "/(.*)",
       "headers": [
-        { "key": "X-Content-Type-Options", "value": "nosniff" },
-        { "key": "X-Frame-Options", "value": "DENY" },
-        { "key": "Referrer-Policy", "value": "strict-origin-when-cross-origin" },
-        { "key": "Permissions-Policy", "value": "camera=(), microphone=(), geolocation=(), browsing-topics=()" },
-        { "key": "Strict-Transport-Security", "value": "max-age=63072000; includeSubDomains" },
-        { "key": "Content-Security-Policy", "value": "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self' data:; connect-src 'self' https: wss:; frame-ancestors 'none'; base-uri 'self'; object-src 'none'; form-action 'self'" }
+        {
+          "key": "X-Content-Type-Options",
+          "value": "nosniff"
+        },
+        {
+          "key": "X-Frame-Options",
+          "value": "DENY"
+        },
+        {
+          "key": "Referrer-Policy",
+          "value": "strict-origin-when-cross-origin"
+        },
+        {
+          "key": "Permissions-Policy",
+          "value": "camera=(), microphone=(), geolocation=(), browsing-topics=()"
+        },
+        {
+          "key": "Strict-Transport-Security",
+          "value": "max-age=63072000; includeSubDomains"
+        },
+        {
+          "key": "Content-Security-Policy",
+          "value": "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self' data:; connect-src 'self' https: wss:; frame-ancestors 'none'; base-uri 'self'; object-src 'none'; form-action 'self'"
+        }
       ]
     }
   ]
