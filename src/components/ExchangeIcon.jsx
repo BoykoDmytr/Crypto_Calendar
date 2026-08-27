@@ -4,7 +4,7 @@ import { useState } from 'react'
 // у бренд-кольорі, якщо favicon не завантажився.
 const EXCHANGES = {
   binance: { domain: 'binance.com', color: '#F0B90B', label: 'Binance' },
-  bybit: { domain: 'bybit.com', color: '#F7A600', label: 'Bybit' },
+  bybit: { domain: 'bybit.com', color: '#F7A600', label: 'Bybit', iconUrl: 'https://www.bybit.com/favicon.ico' },
   okx: { domain: 'okx.com', color: '#334155', label: 'OKX' },
   bitget: { domain: 'bitget.com', color: '#00F0FF', label: 'Bitget' },
   gate: { domain: 'gate.com', color: '#2354E6', label: 'Gate' },
@@ -34,7 +34,7 @@ export default function ExchangeIcon({ exchange, size = 20, className = '' }) {
   }
   return (
     <img
-      src={`https://www.google.com/s2/favicons?domain=${meta.domain}&sz=64`}
+      src={meta.iconUrl || `https://www.google.com/s2/favicons?domain=${meta.domain}&sz=64`}
       width={size}
       height={size}
       alt={meta.label}

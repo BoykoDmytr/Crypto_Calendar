@@ -1,15 +1,27 @@
 import { useEffect, useMemo, useState } from 'react'
 import { fetchCreatorCampaigns } from '../lib/creatorsApi'
 import ExchangeIcon, { exchangeMeta } from '../components/ExchangeIcon'
+import RewardPrice from '../components/RewardPrice'
 
-// Прихована вкладка /creators: креатор-кампанії бірж (пости, стріми) — що зробити,
-// яка нагорода і скільки людей уже пише. Лінка в навбарі свідомо немає.
+// Прихована вкладка /creators: креатор-кампанії бірж. Мінімум слів, максимум суті.
 
-const REWARD_BADGE = {
-  real: { text: '💵 Реальні кошти', cls: 'bg-emerald-500/15 text-emerald-500 border-emerald-500/30' },
-  locked: { text: '🔒 Ваучер — не виводиться', cls: 'bg-amber-500/15 text-amber-500 border-amber-500/30' },
+// Компактні теги типу нагороди. Кампанія може мати кілька (кошти + ваучери).
+const CLASS_TAG = {
+  real: { text: '💵 Кошти', cls: 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30' },
+  locked: { text: '🎟 Ваучери', cls: 'bg-amber-500/15 text-amber-400 border-amber-500/30' },
+  physical: { text: '📦 Мерч', cls: 'bg-sky-500/15 text-sky-400 border-sky-500/30' },
   near_zero: { text: '⚪ Символічна', cls: 'bg-gray-500/15 text-gray-400 border-gray-500/30' },
-  unclear: { text: '❔ Тип не вказано', cls: 'bg-gray-500/15 text-gray-400 border-gray-500/30' },
+  unclear: { text: '❔', cls: 'bg-gray-500/15 text-gray-400 border-gray-500/30' },
+}
+
+// Підпис лічильника залежить від того, ДЕ рахуємо пости
+const SOURCE_LABEL = { x: 'у X', 'bitget-insights': 'в Insights', 'binance-square': 'у Square' }
+
+function classesOf(c) {
+  const arr = Array.isArray(c.reward_classes) && c.reward_classes.length
+    ? c.reward_classes
+    : [c.reward_class || 'unclear']
+  return [...new Set(arr)].slice(0, 2)
 }
 
 function timeLeft(endsAt) {
@@ -19,32 +31,25 @@ function timeLeft(endsAt) {
   const d = Math.floor(ms / 86400e3)
   const h = Math.floor((ms % 86400e3) / 3600e3)
   const m = Math.floor((ms % 3600e3) / 60e3)
-  const text = d > 0 ? `${d}д ${h}г` : h > 0 ? `${h}г ${m}хв` : `${m}хв`
-  return { text, urgent: ms < 36 * 3600e3, over: false }
+  return { text: d > 0 ? `${d}д ${h}г` : h > 0 ? `${h}г ${m}хв` : `${m}хв`, urgent: ms < 36 * 3600e3, over: false }
 }
 
-function fmtDate(iso) {
-  if (!iso) return null
-  return new Date(iso).toLocaleString('uk-UA', {
-    timeZone: 'Europe/Kyiv', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit',
-  })
-}
+const fmtDate = (iso) =>
+  iso ? new Date(iso).toLocaleString('uk-UA', { timeZone: 'Europe/Kyiv', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : null
+
+const isNew = (c) => c.created_at && Date.now() - Date.parse(c.created_at) < 24 * 3600e3
 
 function CampaignCard({ c }) {
-  const badge = REWARD_BADGE[c.reward_class] || REWARD_BADGE.unclear
   const left = timeLeft(c.ends_at)
   const meta = exchangeMeta(c.exchange)
-  // лічильники тепер лежать у самій картці (їх пише колектор)
-  const st = c.posts_observed != null ? c : null
+  const hasStats = c.posts_observed != null
   const steps = Array.isArray(c.steps) ? c.steps : []
   const hashtags = Array.isArray(c.hashtags) ? c.hashtags : []
+  const tiers = Array.isArray(c.reward_tiers) ? c.reward_tiers : []
+  const srcLabel = SOURCE_LABEL[c.track_source] || ''
 
   return (
-    <article
-      className="card p-5 flex flex-col gap-3 border-l-4"
-      style={{ borderLeftColor: meta.color }}
-    >
-      {/* шапка: біржа + бейджі */}
+    <article className="card p-5 flex flex-col gap-3 border-l-4" style={{ borderLeftColor: meta.color }}>
       <div className="flex items-center gap-2 flex-wrap">
         <ExchangeIcon exchange={c.exchange} size={22} />
         <span className="font-semibold">{meta.label}</span>
@@ -53,15 +58,19 @@ function CampaignCard({ c }) {
             {c.platform}
           </span>
         )}
-        <span className={`text-xs px-2 py-0.5 rounded-full border ${badge.cls}`}>{badge.text}</span>
+        {classesOf(c).map((k) => {
+          const t = CLASS_TAG[k] || CLASS_TAG.unclear
+          return (
+            <span key={k} className={`text-xs px-2 py-0.5 rounded-full border ${t.cls}`}>{t.text}</span>
+          )
+        })}
+        {isNew(c) && (
+          <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-brand-500 text-white tracking-wide">NEW</span>
+        )}
         {left && (
           <span
             className={`ml-auto text-xs font-medium px-2 py-0.5 rounded-full ${
-              left.over
-                ? 'bg-gray-500/15 text-gray-400'
-                : left.urgent
-                  ? 'bg-red-500/15 text-red-500'
-                  : 'bg-brand-500/15 text-brand-500'
+              left.over ? 'bg-gray-500/15 text-gray-400' : left.urgent ? 'bg-red-500/15 text-red-500' : 'bg-brand-500/15 text-brand-500'
             }`}
             title={c.ends_at ? `до ${fmtDate(c.ends_at)} (Київ)` : ''}
           >
@@ -75,7 +84,6 @@ function CampaignCard({ c }) {
         {c.subtitle && <p className="text-sm text-gray-500 dark:text-gray-400 mt-0.5">{c.subtitle}</p>}
       </div>
 
-      {/* що зробити */}
       {steps.length > 0 && (
         <ol className="text-sm space-y-1.5">
           {steps.map((s, i) => (
@@ -92,7 +100,6 @@ function CampaignCard({ c }) {
         </ol>
       )}
 
-      {/* теги — по кліку копіюються */}
       {hashtags.length > 0 && (
         <div className="flex flex-wrap gap-1.5">
           {hashtags.map((h) => (
@@ -109,30 +116,39 @@ function CampaignCard({ c }) {
         </div>
       )}
 
-      {/* нагорода */}
+      {/* нагорода: тіри списком, ціна токена — по ховеру */}
       <div className="text-sm">
-        <span className="text-gray-500 dark:text-gray-400">Нагорода: </span>
-        <span className="font-medium">{c.reward || 'не вказано'}</span>
+        <span className="font-medium"><RewardPrice text={c.reward || 'не вказано'} /></span>
         {c.slots != null && (
-          <span className="text-gray-500 dark:text-gray-400"> · місць: {c.slots}</span>
+          <span className="ml-2 inline-flex items-center text-xs font-bold px-2 py-0.5 rounded-md bg-brand-600 text-white">
+            {c.slots.toLocaleString('uk-UA')} місць
+          </span>
+        )}
+        {tiers.length > 0 && (
+          <ul className="mt-1.5 space-y-0.5 text-[13px] text-gray-600 dark:text-gray-300">
+            {tiers.map((t, i) => (
+              <li key={i} className="pl-2 border-l-2 border-gray-200 dark:border-gray-700">{t}</li>
+            ))}
+          </ul>
         )}
       </div>
 
-      {/* лічильник конкуренції — лише там, де працює трекер */}
-      {st && (
-        <div className="flex items-center gap-4 text-sm rounded-xl px-3 py-2 bg-gray-50 dark:bg-gray-800/60">
-          <span title="Постів, що відповідають умовам кампанії">
-            📝 <b>{st.posts_observed ?? 0}</b> постів
+      {hasStats && (
+        <div className="flex items-center gap-4 text-sm rounded-xl px-3 py-2 bg-gray-50 dark:bg-gray-800/60 flex-wrap">
+          <span title={`Пости ${srcLabel}, що відповідають умовам`}>
+            📝 <b>{c.posts_observed ?? 0}</b> постів {srcLabel}
           </span>
-          <span title="Унікальних авторів">
-            👥 <b>{st.unique_authors ?? 0}</b> авторів
+          <span title={`Унікальні автори ${srcLabel}`}>
+            👥 <b>{c.unique_authors ?? 0}</b> авторів {srcLabel}
           </span>
-          {st.posts_last_60_min > 0 && (
-            <span className="text-emerald-500" title="За останню годину">+{st.posts_last_60_min}/год</span>
+          {c.authors_today != null && c.authors_today > 0 && (
+            <span className="text-emerald-500" title="Нові автори з 03:00 за Києвом">
+              +{c.authors_today} сьогодні
+            </span>
           )}
-          {c.slots != null && st.unique_authors != null && (
+          {c.slots != null && c.unique_authors != null && (
             <span className="ml-auto text-xs text-gray-500">
-              зайнято ~{Math.min(100, Math.round((st.unique_authors / c.slots) * 100))}%
+              ~{Math.min(100, Math.round((c.unique_authors / c.slots) * 100))}% зайнято
             </span>
           )}
         </div>
@@ -140,18 +156,13 @@ function CampaignCard({ c }) {
 
       <div className="flex items-center gap-3 mt-auto pt-1">
         {c.url && (
-          <a
-            href={c.url}
-            target="_blank"
-            rel="noreferrer"
-            className="btn text-sm !py-1.5"
-          >
+          <a href={c.url} target="_blank" rel="noreferrer" className="btn text-sm !py-1.5">
             Взяти участь →
           </a>
         )}
-        {st?.stats_synced_at && (
+        {c.stats_synced_at && (
           <span className="text-[11px] text-gray-400 dark:text-gray-500 ml-auto">
-            дані: {fmtDate(st.stats_synced_at)}
+            дані: {fmtDate(c.stats_synced_at)}
           </span>
         )}
       </div>
@@ -162,7 +173,8 @@ function CampaignCard({ c }) {
 export default function Creators() {
   const [rows, setRows] = useState(null)
   const [error, setError] = useState('')
-  const [filter, setFilter] = useState('all')
+  const [exchange, setExchange] = useState('all')
+  const [kind, setKind] = useState('all') // all | real | locked
 
   useEffect(() => {
     let alive = true
@@ -171,73 +183,76 @@ export default function Creators() {
         .then((r) => alive && setRows(r))
         .catch((e) => alive && setError(e.message))
     load()
-    // картки вже містять лічильники — просто перечитуємо їх раз на 2 хв
     const t = setInterval(load, 120e3)
     return () => { alive = false; clearInterval(t) }
   }, [])
 
-  const exchanges = useMemo(() => {
-    const set = new Set((rows || []).map((r) => r.exchange))
-    return [...set].sort()
-  }, [rows])
+  const exchanges = useMemo(() => [...new Set((rows || []).map((r) => r.exchange))].sort(), [rows])
 
   const visible = useMemo(
-    () => (rows || []).filter((r) => filter === 'all' || r.exchange === filter),
-    [rows, filter]
+    () =>
+      (rows || [])
+        .filter((r) => exchange === 'all' || r.exchange === exchange)
+        .filter((r) => kind === 'all' || classesOf(r).includes(kind)),
+    [rows, exchange, kind]
   )
+
+  const chip = (active) =>
+    `px-3 py-1.5 rounded-full text-sm font-medium border transition inline-flex items-center gap-1.5 ${
+      active
+        ? 'bg-brand-600 text-white border-brand-600'
+        : 'border-gray-300 dark:border-gray-700 text-gray-600 dark:text-gray-300 hover:border-brand-500'
+    }`
 
   return (
     <div className="max-w-5xl mx-auto px-4 py-8">
-      <header className="mb-6">
-        <h1 className="text-2xl font-bold">Заробіток на постах і стрімах</h1>
-        <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
-          Кампанії бірж, де платять за контент. Показуємо умови, тип нагороди і — де це можливо —
-          живу кількість постів конкурентів.
-        </p>
+      <header className="mb-5 flex items-baseline gap-3 flex-wrap">
+        <h1 className="text-2xl font-bold">Пости і стріми за нагороди</h1>
       </header>
 
-      {/* фільтри */}
-      <div className="flex flex-wrap gap-2 mb-6">
-        <button
-          type="button"
-          onClick={() => setFilter('all')}
-          className={`px-3 py-1.5 rounded-full text-sm font-medium border transition ${
-            filter === 'all'
-              ? 'bg-brand-600 text-white border-brand-600'
-              : 'border-gray-300 dark:border-gray-700 text-gray-600 dark:text-gray-300 hover:border-brand-500'
-          }`}
-        >
-          All{rows ? ` · ${rows.length}` : ''}
+      {/* один компактний ряд: біржі + перемикач типу нагороди */}
+      <div className="flex flex-wrap items-center gap-2 mb-6">
+        <button type="button" onClick={() => setExchange('all')} className={chip(exchange === 'all')}>
+          Всі{rows ? ` · ${rows.length}` : ''}
         </button>
         {exchanges.map((ex) => {
           const meta = exchangeMeta(ex)
           const n = (rows || []).filter((r) => r.exchange === ex).length
           return (
-            <button
-              key={ex}
-              type="button"
-              onClick={() => setFilter(ex)}
-              className={`px-3 py-1.5 rounded-full text-sm font-medium border transition inline-flex items-center gap-1.5 ${
-                filter === ex
-                  ? 'bg-brand-600 text-white border-brand-600'
-                  : 'border-gray-300 dark:border-gray-700 text-gray-600 dark:text-gray-300 hover:border-brand-500'
-              }`}
-            >
+            <button key={ex} type="button" onClick={() => setExchange(ex)} className={chip(exchange === ex)}>
               <ExchangeIcon exchange={ex} size={16} />
               {meta.label} · {n}
             </button>
           )
         })}
+
+        {/* сегментований перемикач: Кошти / Ваучери. Мінімалістичний, тягнеться і на мобілці */}
+        <div className="ml-auto inline-flex rounded-full border border-gray-300 dark:border-gray-700 p-0.5 text-sm">
+          {[
+            ['all', 'Все'],
+            ['real', '💵 Кошти'],
+            ['locked', '🎟 Ваучери'],
+          ].map(([k, label]) => (
+            <button
+              key={k}
+              type="button"
+              onClick={() => setKind(k)}
+              className={`px-3 py-1 rounded-full transition ${
+                kind === k
+                  ? 'bg-brand-600 text-white'
+                  : 'text-gray-600 dark:text-gray-300 hover:text-brand-500'
+              }`}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
       </div>
 
-      {error && (
-        <div className="card p-4 text-red-500 text-sm">Не вдалося завантажити: {error}</div>
-      )}
+      {error && <div className="card p-4 text-red-500 text-sm">Не вдалося завантажити: {error}</div>}
       {!rows && !error && <div className="text-gray-500 text-sm">Завантаження…</div>}
       {rows && !visible.length && (
-        <div className="card p-8 text-center text-gray-500">
-          Поки що немає опублікованих кампаній{filter !== 'all' ? ' по цій біржі' : ''}.
-        </div>
+        <div className="card p-8 text-center text-gray-500">Нічого не знайдено за цим фільтром.</div>
       )}
 
       <div className="grid gap-4 sm:grid-cols-2">
@@ -245,11 +260,6 @@ export default function Creators() {
           <CampaignCard key={c.id} c={c} />
         ))}
       </div>
-
-      <p className="text-[11px] text-gray-400 dark:text-gray-600 mt-8">
-        Лічильники — це публікації, які система спостерігала і які відповідають перевірним умовам
-        кампанії. Це не офіційне підтвердження біржі. Умови завжди звіряй на сторінці кампанії.
-      </p>
     </div>
   )
 }

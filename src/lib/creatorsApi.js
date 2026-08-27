@@ -11,7 +11,8 @@ const COLUMNS =
   'id, exchange, platform, title, subtitle, steps, reward, reward_class, slots, url, ' +
   'hashtags, starts_at, ends_at, status, sort_order, cp_campaign_id, ' +
   'track_source, track_config, track_enabled, track_note, ' +
-  'posts_observed, unique_authors, posts_last_60_min, stats_synced_at'
+  'posts_observed, unique_authors, posts_last_60_min, authors_today, posts_today, stats_synced_at, ' +
+  'reward_tiers, reward_classes, created_at'
 
 export async function fetchCreatorCampaigns({ all = false } = {}) {
   let q = supabase
