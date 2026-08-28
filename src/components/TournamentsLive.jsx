@@ -160,20 +160,26 @@ function feeModel(t) {
   return { per1k: null, label: 'не задано', slip }
 }
 
-// Рефбек (% від КОМСИ) — два тумблери, сума 0–50%. Живе в localStorage на турнір,
-// щоб не перевибирати щоразу. Спільний для активних і завершених карток.
+// Рефбек (% від КОМСИ). Стеля — з політики поллера (tournament_volume.extra.refback):
+// OKX з 15.04.2026 обрізає СУМАРНУ реф-ставку до 20% на токенах активного турніру
+// (саме такі монети на наших картках), тож 50% тут були б брехнею. Де рефбеку нема
+// взагалі (RWA-акції: комса 0.01%; CEX-турніри) — тумблер не показуємо.
 function useRebate(t, enabled) {
-  const [refA, setRefA] = useState(() => { try { const s = localStorage.getItem('tl-refA-' + t.id); return s != null && REB_A.includes(Number(s)) ? Number(s) : 0 } catch { return 0 } })
-  const [refB, setRefB] = useState(() => { try { const s = localStorage.getItem('tl-refB-' + t.id); return s != null && REB_B.includes(Number(s)) ? Number(s) : 30 } catch { return 30 } })
-  const set = (key, fn) => (p) => { fn(p); try { localStorage.setItem(`tl-${key}-${t.id}`, String(p)) } catch { /* приватний режим */ } }
-  return { refA, refB, pct: enabled ? refA + refB : 0, changeA: set('refA', setRefA), changeB: set('refB', setRefB) }
+  const pol = t?.vol?.extra?.refback || null
+  const cap = pol ? Number(pol.maxPct) || 0 : REFBACK_FALLBACK_CAP
+  const opts = cap > 0 ? Array.from({ length: Math.floor(cap / 5) + 1 }, (_, i) => i * 5) : [0]
+  const on = enabled && (pol ? !!pol.eligible : true) && cap > 0
+  const [ref, setRef] = useState(() => { try { const s = Number(localStorage.getItem('tl-ref-' + t.id)); return opts.includes(s) ? s : 0 } catch { return 0 } })
+  const val = opts.includes(ref) ? ref : 0 // стеля могла змінитись — не показуємо неможливе
+  const change = (p) => { setRef(p); try { localStorage.setItem('tl-ref-' + t.id, String(p)) } catch { /* приватний режим */ } }
+  return { on, opts, cap, pct: on ? val : 0, val, change, reason: pol?.reason || null }
 }
 
 function RebateSelects({ reb }) {
+  if (!reb.on) return reb.reason ? <div className="uu tl-ref-off" title={reb.reason}>рефбек: —</div> : null
   return (
-    <div className="uu tl-ref">рефбек
-      <select value={reb.refA} onChange={(e) => reb.changeA(Number(e.target.value))}>{REB_A.map((p) => <option key={p} value={p}>{p}%</option>)}</select>
-      <select value={reb.refB} onChange={(e) => reb.changeB(Number(e.target.value))}>{REB_B.map((p) => <option key={p} value={p}>{p}%</option>)}</select>
+    <div className="uu tl-ref" title={reb.reason || ''}>рефбек
+      <select value={reb.val} onChange={(e) => reb.change(Number(e.target.value))}>{reb.opts.map((p) => <option key={p} value={p}>{p}%</option>)}</select>
     </div>
   )
 }
@@ -463,8 +469,9 @@ function TierTable({ t, highlightRank, curve }) {
 // Рефбек на DEX-турнірах = % ВІД КОМСИ. Два тумблери (сума = загальний рефбек 0–50%).
 // Дефолт 0+30: обидва реальні заміри дали саме ~30% (24,12 / 80,37 = 30,0%;
 // 33 / 105,40 = 31,3%) — це чесніша відправна точка, ніж нуль чи максимум.
-const REB_A = [0, 5, 10, 15, 20]
-const REB_B = [0, 5, 10, 15, 20, 25, 30]
+// Поки поллер не записав політику — консервативна стеля 20% (офіційна межа OKX
+// для токенів активного турніру, правило від 15.04.2026).
+const REFBACK_FALLBACK_CAP = 20
 function TournamentCard({ t, history, snap, now, rankPoints, onCalc }) {
   const st = state(t, now)
   const v = t.vol || {}

@@ -208,3 +208,6 @@
 .tl-fullcalc-x:hover { color: var(--text); }
 
 @media (max-width: 560px) { .tl-grid, .tl-ended-list { grid-template-columns: 1fr; } }
+
+/* Рефбек недоступний (RWA-акції: комса 0.01%; CEX-турніри) — показуємо факт, а не тумблер */
+.tl-ref-off { opacity: .55; cursor: help; }
