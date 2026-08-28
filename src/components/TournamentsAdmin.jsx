@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
+import { supabase } from '../lib/supabase'
 
 // ============================================================================
 // АДМІНКА ТУРНІРІВ. Дані живуть у БД А (romasya06), куди фронт має ЛИШЕ читання
@@ -29,6 +30,11 @@ const ago = (ts) => {
 const hhmm = (h) => String(Math.floor(h)).padStart(2, '0') + ':' + String(Math.round((h % 1) * 60)).padStart(2, '0')
 
 export default function TournamentsAdmin() {
+  // ГОЛОВНИЙ ШЛЯХ: токен уже залогіненого адміна сайту (поллер перевіряє його тим
+  // самим RPC is_admin(), що й фронт) — окремий пароль не потрібен. Секрет лишається
+  // запасним шляхом (інший браузер / поза адмінкою).
+  const [token, setToken] = useState(null)
+  const [tokenReady, setTokenReady] = useState(false)
   const [secret, setSecret] = useState(() => { try { return localStorage.getItem(SECRET_KEY) || '' } catch { return '' } })
   const [draftSecret, setDraftSecret] = useState('')
   const [state, setState] = useState(null)
@@ -36,29 +42,38 @@ export default function TournamentsAdmin() {
   const [busy, setBusy] = useState('')
   const [edits, setEdits] = useState({}) // id → {поле: значення}
 
+  useEffect(() => {
+    let alive = true
+    const read = (session) => { if (alive) { setToken(session?.access_token || null); setTokenReady(true) } }
+    supabase.auth.getSession().then(({ data }) => read(data.session))
+    const { data: sub } = supabase.auth.onAuthStateChange((_e, session) => read(session))
+    return () => { alive = false; sub.subscription.unsubscribe() }
+  }, [])
+
   const call = useCallback(async (path, opts = {}) => {
+    const auth = token ? { authorization: 'Bearer ' + token } : { 'x-admin-secret': secret }
     const r = await fetch(POLLER + path, {
       ...opts,
-      headers: { 'x-admin-secret': secret, ...(opts.body ? { 'content-type': 'application/json' } : {}) },
+      headers: { ...auth, ...(opts.body ? { 'content-type': 'application/json' } : {}) },
     })
     if (r.status === 404) throw new Error('невірний секрет або роут недоступний')
     const j = await r.json().catch(() => null)
     if (!r.ok || !j || !j.ok) throw new Error((j && j.error) || ('HTTP ' + r.status))
     return j
-  }, [secret])
+  }, [secret, token])
 
   const load = useCallback(async () => {
-    if (!secret) return
+    if (!token && !secret) return
     setErr('')
     try { setState(await call('/admin/state')) } catch (e) { setErr(e.message); setState(null) }
-  }, [secret, call])
+  }, [secret, token, call])
 
-  useEffect(() => { load() }, [load])
+  useEffect(() => { if (tokenReady) load() }, [load, tokenReady])
   useEffect(() => {
-    if (!secret || !state) return
+    if ((!secret && !token) || !state) return
     const t = setInterval(load, 60000) // тримаємо панель свіжою
     return () => clearInterval(t)
-  }, [secret, state, load])
+  }, [secret, token, state, load])
 
   const saveSecret = () => {
     const v = draftSecret.trim()
@@ -90,13 +105,15 @@ export default function TournamentsAdmin() {
     catch (e) { setErr(e.message) } finally { setBusy('') }
   }
 
-  if (!secret) {
+  // Поки читаємо сесію — не блимаємо формою пароля.
+  if (!tokenReady) return <section className="border rounded p-3 text-sm opacity-70">Турніри: перевіряю доступ…</section>
+  if (!token && !secret) {
     return (
       <section className="border rounded p-3">
         <h2 className="font-semibold mb-2">Турніри (поллер)</h2>
         <p className="text-sm opacity-70 mb-2">
-          Введи секрет поллера (той самий, що в закладці релогіну OKX — SESSION_PUSH_SECRET).
-          Зберігається лише в цьому браузері.
+          Зазвичай доступ береться з твого логіну в адмінці автоматично. Якщо цього не сталося —
+          введи секрет поллера (той самий, що в закладці релогіну OKX). Зберігається лише в цьому браузері.
         </p>
         <div className="flex gap-2">
           <input type="password" className="border rounded px-2 py-1 flex-1" placeholder="секрет поллера"
@@ -126,7 +143,7 @@ export default function TournamentsAdmin() {
             </span>
           )}
           <button className="border rounded px-2 py-0.5" onClick={load}>Оновити</button>
-          <button className="border rounded px-2 py-0.5 opacity-70" onClick={forgetSecret}>Вийти</button>
+          {!token && secret && <button className="border rounded px-2 py-0.5 opacity-70" onClick={forgetSecret}>Забути секрет</button>}
         </div>
       </div>
 
