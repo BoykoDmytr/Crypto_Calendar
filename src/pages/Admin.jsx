@@ -11,6 +11,7 @@ import EventForm from '../components/EventForm';
 import { formatQuantity as formatTokenQuantity } from '../hooks/useTokenPrice';
 import Toast from '../components/Toast';
 import CreatorCampaignsAdmin from '../components/CreatorCampaignsAdmin';
+import TournamentsAdmin from '../components/TournamentsAdmin';
 import { extractCoinEntries, coinEntriesEqual } from '../utils/coins';
 import {
   approvePendingEvent,
@@ -999,6 +1000,9 @@ const payload = {
             </button>
           </div>
         </div>
+
+        {/* Турніри OKX — керування поллером (каданси, комса, приз, показ на сайті) */}
+        <TournamentsAdmin />
 
        {/* Автоматичні заявки */}
         <section>
