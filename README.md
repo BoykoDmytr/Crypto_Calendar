@@ -179,4 +179,4 @@ PR-и вітаються. Будь ласка:
 - Owner: [@romasya06](https://t.me/romasya06)
 - Dev: [@BoychikTheBest](https://t.me/BoychikTheBest)
 
-<!-- deploy-check: 2026-08-29 -->
+<!-- deploy-check: 2026-08-28T22:24Z -->
