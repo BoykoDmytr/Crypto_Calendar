@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { fetchCreatorCampaigns } from '../lib/creatorsApi'
 import ExchangeIcon, { exchangeMeta } from '../components/ExchangeIcon'
-import RewardPrice from '../components/RewardPrice'
+import RewardBlock from '../components/RewardBlock'
 
 // Прихована вкладка /creators: креатор-кампанії бірж. Мінімум слів, максимум суті.
 
@@ -49,39 +49,52 @@ function CampaignCard({ c }) {
   const srcLabel = SOURCE_LABEL[c.track_source] || ''
 
   return (
-    <article className="card p-5 flex flex-col gap-3 border-l-4" style={{ borderLeftColor: meta.color }}>
-      <div className="flex items-center gap-2 flex-wrap">
+    <article
+      className="card relative overflow-hidden p-5 flex flex-col gap-3 border-l-4"
+      style={{ borderLeftColor: meta.color }}
+    >
+      {/* NEW живе на банері зліва зверху: не займає місця в рядку заголовка */}
+      {isNew(c) && (
+        <span
+          className="absolute left-0 top-0 z-10 text-[9px] font-bold leading-none tracking-widest text-white px-1.5 py-1 rounded-br-lg"
+          style={{ background: meta.color }}
+        >
+          NEW
+        </span>
+      )}
+
+      <div className="flex items-center gap-2 flex-wrap min-h-[24px]">
         <ExchangeIcon exchange={c.exchange} size={22} />
-        <span className="font-semibold">{meta.label}</span>
-        {c.platform && (
-          <span className="text-xs px-2 py-0.5 rounded-full border border-gray-300 dark:border-gray-700 text-gray-500 dark:text-gray-400">
-            {c.platform}
-          </span>
-        )}
+        <span className="font-semibold" title={c.platform || meta.label}>{meta.label}</span>
         {classesOf(c).map((k) => {
           const t = CLASS_TAG[k] || CLASS_TAG.unclear
           return (
-            <span key={k} className={`text-xs px-2 py-0.5 rounded-full border ${t.cls}`}>{t.text}</span>
+            <span key={k} className={`text-xs px-2 py-0.5 rounded-full border whitespace-nowrap ${t.cls}`}>{t.text}</span>
           )
         })}
-        {isNew(c) && (
-          <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-brand-500 text-white tracking-wide">NEW</span>
-        )}
-        {left && (
+        {left ? (
           <span
-            className={`ml-auto text-xs font-medium px-2 py-0.5 rounded-full ${
+            className={`ml-auto text-xs font-medium px-2 py-0.5 rounded-full whitespace-nowrap ${
               left.over ? 'bg-gray-500/15 text-gray-400' : left.urgent ? 'bg-red-500/15 text-red-500' : 'bg-brand-500/15 text-brand-500'
             }`}
             title={c.ends_at ? `до ${fmtDate(c.ends_at)} (Київ)` : ''}
           >
             {left.over ? 'завершено' : `⏳ ${left.text}`}
           </span>
+        ) : (
+          // Порожнє місце читалось як «забули дату». Пишемо прямо: дедлайну немає.
+          <span
+            className="ml-auto text-xs font-medium px-2 py-0.5 rounded-full whitespace-nowrap bg-gray-500/10 text-gray-400"
+            title="Біржа не оголошувала дату завершення — перевірено за первинним анонсом"
+          >
+            без дедлайну
+          </span>
         )}
       </div>
 
-      <div>
-        <h3 className="font-semibold text-lg leading-snug">{c.title}</h3>
-        {c.subtitle && <p className="text-sm text-gray-500 dark:text-gray-400 mt-0.5">{c.subtitle}</p>}
+      <div className="min-w-0">
+        <h3 className="font-semibold text-lg leading-snug break-words">{c.title}</h3>
+        {c.subtitle && <p className="text-sm text-gray-500 dark:text-gray-400 mt-0.5 break-words">{c.subtitle}</p>}
       </div>
 
       {steps.length > 0 && (
@@ -94,7 +107,7 @@ function CampaignCard({ c }) {
               >
                 {i + 1}
               </span>
-              <span>{s}</span>
+              <span className="min-w-0 break-words">{s}</span>
             </li>
           ))}
         </ol>
@@ -116,45 +129,37 @@ function CampaignCard({ c }) {
         </div>
       )}
 
-      {/* нагорода: тіри списком, ціна токена — по ховеру */}
-      <div className="text-sm">
-        <span className="font-medium"><RewardPrice text={c.reward || 'не вказано'} /></span>
-        {c.slots != null && (
-          <span className="ml-2 inline-flex items-center text-xs font-bold px-2 py-0.5 rounded-md bg-brand-600 text-white">
-            {c.slots.toLocaleString('uk-UA')} місць
-          </span>
-        )}
-        {tiers.length > 0 && (
-          <ul className="mt-1.5 space-y-0.5 text-[13px] text-gray-600 dark:text-gray-300">
-            {tiers.map((t, i) => (
-              <li key={i} className="pl-2 border-l-2 border-gray-200 dark:border-gray-700">{t}</li>
-            ))}
-          </ul>
-        )}
-      </div>
+      {/* нагорода: окремі рядки + курс окремим рядком унизу (без ховера) */}
+      <RewardBlock reward={c.reward} tiers={tiers} slots={c.slots} accent={meta.color} />
 
       {hasStats && (
-        <div className="flex items-center gap-4 text-sm rounded-xl px-3 py-2 bg-gray-50 dark:bg-gray-800/60 flex-wrap">
-          <span title={`Пости ${srcLabel}, що відповідають умовам`}>
-            📝 <b>{c.posts_observed ?? 0}</b> постів {srcLabel}
-          </span>
-          <span title={`Унікальні автори ${srcLabel}`}>
-            👥 <b>{c.unique_authors ?? 0}</b> авторів {srcLabel}
-          </span>
-          {c.authors_today != null && c.authors_today > 0 && (
-            <span className="text-emerald-500" title="Нові автори з 03:00 за Києвом">
-              +{c.authors_today} сьогодні
+        <div className="flex items-start justify-between gap-3 text-sm rounded-xl px-3 py-2 bg-gray-50 dark:bg-gray-800/60">
+          <div className="flex flex-wrap gap-x-4 gap-y-1 min-w-0">
+            <span className="whitespace-nowrap" title={`Пости ${srcLabel}, що відповідають умовам`}>
+              📝 <b>{c.posts_observed ?? 0}</b> постів {srcLabel}
             </span>
-          )}
+            <span className="whitespace-nowrap" title={`Унікальні автори ${srcLabel}`}>
+              👥 <b>{c.unique_authors ?? 0}</b> авторів {srcLabel}
+            </span>
+            {c.authors_today != null && c.authors_today > 0 && (
+              <span className="text-emerald-500 whitespace-nowrap" title="Нові автори з 03:00 за Києвом">
+                +{c.authors_today} сьогодні
+              </span>
+            )}
+          </div>
           {c.slots != null && c.unique_authors != null && (
-            <span className="ml-auto text-xs text-gray-500">
+            <span className="shrink-0 text-xs text-gray-500 whitespace-nowrap pt-0.5">
               ~{Math.min(100, Math.round((c.unique_authors / c.slots) * 100))}% зайнято
             </span>
           )}
         </div>
       )}
 
-      <div className="flex items-center gap-3 mt-auto pt-1">
+      {c.track_note && (
+        <p className="text-[11px] leading-snug text-gray-500 dark:text-gray-400">ⓘ {c.track_note}</p>
+      )}
+
+      <div className="flex items-center flex-wrap gap-x-3 gap-y-2 mt-auto pt-1">
         {c.url && (
           <a href={c.url} target="_blank" rel="noreferrer" className="btn text-sm !py-1.5">
             Взяти участь →
