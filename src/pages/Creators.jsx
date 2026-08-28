@@ -194,13 +194,30 @@ export default function Creators() {
 
   const exchanges = useMemo(() => [...new Set((rows || []).map((r) => r.exchange))].sort(), [rows])
 
-  const visible = useMemo(
-    () =>
-      (rows || [])
-        .filter((r) => exchange === 'all' || r.exchange === exchange)
-        .filter((r) => kind === 'all' || classesOf(r).includes(kind)),
-    [rows, exchange, kind]
-  )
+  // Завершені йдуть ВНИЗ окремою секцією — як «Актуальні/Завершені» на /live.
+  // Бек віддає впорядковано за ends_at asc, тому без цього поділу першими на
+  // сторінці опинялись саме мертві кампанії (у них дата найменша).
+  const { active, done } = useMemo(() => {
+    const now = Date.now()
+    const list = (rows || [])
+      .filter((r) => exchange === 'all' || r.exchange === exchange)
+      .filter((r) => kind === 'all' || classesOf(r).includes(kind))
+    const isDone = (r) => r.ends_at && Date.parse(r.ends_at) <= now
+    return {
+      // спершу ті, що от-от завершаться; безстрокові — в кінець живих
+      active: list
+        .filter((r) => !isDone(r))
+        .sort((a, b) => {
+          if (!a.ends_at && !b.ends_at) return 0
+          if (!a.ends_at) return 1
+          if (!b.ends_at) return -1
+          return Date.parse(a.ends_at) - Date.parse(b.ends_at)
+        }),
+      // серед завершених зверху найсвіжіші
+      done: list.filter(isDone).sort((a, b) => Date.parse(b.ends_at) - Date.parse(a.ends_at)),
+    }
+  }, [rows, exchange, kind])
+  const visible = active.length + done.length
 
   const chip = (active) =>
     `px-3 py-1.5 rounded-full text-sm font-medium border transition inline-flex items-center gap-1.5 ${
@@ -256,15 +273,34 @@ export default function Creators() {
 
       {error && <div className="card p-4 text-red-500 text-sm">Не вдалося завантажити: {error}</div>}
       {!rows && !error && <div className="text-gray-500 text-sm">Завантаження…</div>}
-      {rows && !visible.length && (
+      {rows && !visible && (
         <div className="card p-8 text-center text-gray-500">Нічого не знайдено за цим фільтром.</div>
       )}
 
       <div className="grid gap-4 sm:grid-cols-2">
-        {visible.map((c) => (
+        {active.map((c) => (
           <CampaignCard key={c.id} c={c} />
         ))}
       </div>
+
+      {done.length > 0 && (
+        <>
+          <div className="flex items-center gap-3 mt-8 mb-4">
+            <h2 className="text-sm font-semibold uppercase tracking-wider text-gray-400 dark:text-gray-500">
+              Завершені · {done.length}
+            </h2>
+            <span className="h-px flex-1 bg-gray-200 dark:bg-gray-800" />
+            <span className="text-[11px] text-gray-400 dark:text-gray-500">
+              зникають автоматично через 30 днів
+            </span>
+          </div>
+          <div className="grid gap-4 sm:grid-cols-2 opacity-60 hover:opacity-100 transition-opacity">
+            {done.map((c) => (
+              <CampaignCard key={c.id} c={c} />
+            ))}
+          </div>
+        </>
+      )}
     </div>
   )
 }
