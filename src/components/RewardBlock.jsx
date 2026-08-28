@@ -13,13 +13,16 @@ const TTL = 60_000
 const cache = new Map() // SYMBOL -> { price, at }
 const inflight = new Map() // SYMBOL -> Promise
 
-// Джерела ціни — усі три віддають CORS для браузера. Питаємо паралельно й
-// беремо перше валідне за пріоритетом: одна повільна біржа не тримає рядок.
+// Джерела ціни. Питаємо паралельно й беремо перше валідне за пріоритетом —
+// одна повільна біржа не тримає рядок.
+// MEXC тут НЕМАЄ навмисно: заміряно з живого домену — api.mexc.com не віддає
+// CORS для cryptoeventscalendar.com навіть на BTCUSDT, тобто це гарантовано
+// провалений запит і червоний рядок у консолі на кожен символ.
+// Binance CORS віддає, але тільки на успіх: для тікера, якого він не лістить,
+// відповідь 400 приходить без заголовка — звідси Gate як другий обов'язковий.
 async function loadPrice(symbol) {
   const jobs = [
     fetch(`https://api.binance.com/api/v3/ticker/price?symbol=${symbol}USDT`, { signal: AbortSignal.timeout(6000) })
-      .then((r) => r.json()).then((j) => (j && j.price ? Number(j.price) : null)),
-    fetch(`https://api.mexc.com/api/v3/ticker/price?symbol=${symbol}USDT`, { signal: AbortSignal.timeout(6000) })
       .then((r) => r.json()).then((j) => (j && j.price ? Number(j.price) : null)),
     fetch(`https://api.gateio.ws/api/v4/spot/tickers?currency_pair=${symbol}_USDT`, { signal: AbortSignal.timeout(6000) })
       .then((r) => r.json()).then((j) => (Array.isArray(j) && j[0] && j[0].last ? Number(j[0].last) : null)),
