@@ -178,3 +178,5 @@ PR-и вітаються. Будь ласка:
 - Telegram канал: [@cryptohornettg](https://t.me/cryptohornettg)
 - Owner: [@romasya06](https://t.me/romasya06)
 - Dev: [@BoychikTheBest](https://t.me/BoychikTheBest)
+
+<!-- deploy-check: 2026-08-29 -->
