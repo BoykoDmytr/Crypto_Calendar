@@ -44,8 +44,9 @@ const fmtDate = (iso) =>
 
 const isNew = (c) => c.created_at && Date.now() - Date.parse(c.created_at) < 24 * 3600e3
 
-// «Гаряча» = за останню годину зʼявився хоча б один допис. Такі кампанії
-// цікаві просто зараз, тому вони йдуть першими (див. сортування нижче).
+// «Гаряча» = за останню годину зʼявився хоча б один допис. Позначку на картці
+// прибрано на прохання власника, але сортування лишилось: кампанія, де дописи
+// йдуть просто зараз, корисніша за ту, що просто раніше закінчується.
 const isDone = (c) => Boolean(c.ends_at) && Date.parse(c.ends_at) <= Date.now()
 const isHot = (c) => !isDone(c) && Number(c.posts_last_60_min || 0) > 0
 
@@ -86,52 +87,44 @@ function CampaignCard({ c }) {
         </span>
       )}
 
-      <div className="flex items-center gap-2 flex-wrap min-h-[24px]">
-        <ExchangeIcon exchange={c.exchange} size={22} />
-        <span className="font-semibold c-strong" title={c.platform || meta.label}>{meta.label}</span>
+      {/* Один рядок: біржа → теги нагороди → таймер праворуч. Компактні
+          відступи навмисне — щоб таймер вміщався поруч, а не зривався на
+          другий рядок. */}
+      <div className="flex items-center gap-1.5 flex-wrap min-h-[24px]">
+        <ExchangeIcon exchange={c.exchange} size={20} tile />
+        <span className="font-semibold c-strong mr-0.5" title={c.platform || meta.label}>{meta.label}</span>
         {classesOf(c).map((k) => {
           const t = CLASS_TAG[k] || CLASS_TAG.unclear
           return (
             <span
               key={k}
-              className={`text-xs px-2 py-0.5 rounded-full border whitespace-nowrap inline-flex items-center gap-1 ${t.cls}`}
+              className={`text-[11px] px-1.5 py-0.5 rounded-full border whitespace-nowrap inline-flex items-center gap-1 ${t.cls}`}
             >
-              <Icon name={t.icon} size={12} />
+              <Icon name={t.icon} size={11} />
               {t.text}
             </span>
           )
         })}
 
-        <span className="ml-auto inline-flex items-center gap-1.5">
-          {isHot(c) && (
-            <span
-              className="text-[11px] font-semibold px-1.5 py-0.5 rounded-full bg-orange-500/15 text-orange-500 inline-flex items-center gap-1"
-              title="Дописи зʼявляються просто зараз"
-            >
-              <Icon name="flame" size={11} />
-              гаряче
-            </span>
-          )}
-          {left ? (
-            <span
-              className={`text-xs font-medium px-2 py-0.5 rounded-full whitespace-nowrap inline-flex items-center gap-1 ${
-                left.over ? 'bg-gray-500/15 c-faint' : left.urgent ? 'bg-red-500/15 text-red-500' : 'bg-brand-500/15 text-brand-500'
-              }`}
-              title={c.ends_at ? `до ${fmtDate(c.ends_at)} (Київ)` : ''}
-            >
-              {!left.over && <Icon name="clock" size={11} />}
-              {left.over ? 'завершено' : left.text}
-            </span>
-          ) : (
-            // Порожнє місце читалось як «забули дату». Пишемо прямо.
-            <span
-              className="text-xs font-medium px-2 py-0.5 rounded-full whitespace-nowrap bg-gray-500/10 c-faint"
-              title="Біржа не оголошувала дату завершення — перевірено за первинним анонсом"
-            >
-              без дедлайну
-            </span>
-          )}
-        </span>
+        {left ? (
+          <span
+            className={`ml-auto text-[11px] font-medium px-1.5 py-0.5 rounded-full whitespace-nowrap inline-flex items-center gap-1 ${
+              left.over ? 'bg-gray-500/15 c-faint' : left.urgent ? 'bg-red-500/15 text-red-500' : 'bg-brand-500/15 text-brand-500'
+            }`}
+            title={c.ends_at ? `до ${fmtDate(c.ends_at)} (Київ)` : ''}
+          >
+            {!left.over && <Icon name="clock" size={11} />}
+            {left.over ? 'завершено' : left.text}
+          </span>
+        ) : (
+          // Порожнє місце читалось як «забули дату». Пишемо прямо.
+          <span
+            className="ml-auto text-[11px] font-medium px-1.5 py-0.5 rounded-full whitespace-nowrap bg-gray-500/10 c-faint"
+            title="Біржа не оголошувала дату завершення — перевірено за первинним анонсом"
+          >
+            без дедлайну
+          </span>
+        )}
       </div>
 
       {/* Підзаголовок навмисно НЕ показуємо: ШІ переказував у ньому те саме,
@@ -383,7 +376,7 @@ export default function Creators() {
               className={`px-3 py-1.5 rounded-full text-sm font-medium transition inline-flex items-center gap-1.5 ${on ? 'border' : 'c-chip'}`}
               style={on ? { background: meta.color, borderColor: meta.color, color: readableOn(meta.color) } : undefined}
             >
-              <ExchangeIcon exchange={ex} size={16} />
+              <ExchangeIcon exchange={ex} size={16} tile />
               {meta.label} · {n}
             </button>
           )
