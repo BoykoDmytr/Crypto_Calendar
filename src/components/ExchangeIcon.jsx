@@ -2,6 +2,11 @@ import { useState } from 'react'
 
 // Іконка біржі: ЛОКАЛЬНИЙ файл із /public/exchanges + фолбек-коло з літерою.
 //
+// БЕЗ loading="lazy": заміряно на живій сторінці — та сама картинка без
+// атрибута вантажиться (128px), з атрибутом не вантажиться НІКОЛИ. Для іконок
+// 16-22px ліниве завантаження і не потрібне: вісім файлів по кілька КБ, які
+// браузер кешує після першого показу.
+//
 // Чому локально, а не через favicon-сервіс Google: заміряно на живій сторінці —
 // із 21 запиту до google.com/s2/favicons провалилось 12. Сервіс ріже масові
 // звернення, тому частина бірж показувала логотип, а частина — літеру-заглушку,
@@ -52,7 +57,6 @@ export default function ExchangeIcon({ exchange, size = 20, className = '', tile
       className="rounded-[3px]"
       style={{ width: size, height: size, display: 'block' }}
       onError={() => setFailed(true)}
-      loading="lazy"
     />
   )
 
