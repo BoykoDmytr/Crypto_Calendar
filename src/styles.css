@@ -900,3 +900,45 @@ html.dark .admin-page .card .chips > *:first-child {
   align-self: center;
   margin-left: auto;
 }
+/* ─── /creators: та сама мова дизайну, що й на решті сайту ─────────────────
+   Сторінка жила на хардкоді gray-400/dark:gray-500 і поруч із /live виглядала
+   «іншим сайтом». Тепер кольори беруться з тих самих CSS-змінних теми, тож
+   світла/темна і будь-яка майбутня правка палітри підхоплюються самі. */
+.c-muted  { color: color-mix(in oklab, var(--text) 64%, transparent); }
+.c-faint  { color: color-mix(in oklab, var(--text) 46%, transparent); }
+.c-strong { color: color-mix(in oklab, var(--text) 96%, transparent); }
+
+.c-panel {
+  background: color-mix(in oklab, var(--text) 4%, transparent);
+  border: 1px solid color-mix(in oklab, var(--border) 70%, transparent);
+}
+.c-rule { background: color-mix(in oklab, var(--border) 90%, transparent); }
+
+.c-chip {
+  border: 1px solid var(--border);
+  color: color-mix(in oklab, var(--text) 74%, transparent);
+  background: color-mix(in oklab, var(--card) 55%, transparent);
+}
+.c-chip:hover { border-color: color-mix(in oklab, var(--brand) 55%, transparent); }
+
+/* Смужка заповнення місць */
+.c-bar { background: color-mix(in oklab, var(--text) 10%, transparent); }
+
+/* Скелетони замість тексту «Завантаження…» */
+.c-skeleton {
+  background: linear-gradient(
+    90deg,
+    color-mix(in oklab, var(--text) 6%, transparent) 25%,
+    color-mix(in oklab, var(--text) 12%, transparent) 37%,
+    color-mix(in oklab, var(--text) 6%, transparent) 63%
+  );
+  background-size: 400% 100%;
+  animation: c-shimmer 1.4s ease-in-out infinite;
+}
+@keyframes c-shimmer {
+  0%   { background-position: 100% 0; }
+  100% { background-position: 0 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .c-skeleton { animation: none; }
+}

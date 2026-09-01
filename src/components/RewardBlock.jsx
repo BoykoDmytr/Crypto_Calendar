@@ -70,7 +70,12 @@ export default function RewardBlock({ reward, tiers, slots, accent = '#64748b' }
   const [open, setOpen] = useState(false)
 
   const lines = Array.isArray(tiers) && tiers.length ? tiers : splitReward(reward)
-  const shown = open ? lines : lines.slice(0, VISIBLE)
+  // Головний рядок беремо з `reward` (там біржа пише сумарну цифру), а тіри
+  // лишаються деталями. Якщо reward порожній — головним стає перший тір.
+  const headlineRaw = (reward && splitReward(reward)[0]) || lines[0] || ''
+  const headline = headlineRaw
+  const detail = Array.isArray(tiers) && tiers.length && reward ? lines : lines.slice(1)
+  const rest = open ? detail : detail.slice(0, VISIBLE)
 
   // Ціну рахуємо для сум із УСЬОГО тексту нагороди: і за пост, і за пул.
   const amounts = parseAmounts([reward, ...(Array.isArray(tiers) ? tiers : [])].join(' ; '))
@@ -82,14 +87,12 @@ export default function RewardBlock({ reward, tiers, slots, accent = '#64748b' }
   // коли відповідь біржі приходить через секунду після рендера.
   const priceRow = ready ? priced : amounts.map((a) => ({ ...a, usd: null }))
 
-  if (!lines.length) return null
+  if (!headline) return null
 
   return (
-    <section className="rounded-xl border border-gray-200 dark:border-gray-800 bg-gray-50/60 dark:bg-gray-800/30 px-3 py-2.5">
+    <section className="rounded-xl c-panel px-3 py-2.5">
       <div className="flex items-center gap-2 mb-1.5">
-        <span className="text-[10px] font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">
-          Нагорода
-        </span>
+        <span className="text-[10px] font-semibold uppercase tracking-wider c-faint">Нагорода</span>
         {slots != null && (
           <span className="text-[11px] font-bold px-1.5 py-0.5 rounded bg-brand-600 text-white">
             {slots.toLocaleString('uk-UA')} місць
@@ -97,31 +100,38 @@ export default function RewardBlock({ reward, tiers, slots, accent = '#64748b' }
         )}
       </div>
 
-      <ul className="space-y-1 text-[13px] leading-snug">
-        {shown.map((line, i) => (
-          <li key={i} className="flex gap-2">
-            <span className="mt-[6px] w-1 h-1 rounded-full shrink-0" style={{ background: accent }} />
-            <span className="min-w-0 break-words">{line}</span>
-          </li>
-        ))}
-      </ul>
+      {/* ІЄРАРХІЯ: перший рядок — головна цифра, за неї має чіплятись око.
+          Решта деталей дрібніше й приглушено. Раніше всі рядки мали однакову
+          вагу, і «$13 000» губилось серед умов. */}
+      <p className="text-[15px] font-semibold leading-snug break-words c-strong">{headline}</p>
 
-      {lines.length > VISIBLE && (
+      {rest.length > 0 && (
+        <ul className="mt-1.5 space-y-1 text-[13px] leading-snug c-muted">
+          {rest.map((line, i) => (
+            <li key={i} className="flex gap-2">
+              <span className="mt-[6px] w-1 h-1 rounded-full shrink-0" style={{ background: accent }} />
+              <span className="min-w-0 break-words">{line}</span>
+            </li>
+          ))}
+        </ul>
+      )}
+
+      {detail.length > VISIBLE && (
         <button
           type="button"
           onClick={() => setOpen((v) => !v)}
           className="mt-1.5 text-[12px] font-medium text-brand-500 hover:underline"
         >
-          {open ? 'згорнути' : `ще ${lines.length - VISIBLE} ▾`}
+          {open ? 'згорнути' : `ще ${detail.length - VISIBLE} ▾`}
         </button>
       )}
 
       {priceRow.length > 0 && (
-        <div className="mt-2 pt-2 border-t border-dashed border-gray-200 dark:border-gray-700 flex flex-wrap gap-x-4 gap-y-1 text-[13px]">
+        <div className="mt-2 pt-2 border-t border-dashed flex flex-wrap gap-x-4 gap-y-1 text-[13px]" style={{ borderColor: 'var(--border)' }}>
           {priceRow.map((a) => (
             <span key={`${a.symbol}-${a.amount}`} className="whitespace-nowrap">
               <span className="font-semibold">{a.label}</span>
-              <span className="ml-1.5 text-gray-500 dark:text-gray-400">≈ {a.usd == null ? '…' : formatUsd(a.usd)}</span>
+              <span className="ml-1.5 c-muted">≈ {a.usd == null ? '…' : formatUsd(a.usd)}</span>
             </span>
           ))}
         </div>
