@@ -134,12 +134,10 @@ function CampaignCard({ c }) {
         </span>
       </div>
 
-      <div className="min-w-0">
-        <h3 className="font-semibold text-lg leading-snug break-words c-strong">{c.title}</h3>
-        {/* Підзаголовок обрізаємо двома рядками: інакше одна картка з довгим
-            описом розтягує весь ряд сітки. */}
-        {c.subtitle && <p className="text-sm c-muted mt-1 break-words line-clamp-2">{c.subtitle}</p>}
-      </div>
+      {/* Підзаголовок навмисно НЕ показуємо: ШІ переказував у ньому те саме,
+          що вже є в заголовку, кроках і блоці нагороди. Дані в базі лишились —
+          якщо колись знадобиться, повернути можна одним рядком. */}
+      <h3 className="font-semibold text-lg leading-snug break-words c-strong min-w-0">{c.title}</h3>
 
       {steps.length > 0 && (
         <div>
