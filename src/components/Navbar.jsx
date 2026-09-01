@@ -60,6 +60,13 @@ export default function Navbar() {
               >
                 Live
               </Link>
+              <Link
+                className={linkClasses(is('/creators'))}
+                to="/creators"
+                aria-current={is('/creators') ? 'page' : undefined}
+              >
+                Креатори
+              </Link>
               {/* Клейми переїхали у приховану сторінку /live (вкладка всередині) */}
             </nav>
           </div>
