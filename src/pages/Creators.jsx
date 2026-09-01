@@ -50,15 +50,15 @@ function CampaignCard({ c }) {
 
   return (
     <article
-      className="card relative overflow-hidden p-5 flex flex-col gap-3 border-l-4"
+      className="card relative overflow-hidden p-5 flex flex-col gap-3 border-l-4 transition-shadow duration-200 hover:shadow-lg dark:hover:shadow-black/40"
       style={{ borderLeftColor: meta.color }}
     >
-      {/* NEW живе на банері зліва зверху: не займає місця в рядку заголовка */}
+      {/* NEW — «язичок» з верхнього краю. Свідомо НЕ в куті: банер у куті
+          обтікав border-radius картки й виглядав зламаним (скарга від живого
+          глядача). Один колір для всіх бірж — жовтий на бренд-кольорі Gate
+          зливався, а різнокольорові бейджі читались як хаос. */}
       {isNew(c) && (
-        <span
-          className="absolute left-0 top-0 z-10 text-[9px] font-bold leading-none tracking-widest text-white px-1.5 py-1 rounded-br-lg"
-          style={{ background: meta.color }}
-        >
+        <span className="absolute top-0 left-4 z-10 px-2 pt-[3px] pb-[4px] text-[9px] font-bold leading-none tracking-widest text-black bg-amber-400 rounded-b-md shadow-sm">
           NEW
         </span>
       )}
@@ -236,11 +236,33 @@ export default function Creators() {
 
   return (
     <div className="max-w-5xl mx-auto px-4 py-8">
-      <header className="mb-5 flex items-baseline gap-3 flex-wrap">
+      {/* Перемикач типу — на рівні заголовка, чіпи бірж — окремим рівним рядком.
+          Раніше ml-auto у flex-wrap кидав перемикач на другий рядок із правим
+          вирівнюванням, і панель фільтрів виглядала розхристаною. */}
+      <header className="mb-4 flex items-center justify-between gap-x-4 gap-y-3 flex-wrap">
         <h1 className="text-2xl font-bold">Пости і стріми за нагороди</h1>
+        <div className="inline-flex rounded-full border border-gray-300 dark:border-gray-700 p-0.5 text-sm shrink-0">
+          {[
+            ['all', 'Все'],
+            ['real', '💵 Кошти'],
+            ['locked', '🎟 Ваучери'],
+          ].map(([k, label]) => (
+            <button
+              key={k}
+              type="button"
+              onClick={() => setKind(k)}
+              className={`px-3 py-1 rounded-full transition whitespace-nowrap ${
+                kind === k
+                  ? 'bg-brand-600 text-white'
+                  : 'text-gray-600 dark:text-gray-300 hover:text-brand-500'
+              }`}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
       </header>
 
-      {/* один компактний ряд: біржі + перемикач типу нагороди */}
       <div className="flex flex-wrap items-center gap-2 mb-6">
         <button type="button" onClick={() => setExchange('all')} className={chip(exchange === 'all')}>
           Всі{rows ? ` · ${rows.length}` : ''}
@@ -255,28 +277,6 @@ export default function Creators() {
             </button>
           )
         })}
-
-        {/* сегментований перемикач: Кошти / Ваучери. Мінімалістичний, тягнеться і на мобілці */}
-        <div className="ml-auto inline-flex rounded-full border border-gray-300 dark:border-gray-700 p-0.5 text-sm">
-          {[
-            ['all', 'Все'],
-            ['real', '💵 Кошти'],
-            ['locked', '🎟 Ваучери'],
-          ].map(([k, label]) => (
-            <button
-              key={k}
-              type="button"
-              onClick={() => setKind(k)}
-              className={`px-3 py-1 rounded-full transition ${
-                kind === k
-                  ? 'bg-brand-600 text-white'
-                  : 'text-gray-600 dark:text-gray-300 hover:text-brand-500'
-              }`}
-            >
-              {label}
-            </button>
-          ))}
-        </div>
       </div>
 
       {error && <div className="card p-4 text-red-500 text-sm">Не вдалося завантажити: {error}</div>}
