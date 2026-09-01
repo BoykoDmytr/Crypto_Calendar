@@ -8,14 +8,14 @@ import { useState } from 'react'
 // і сітка виглядала зламаною. Локальні файли — 16 КБ на всі вісім, нуль
 // зовнішніх запитів, імунітет до блокувальників реклами.
 const EXCHANGES = {
-  binance: { icon: '/exchanges/binance.png', color: '#F0B90B', label: 'Binance' },
-  bybit: { icon: '/exchanges/bybit.png', color: '#F7A600', label: 'Bybit' },
-  okx: { icon: '/exchanges/okx.png', color: '#334155', label: 'OKX' },
-  bitget: { icon: '/exchanges/bitget.png', color: '#00F0FF', label: 'Bitget' },
-  gate: { icon: '/exchanges/gate.png', color: '#2354E6', label: 'Gate' },
-  kucoin: { icon: '/exchanges/kucoin.png', color: '#24AE8F', label: 'KuCoin' },
-  mexc: { icon: '/exchanges/mexc.png', color: '#1972E2', label: 'MEXC' },
-  bingx: { icon: '/exchanges/bingx.png', color: '#2A54FF', label: 'BingX' },
+  binance: { icon: '/brand/binance.png', color: '#F0B90B', label: 'Binance' },
+  bybit: { icon: '/brand/bybit.png', color: '#F7A600', label: 'Bybit' },
+  okx: { icon: '/brand/okx.png', color: '#334155', label: 'OKX' },
+  bitget: { icon: '/brand/bitget.png', color: '#00F0FF', label: 'Bitget' },
+  gate: { icon: '/brand/gate.png', color: '#2354E6', label: 'Gate' },
+  kucoin: { icon: '/brand/kucoin.png', color: '#24AE8F', label: 'KuCoin' },
+  mexc: { icon: '/brand/mexc.png', color: '#1972E2', label: 'MEXC' },
+  bingx: { icon: '/brand/bingx.png', color: '#2A54FF', label: 'BingX' },
 }
 
 export function exchangeMeta(ex) {
