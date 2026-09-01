@@ -141,6 +141,14 @@ function CampaignCard({ c }) {
             <span className="whitespace-nowrap" title={`Унікальні автори ${srcLabel}`}>
               👥 <b>{c.unique_authors ?? 0}</b> авторів {srcLabel}
             </span>
+            {/* Темп: скільки дописів зʼявилось за останню годину. Головне число
+                для рішення «чи варто писати зараз» — воно, а не сумарна купа.
+                На завершених кампаніях ховаємо: там темп завжди нуль. */}
+            {!left?.over && c.posts_last_60_min != null && (
+              <span className="whitespace-nowrap" title="Дописів за останню годину — поточний темп конкуренції">
+                ⚡ <b>{c.posts_last_60_min}</b>/год
+              </span>
+            )}
             {c.authors_today != null && c.authors_today > 0 && (
               <span className="text-emerald-500 whitespace-nowrap" title="Нові автори з 03:00 за Києвом">
                 +{c.authors_today} сьогодні
