@@ -474,6 +474,8 @@ function TierTable({ t, highlightRank, curve }) {
 const REFBACK_FALLBACK_CAP = 20
 function TournamentCard({ t, history, snap, now, rankPoints, onCalc }) {
   const st = state(t, now)
+  const soon = st === 'soon' // турнір заведено заздалегідь і ще не стартував
+  const startsIn = soon ? timeLeft(t.start_at, now) : null
   const v = t.vol || {}
   const total = v.total_volume != null ? Number(v.total_volume) : null
   // Приріст учасників з опівночі Києва (денний снепшот). Показуємо лише коли є база.
@@ -533,11 +535,19 @@ function TournamentCard({ t, history, snap, now, rankPoints, onCalc }) {
             <div className="tl-deltas"><span className="tl-deltas-cap">темп:</span>{deltas.map((w) => <span key={w.key} className="tl-delta"><b>{w.label}</b> +{compact(w.d)}</span>)}</div>
           )}
         </>
+      ) : soon ? (
+        // ДО СТАРТУ обсягу не існує — і це НЕ збій. Раніше тут висіло «очікуємо
+        // перший знімок · поллер збирає дані», що читалось як поломка (турнір
+        // заводиться заздалегідь, тож так могло стояти добу). Кажемо прямо.
+        <div className="tl-vol-wait">
+          старт {endDateLabel(t.start_at) || '—'}{startsIn ? ` · через ${startsIn}` : ''} — обсяг піде з першої угоди
+        </div>
       ) : (
         <div className="tl-vol-wait">очікуємо перший знімок обсягу · поллер збирає дані</div>
       )}
 
-      <Chart points={chartPts} accent={accent} />
+      {/* Порожня рамка графіка до старту лише підсилювала враження поломки. */}
+      {!soon && <Chart points={chartPts} accent={accent} />}
 
       {rankTiered && (
         <div className="tl-threshold">
@@ -569,10 +579,15 @@ function TournamentCard({ t, history, snap, now, rankPoints, onCalc }) {
             <div className="vv na">n/a</div>
           ) : (
             <>
-              <div className="vv">{`${fee.approx || fee.slip != null ? '≈' : ''}$${(fee.per1k + (fee.slip || 0)).toFixed(2)}`}</div>
+              {/* ⚠️ ДО СТАРТУ показуємо ЛИШЕ комсу. Проковзування міряється по
+                  живому стакану, а до старту він тонкий (у CP спред 0.62%, глибина
+                  ~$1.8K → замір давав $16.79/1k). Це чесний вимір НЕ ТОГО моменту:
+                  турнір і існує, щоб зігнати ліквідність. Показувати його як
+                  «вартість» — вводити в оману. */}
+              <div className="vv">{`${!soon && (fee.approx || fee.slip != null) ? '≈' : ''}$${(fee.per1k + (soon ? 0 : fee.slip || 0)).toFixed(2)}`}</div>
               <div className="uu">
                 ${fee.per1k.toFixed(2)} комса{fee.pct != null ? ` (${fmt2.format(fee.pct)}%)` : ''}
-                {fee.slip != null ? ` + $${fee.slip.toFixed(2)} проковз.` : ''}
+                {soon ? ' · проковзування зміряємо на старті' : fee.slip != null ? ` + $${fee.slip.toFixed(2)} проковз.` : ''}
               </div>
               {isDexRef && <RebateSelects reb={reb} />}
             </>
