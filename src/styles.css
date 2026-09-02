@@ -953,3 +953,10 @@ html.dark .admin-page .card .chips > *:first-child {
 @media (prefers-reduced-motion: reduce) {
   .c-skeleton { animation: none; }
 }
+
+/* Підказка краю в горизонтальному ряду фільтрів. З’являється ЛИШЕ з того
+   боку, де реально лишився прихований контент — постійний туман по обох
+   краях (як у .nav-scroll) читається як дефект рендера, а не як підказка. */
+.c-edge { position: absolute; top: 0; bottom: 0; width: 24px; pointer-events: none; }
+.c-edge--l { left: 0; background: linear-gradient(90deg, var(--bg) 0%, transparent 100%); }
+.c-edge--r { right: 0; background: linear-gradient(270deg, var(--bg) 0%, transparent 100%); }

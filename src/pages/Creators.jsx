@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { fetchCreatorCampaigns } from '../lib/creatorsApi'
 import ExchangeIcon, { exchangeMeta } from '../components/ExchangeIcon'
+import FilterScroller from '../components/FilterScroller'
 import RewardBlock from '../components/RewardBlock'
 import Icon from '../components/Icon'
 
@@ -76,7 +77,7 @@ function CampaignCard({ c }) {
 
   return (
     <article
-      className="card group relative overflow-hidden p-5 pl-6 flex flex-col gap-3 transition-[transform,box-shadow] duration-300 ease-out hover:-translate-y-0.5 hover:shadow-xl dark:hover:shadow-black/50"
+      className="card group relative overflow-hidden p-4 pl-5 sm:p-5 sm:pl-6 flex flex-col gap-3 transition-[transform,box-shadow] duration-300 ease-out hover:-translate-y-0.5 hover:shadow-xl dark:hover:shadow-black/50"
     >
       {/* Акцент біржі: градієнт замість пласкої смуги — рівний колірний брусок
           виглядав як службовий маркер, згасання читається як частина картки. */}
@@ -88,7 +89,7 @@ function CampaignCard({ c }) {
       {/* NEW — «язичок» з верхнього краю. Свідомо НЕ в куті: банер у куті
           обтікав border-radius картки й виглядав зламаним. */}
       {isNew(c) && (
-        <span className="absolute top-0 left-4 z-10 px-2 pt-[3px] pb-[4px] text-[9px] font-bold leading-none tracking-widest text-black bg-amber-400 rounded-b-md shadow-sm">
+        <span className="absolute top-0 left-5 sm:left-6 z-10 px-2 pt-[3px] pb-[4px] text-[9px] font-bold leading-none tracking-widest text-black bg-amber-400 rounded-b-md shadow-sm">
           NEW
         </span>
       )}
@@ -96,7 +97,12 @@ function CampaignCard({ c }) {
       {/* Один рядок: біржа → теги нагороди → таймер праворуч. Компактні
           відступи навмисне — щоб таймер вміщався поруч, а не зривався на
           другий рядок. */}
-      <div className="flex items-center gap-1.5 flex-wrap min-h-[24px]">
+      {/* ТАЙМЕР: у flex-wrap рядку ml-auto притискав його до правого краю
+          ДРУГОГО рядка — звідси «таймер сам на лінії, а поруч діра». Тепер
+          біржа+теги переносяться всередині власного блока, а таймер — окрема
+          колонка, що завжди лишається на першій лінії. */}
+      <div className="flex items-start gap-2 min-h-[24px]">
+        <div className="flex items-center gap-1.5 flex-wrap min-w-0 flex-1">
         <ExchangeIcon exchange={c.exchange} size={20} tile />
         <span className="font-semibold c-strong mr-0.5" title={c.platform || meta.label}>{meta.label}</span>
         {classesOf(c).map((k) => {
@@ -111,10 +117,11 @@ function CampaignCard({ c }) {
             </span>
           )
         })}
+        </div>
 
         {left ? (
           <span
-            className={`ml-auto text-[11px] font-medium px-1.5 py-0.5 rounded-full whitespace-nowrap inline-flex items-center gap-1 tabular-nums ${
+            className={`shrink-0 text-[11px] font-medium px-1.5 py-0.5 rounded-full whitespace-nowrap inline-flex items-center gap-1 tabular-nums ${
               left.over ? 'bg-gray-500/15 c-faint' : left.urgent ? 'bg-red-500/15 text-red-500' : 'bg-brand-500/15 text-brand-500'
             }`}
             title={c.ends_at ? `до ${fmtDate(c.ends_at)} (Київ)` : ''}
@@ -125,7 +132,7 @@ function CampaignCard({ c }) {
         ) : (
           // Порожнє місце читалось як «забули дату». Пишемо прямо.
           <span
-            className="ml-auto text-[11px] font-medium px-1.5 py-0.5 rounded-full whitespace-nowrap bg-gray-500/10 c-faint"
+            className="shrink-0 text-[11px] font-medium px-1.5 py-0.5 rounded-full whitespace-nowrap bg-gray-500/10 c-faint"
             title="Біржа не оголошувала дату завершення — перевірено за первинним анонсом"
           >
             без дедлайну
@@ -337,89 +344,88 @@ export default function Creators() {
   }, [rows, exchange, kind])
   const visible = active.length + done.length
 
-  // Рядок контексту під заголовком: скільки всього кампаній, від скількох бірж
-  // і скільки з них рахуються наживо. Без нього сторінка починалась «з нуля» —
-  // відвідувач не розумів масштабу.
-  const summary = useMemo(() => {
-    const all = rows || []
-    return {
-      total: all.length,
-      exchanges: new Set(all.map((r) => r.exchange)).size,
-      tracked: all.filter((r) => r.posts_observed != null).length,
-    }
-  }, [rows])
 
   return (
-    <div className="max-w-5xl mx-auto px-4 py-8">
-      <header className="mb-4 flex items-start justify-between gap-x-4 gap-y-3 flex-wrap">
-        <div className="min-w-0">
-          <h1 className="text-2xl font-bold tracking-tight c-strong">Пости і стріми за нагороди</h1>
-          {rows && (
-            <p className="mt-1 text-[13px] c-faint tabular-nums">
-              {summary.total} кампан{summary.total === 1 ? 'ія' : summary.total < 5 ? 'ії' : 'ій'} ·{' '}
-              {summary.exchanges} бірж{summary.exchanges === 1 ? 'а' : summary.exchanges < 5 ? 'і' : ''}
-              {summary.tracked > 0 && <> · {summary.tracked} з живим лічильником</>}
-            </p>
-          )}
-        </div>
-        <div className="inline-flex rounded-full border p-0.5 text-sm shrink-0 c-chip">
+    <div className="py-5 sm:py-8">
+      <header className="mb-3 sm:mb-4">
+        <h1 className="text-2xl font-bold tracking-tight c-strong">Пости і стріми за нагороди</h1>
+      </header>
+
+      {/* ОДИН липкий ряд фільтрів. Три рішення, кожне з причиною:
+          1) справжній full-bleed тими самими класами, що на /events. Сторінка
+             більше не додає власного контейнера, тож смуга нарешті збігається
+             з краями карток, а не стирчить на 16px з кожного боку;
+          2) БІРЖІ ЙДУТЬ ПЕРШИМИ. Це головний фільтр, і якщо поставити перед
+             ними сегмент типу нагороди, він з’їдає ~280 із 351px мобільної
+             ширини — у стані спокою не видно жодної біржі взагалі;
+          3) тип нагороди — перемикачі БЕЗ кнопки «Все»: повторний клік по
+             активному знімає вибір. Кнопка «Все» стояла впритул до «Всі · 19»,
+             і дві майже однакові сині пігулки читались як одна зламана.
+          Біржі лишаються на .c-chip, а не на сайтовому .chip: у того
+          background/border/color стоять з !important (і окремо в html.dark),
+          вони перебили б інлайновий бренд-колір активної біржі. */}
+      <div className="sticky sticky-filters top-14 z-[5] -mx-3 sm:-mx-4 px-3 sm:px-4 py-2 mb-4">
+        <FilterScroller pad="px-0">
+          <button
+            type="button"
+            onClick={() => setExchange('all')}
+            data-active={exchange === 'all' ? 'true' : undefined}
+            className={`shrink-0 min-h-[40px] px-3 rounded-full text-sm font-medium transition inline-flex items-center gap-1.5 whitespace-nowrap ${
+              exchange === 'all' ? 'bg-brand-600 text-white border border-brand-600' : 'c-chip'
+            }`}
+          >
+            Всі{rows ? ` · ${rows.length}` : ''}
+          </button>
+
+          {exchanges.map((ex) => {
+            const meta = exchangeMeta(ex)
+            const n = (rows || []).filter((r) => r.exchange === ex).length
+            const on = exchange === ex
+            return (
+              <button
+                key={ex}
+                type="button"
+                onClick={() => setExchange(ex)}
+                data-active={on ? 'true' : undefined}
+                // Активний чіп — у бренд-кольорі біржі: сторінка одразу читається
+                // як «біржова», а не як список однакових синіх кнопок.
+                className={`shrink-0 min-h-[40px] px-3 rounded-full text-sm font-medium transition inline-flex items-center gap-1.5 whitespace-nowrap ${on ? 'border' : 'c-chip'}`}
+                style={on ? { background: meta.color, borderColor: meta.color, color: readableOn(meta.color) } : undefined}
+              >
+                <ExchangeIcon exchange={ex} size={16} tile />
+                {meta.label} · {n}
+              </button>
+            )
+          })}
+
+          <span aria-hidden="true" className="shrink-0 h-5 w-px mx-0.5 sm:mx-1 c-rule" />
+
           {[
-            ['all', null, 'Все'],
             ['real', 'cash', 'Кошти'],
             ['locked', 'ticket', 'Ваучери'],
           ].map(([k, icon, label]) => (
             <button
               key={k}
               type="button"
-              onClick={() => setKind(k)}
-              className={`px-3 py-1 rounded-full transition whitespace-nowrap inline-flex items-center gap-1.5 ${
-                kind === k ? 'bg-brand-600 text-white' : 'hover:text-brand-500'
+              // Повторний клік по активному повертає «всі» — тому окремої
+              // кнопки «Все» тут немає.
+              onClick={() => setKind(kind === k ? 'all' : k)}
+              aria-pressed={kind === k}
+              className={`shrink-0 min-h-[40px] px-3 rounded-full text-sm font-medium transition inline-flex items-center gap-1.5 whitespace-nowrap ${
+                kind === k ? 'bg-brand-600 text-white border border-brand-600' : 'c-chip'
               }`}
             >
-              {icon && <Icon name={icon} size={13} />}
+              <Icon name={icon} size={13} />
               {label}
             </button>
           ))}
-        </div>
-      </header>
-
-      {/* Липкий ряд бірж: при 19 картках фільтр інакше лишається далеко вгорі.
-          top-14 — рівно під висотою навбара. */}
-      <div className="sticky top-14 z-[5] -mx-4 px-4 py-2 mb-5 flex flex-wrap items-center gap-2 sticky-filters">
-        <button
-          type="button"
-          onClick={() => setExchange('all')}
-          className={`px-3 py-1.5 rounded-full text-sm font-medium transition inline-flex items-center gap-1.5 ${
-            exchange === 'all' ? 'bg-brand-600 text-white border border-brand-600' : 'c-chip'
-          }`}
-        >
-          Всі{rows ? ` · ${rows.length}` : ''}
-        </button>
-        {exchanges.map((ex) => {
-          const meta = exchangeMeta(ex)
-          const n = (rows || []).filter((r) => r.exchange === ex).length
-          const on = exchange === ex
-          return (
-            <button
-              key={ex}
-              type="button"
-              onClick={() => setExchange(ex)}
-              // Активний чіп — у бренд-кольорі біржі: сторінка одразу читається
-              // як «біржова», а не як список однакових синіх кнопок.
-              className={`px-3 py-1.5 rounded-full text-sm font-medium transition inline-flex items-center gap-1.5 ${on ? 'border' : 'c-chip'}`}
-              style={on ? { background: meta.color, borderColor: meta.color, color: readableOn(meta.color) } : undefined}
-            >
-              <ExchangeIcon exchange={ex} size={16} tile />
-              {meta.label} · {n}
-            </button>
-          )
-        })}
+        </FilterScroller>
       </div>
 
       {error && <div className="card p-4 text-red-500 text-sm">Не вдалося завантажити: {error}</div>}
 
       {!rows && !error && (
-        <div className="grid gap-4 sm:grid-cols-2">
+        <div className="grid gap-4 md:grid-cols-2">
           {[0, 1, 2, 3].map((i) => <CardSkeleton key={i} />)}
         </div>
       )}
@@ -428,7 +434,7 @@ export default function Creators() {
         <div className="card p-8 text-center c-muted">Нічого не знайдено за цим фільтром.</div>
       )}
 
-      <div className="grid gap-4 sm:grid-cols-2">
+      <div className="grid gap-4 md:grid-cols-2">
         {active.map((c) => (
           <CampaignCard key={c.id} c={c} />
         ))}
@@ -443,7 +449,7 @@ export default function Creators() {
             <span className="h-px flex-1 c-rule" />
             <span className="text-[11px] c-faint">зникають автоматично через 30 днів</span>
           </div>
-          <div className="grid gap-4 sm:grid-cols-2 opacity-60 hover:opacity-100 transition-opacity">
+          <div className="grid gap-4 md:grid-cols-2 opacity-60 hover:opacity-100 transition-opacity">
             {done.map((c) => (
               <CampaignCard key={c.id} c={c} />
             ))}
