@@ -76,9 +76,15 @@ function CampaignCard({ c }) {
 
   return (
     <article
-      className="card relative overflow-hidden p-5 flex flex-col gap-3 border-l-4 transition-shadow duration-200 hover:shadow-lg dark:hover:shadow-black/40"
-      style={{ borderLeftColor: meta.color }}
+      className="card group relative overflow-hidden p-5 pl-6 flex flex-col gap-3 transition-[transform,box-shadow] duration-300 ease-out hover:-translate-y-0.5 hover:shadow-xl dark:hover:shadow-black/50"
     >
+      {/* Акцент біржі: градієнт замість пласкої смуги — рівний колірний брусок
+          виглядав як службовий маркер, згасання читається як частина картки. */}
+      <span
+        aria-hidden="true"
+        className="absolute left-0 top-0 bottom-0 w-1"
+        style={{ background: `linear-gradient(180deg, ${meta.color} 0%, ${meta.color}88 45%, ${meta.color}22 100%)` }}
+      />
       {/* NEW — «язичок» з верхнього краю. Свідомо НЕ в куті: банер у куті
           обтікав border-radius картки й виглядав зламаним. */}
       {isNew(c) && (
@@ -108,7 +114,7 @@ function CampaignCard({ c }) {
 
         {left ? (
           <span
-            className={`ml-auto text-[11px] font-medium px-1.5 py-0.5 rounded-full whitespace-nowrap inline-flex items-center gap-1 ${
+            className={`ml-auto text-[11px] font-medium px-1.5 py-0.5 rounded-full whitespace-nowrap inline-flex items-center gap-1 tabular-nums ${
               left.over ? 'bg-gray-500/15 c-faint' : left.urgent ? 'bg-red-500/15 text-red-500' : 'bg-brand-500/15 text-brand-500'
             }`}
             title={c.ends_at ? `до ${fmtDate(c.ends_at)} (Київ)` : ''}
@@ -130,7 +136,7 @@ function CampaignCard({ c }) {
       {/* Підзаголовок навмисно НЕ показуємо: ШІ переказував у ньому те саме,
           що вже є в заголовку, кроках і блоці нагороди. Дані в базі лишились —
           якщо колись знадобиться, повернути можна одним рядком. */}
-      <h3 className="font-semibold text-lg leading-snug break-words c-strong min-w-0">{c.title}</h3>
+      <h3 className="font-semibold text-lg leading-snug tracking-tight break-words c-strong min-w-0">{c.title}</h3>
 
       {steps.length > 0 && (
         <div>
@@ -183,12 +189,12 @@ function CampaignCard({ c }) {
           <div className="flex flex-wrap gap-x-4 gap-y-1 text-sm">
             <span className="whitespace-nowrap inline-flex items-center gap-1.5" title={`Пости ${srcLabel}, що відповідають умовам`}>
               <Icon name="post" className="c-faint" />
-              <b className="c-strong">{c.posts_observed ?? 0}</b>
+              <b className="c-strong tabular-nums">{c.posts_observed ?? 0}</b>
               <span className="c-muted">постів {srcLabel}</span>
             </span>
             <span className="whitespace-nowrap inline-flex items-center gap-1.5" title={`Унікальні автори ${srcLabel}`}>
               <Icon name="users" className="c-faint" />
-              <b className="c-strong">{c.unique_authors ?? 0}</b>
+              <b className="c-strong tabular-nums">{c.unique_authors ?? 0}</b>
               <span className="c-muted">авторів</span>
             </span>
             {/* Темп: головне число для рішення «чи варто писати зараз».
@@ -199,7 +205,7 @@ function CampaignCard({ c }) {
                 title="Дописів за останню годину — поточний темп конкуренції"
               >
                 <Icon name="bolt" />
-                <b>{c.posts_last_60_min}</b>
+                <b className="tabular-nums">{c.posts_last_60_min}</b>
                 <span className={c.posts_last_60_min > 0 ? '' : 'c-muted'}>/год</span>
               </span>
             )}
@@ -217,7 +223,7 @@ function CampaignCard({ c }) {
                 <span className="c-muted">
                   {c.unique_authors} з {c.slots.toLocaleString('uk-UA')} місць
                 </span>
-                <span className="font-semibold c-strong">{pct}%</span>
+                <span className="font-semibold c-strong tabular-nums">{pct}%</span>
               </div>
               <div className="h-1.5 rounded-full overflow-hidden c-bar">
                 <div
@@ -311,11 +317,15 @@ export default function Creators() {
     }
 
     return {
-      // ГАРЯЧІ ЗВЕРХУ: кампанія, де дописи йдуть просто зараз, корисніша за ту,
-      // що просто раніше закінчується. Решта — за дедлайном, як і було.
+      // Порядок живих карток: НОВІ → гарячі → за дедлайном.
+      // NEW перше, бо це те, чого відвідувач ще не бачив; далі кампанії, де
+      // дописи йдуть просто зараз; решта — за найближчим дедлайном.
       active: list
         .filter((r) => !isDone(r))
         .sort((a, b) => {
+          const na = isNew(a), nb = isNew(b)
+          if (na !== nb) return na ? -1 : 1
+          if (na && nb) return Date.parse(b.created_at) - Date.parse(a.created_at)
           const ha = isHot(a), hb = isHot(b)
           if (ha !== hb) return ha ? -1 : 1
           if (ha && hb) return (b.posts_last_60_min - a.posts_last_60_min) || byDeadline(a, b)
@@ -327,10 +337,31 @@ export default function Creators() {
   }, [rows, exchange, kind])
   const visible = active.length + done.length
 
+  // Рядок контексту під заголовком: скільки всього кампаній, від скількох бірж
+  // і скільки з них рахуються наживо. Без нього сторінка починалась «з нуля» —
+  // відвідувач не розумів масштабу.
+  const summary = useMemo(() => {
+    const all = rows || []
+    return {
+      total: all.length,
+      exchanges: new Set(all.map((r) => r.exchange)).size,
+      tracked: all.filter((r) => r.posts_observed != null).length,
+    }
+  }, [rows])
+
   return (
     <div className="max-w-5xl mx-auto px-4 py-8">
-      <header className="mb-4 flex items-center justify-between gap-x-4 gap-y-3 flex-wrap">
-        <h1 className="text-2xl font-bold c-strong">Пости і стріми за нагороди</h1>
+      <header className="mb-4 flex items-start justify-between gap-x-4 gap-y-3 flex-wrap">
+        <div className="min-w-0">
+          <h1 className="text-2xl font-bold tracking-tight c-strong">Пости і стріми за нагороди</h1>
+          {rows && (
+            <p className="mt-1 text-[13px] c-faint tabular-nums">
+              {summary.total} кампан{summary.total === 1 ? 'ія' : summary.total < 5 ? 'ії' : 'ій'} ·{' '}
+              {summary.exchanges} бірж{summary.exchanges === 1 ? 'а' : summary.exchanges < 5 ? 'і' : ''}
+              {summary.tracked > 0 && <> · {summary.tracked} з живим лічильником</>}
+            </p>
+          )}
+        </div>
         <div className="inline-flex rounded-full border p-0.5 text-sm shrink-0 c-chip">
           {[
             ['all', null, 'Все'],
@@ -352,7 +383,9 @@ export default function Creators() {
         </div>
       </header>
 
-      <div className="flex flex-wrap items-center gap-2 mb-6">
+      {/* Липкий ряд бірж: при 19 картках фільтр інакше лишається далеко вгорі.
+          top-14 — рівно під висотою навбара. */}
+      <div className="sticky top-14 z-[5] -mx-4 px-4 py-2 mb-5 flex flex-wrap items-center gap-2 sticky-filters">
         <button
           type="button"
           onClick={() => setExchange('all')}
