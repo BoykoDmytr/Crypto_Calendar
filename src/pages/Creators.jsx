@@ -364,7 +364,7 @@ export default function Creators() {
           Біржі лишаються на .c-chip, а не на сайтовому .chip: у того
           background/border/color стоять з !important (і окремо в html.dark),
           вони перебили б інлайновий бренд-колір активної біржі. */}
-      <div className="sticky sticky-filters top-14 z-[5] -mx-3 sm:-mx-4 px-3 sm:px-4 py-2 mb-4">
+      <div className="sticky sticky-filters top-[64px] z-[5] px-2 py-1.5 mb-4">
         <FilterScroller pad="px-0">
           <button
             type="button"

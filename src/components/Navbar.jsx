@@ -29,8 +29,8 @@ export default function Navbar() {
        {/* Без власного max-w/px: точно такий самий контейнер уже дає App.jsx,
            і вкладений дублікат з’їдав 24px — рівно через них активний
            пункт «Креатори» вилазив за праву межу хедера і зрізався. */}
-       <div className="h-14 flex items-center gap-3 sm:gap-4 justify-between">
-        <Link to="/" className="font-semibold text-lg flex items-center gap-1 shrink-0">
+       <div className="h-14 px-2 sm:px-4 flex items-center gap-3 sm:gap-4 justify-between">
+        <Link to="/" className="font-semibold text-lg hidden sm:flex items-center gap-1 shrink-0">
           <img src="/icon.png" alt="icon" className="w-4 h-4 inline-block" />
         </Link>
         <div className="flex items-center gap-2 sm:gap-3 flex-1 sm:flex-none justify-end min-w-0">

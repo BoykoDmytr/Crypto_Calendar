@@ -473,7 +473,7 @@ export default function Calendar() {
       </section>
 
       {/* --- РЯД ФІЛЬТРІВ + КНОПКА (sticky) --- */}
-      <div className="sticky sticky-filters top-14 z-[5] -mx-3 sm:-mx-4 px-3 sm:px-4 pt-0 pb-0">
+      <div className="sticky sticky-filters top-[64px] z-[5] px-2 py-1.5">
         <FilterScroller>
           <button
             onClick={() => setType('All')}
