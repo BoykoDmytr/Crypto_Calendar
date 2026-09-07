@@ -608,20 +608,6 @@ function TournamentCard({ t, history, snap, now, rankPoints, onCalc }) {
   )
 }
 
-// Текст вікна клейму для завершеної картки: до відкриття / скільки лишилось / вийшло.
-function claimBadge(v, now) {
-  const c = v?.extra?.claim
-  if (!c?.end) return null
-  const end = new Date(c.end).getTime()
-  const start = c.start ? new Date(c.start).getTime() : null
-  const d = (ts) => `${String(new Date(ts).getDate()).padStart(2, '0')}.${String(new Date(ts).getMonth() + 1).padStart(2, '0')}`
-  if (Number.isFinite(end) && end <= now) return { text: `🎁 вікно забору нагороди закрилось ${d(end)}`, urgent: false }
-  if (start && start > now) return { text: `🎁 нагороду можна буде забрати з ${d(start)} до ${d(end)}`, urgent: false }
-  const left = timeLeft(c.end, now)
-  const urgent = end - now <= 3 * 86400000
-  return { text: `🎁 забери нагороду до ${d(end)}${left ? ` · лишилось ${left}` : ''}`, urgent }
-}
-
 function EndedCard({ t, history, feeHist, rankPoints, onCalc }) {
   const [open, setOpen] = useState(false)
   const [myRank, setMyRank] = useState(null)
@@ -646,7 +632,6 @@ function EndedCard({ t, history, feeHist, rankPoints, onCalc }) {
     [rankTiered, v.extra?.tiers, v.extra?.v100, v.extra?.tiersPartial, v.min_rank_volume, rankPoints]
   )
   const poolUsd = t.reward_pool != null && !STABLES.has(String(t.reward_currency).toUpperCase()) && price != null ? Number(t.reward_pool) * price : null
-  const claim = claimBadge(v, Date.now())
   const total = v.total_volume != null ? Number(v.total_volume) : null
   const chartPts = downsample(history, 200) // весь турнір від старту, прорідж. для рендеру
   const tiers = Array.isArray(v.extra?.tiers) ? v.extra.tiers : null
@@ -668,10 +653,6 @@ function EndedCard({ t, history, feeHist, rankPoints, onCalc }) {
             приз {t.reward_pool != null ? `${compact(t.reward_pool)} ${t.reward_currency}` : '—'}{poolUsd != null ? ` (${usd(poolUsd)})` : ''}
             {v.participants != null ? ` · ${fmt.format(v.participants)} уч.` : ''}
           </div>
-          {/* ВІКНО ЗАБОРУ НАГОРОДИ. OKX відкриває клейм за кілька днів ПІСЛЯ кінця
-              і тримає обмежений час (season3: до 18.09). Пропустив — гроші згоріли,
-              тож дедлайн виносимо на видне місце, а в останні 3 дні підсвічуємо. */}
-          {claim && <div className={`tl-claim ${claim.urgent ? 'tl-claim--urgent' : ''}`}>{claim.text}</div>}
         </div>
         <div className="tl-ended-vol">{total != null ? compact(total) : '—'}<small>обсяг</small></div>
         <span className="tl-ended-chev">{open ? '▾' : '▸'}</span>
