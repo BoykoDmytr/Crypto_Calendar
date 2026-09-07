@@ -211,3 +211,7 @@
 
 /* Рефбек недоступний (RWA-акції: комса 0.01%; CEX-турніри) — показуємо факт, а не тумблер */
 .tl-ref-off { opacity: .55; cursor: help; }
+
+/* Вікно забору нагороди у завершеному турнірі — пропущений клейм = втрачені гроші */
+.tl-claim { font-size: 11.5px; font-weight: 600; margin-top: 3px; color: #93c5fd; }
+.tl-claim--urgent { color: #fcd34d; }
