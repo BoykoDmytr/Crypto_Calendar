@@ -8,8 +8,12 @@ function one(v) {
   return Array.isArray(v) ? v[0] || null : v || null
 }
 
-// Активні турніри + поточний обсяг. У DEV показуємо всі (щоб бачити pending до
-// апруву); у проді — лише approved (апрув-гейт: сигнал у TG → кнопка «На сайт»).
+// Турніри + поточний обсяг. НОВИЙ турнір показуємо на /live ОДРАЗУ після виявлення
+// (watch=true), не чекаючи кнопки «На сайт»: кнопка тепер гейтить лише пост у
+// календар. «Скип» ставить watch=false → турнір ховається і з /live.
+// Кейс Arc 16.09: виявлено рівно на старті, але ~годину висів невидимим до апруву.
+// approved.eq.true лишено в OR, щоб жоден уже схвалений турнір не зник, навіть
+// якщо «трекати» колись вимкнули в адмінці.
 export async function fetchTournaments() {
   let q = supaRoma
     .from('tournaments')
@@ -17,7 +21,7 @@ export async function fetchTournaments() {
       'id, venue, market, kind, mechanic, external_id, coin_symbol, coin_icon, title, page_url, reward_pool, reward_currency, fee_per_1k, fee_ui_pct, fee_slip_per_1k, fee_auto, fee_auto_lo, fee_auto_hi, fee_auto_note, fee_auto_at, start_at, end_at, status, approved, config, ' +
         'tournament_volume(total_volume, min_rank_volume, participants, token_price_usd, extra, updated_at)'
     )
-  if (!import.meta.env.DEV) q = q.eq('approved', true)
+  q = q.or('approved.eq.true,watch.eq.true')
   const { data, error } = await q.order('end_at', { ascending: true })
   if (error) throw error
   return (data || []).map((t) => ({ ...t, vol: one(t.tournament_volume) }))
