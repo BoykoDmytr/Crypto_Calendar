@@ -149,21 +149,71 @@ function Chart({ points, accent }) {
 // чи пулу), її ніхто не ребейтить і в жодному дашборді комісій вона не видна. Але
 // вона реальна, і на тонких парах більша за саму комсу (AEON ≈$1,46/1k проти
 // $1,00). Тому: комса — одне число, прослизання — друге, у сумі «вартість за 1K».
+// Турнір НА ВСЮ МЕРЕЖУ (extra.scope.mode='chain', напр. Arc): рахується своп будь-якої
+// монети мережі з базовими (USDC/EURC/USYC). Ставка відома точно (Others<>Group1 =
+// 0,5%), а проковзування — ні: заміри 16.09 дали від +$0,19 до +$15,23 за 1K залежно
+// від монети. Одне число тут було б вигадкою → slipVaries: показуємо нижню межу
+// «від $5.00», а в калькуляторі проковзування не вдаємо нулем. Коли адмін прикріпив
+// монету — поллер міряє проковзування саме на ній, і картка каже, на якій (coin).
 function feeModel(t) {
   const slip = t.fee_slip_per_1k != null ? Number(t.fee_slip_per_1k) : null
+  const chainWide = t.vol?.extra?.scope?.mode === 'chain'
+  const slipVaries = chainWide && slip == null
+  const coin = manualFeeCoin(t)
   if (t.fee_per_1k != null) return { per1k: Number(t.fee_per_1k), label: `$${Number(t.fee_per_1k).toFixed(2)}/1K`, slip: null, manual: true }
   if (t.fee_ui_pct != null) {
     const pct = Number(t.fee_ui_pct)
-    return { per1k: pct * 10, label: `${fmt2.format(pct)}%`, pct, slip }
+    return { per1k: pct * 10, label: `${fmt2.format(pct)}%`, pct, slip, chainWide, slipVaries, coin }
   }
-  if (t.fee_auto != null) return { per1k: Number(t.fee_auto), label: `≈$${Number(t.fee_auto).toFixed(2)}/1K`, approx: true, slip }
-  return { per1k: null, label: 'не задано', slip }
+  if (t.fee_auto != null) return { per1k: Number(t.fee_auto), label: `≈$${Number(t.fee_auto).toFixed(2)}/1K`, approx: true, slip, chainWide, slipVaries, coin }
+  return { per1k: null, label: 'не задано', slip, chainWide, slipVaries, coin }
+}
+
+// Монета, на якій поллер зміряв комсу/проковзування, — лише коли монети турніру
+// прикріпив адмін (extra.tokens з source='manual'). Якщо в списку є монети зі SSR
+// турніру, цифри рахуються по них — там картка лишається як була (без підпису).
+// Яка саме: tournaments.fee_tokens — розклад поллера по монетах ({sym, addr, totalPer1k…});
+// найдешевша з виміряною вартістю — та, чиє проковзування лежить у fee_slip_per_1k. Розбір
+// «крути SYM» з нотатки лишається фолбеком для рядків, записаних до появи fee_tokens.
+function manualFeeCoin(t) {
+  const toks = Array.isArray(t.vol?.extra?.tokens) ? t.vol.extra.tokens : []
+  const manual = toks.filter((x) => x?.source === 'manual' && x.sym)
+  if (!manual.length || manual.length !== toks.length) return null
+  const ft = Array.isArray(t.fee_tokens) ? t.fee_tokens : []
+  let best = null
+  for (const x of ft) {
+    const tot = x?.totalPer1k != null && x.totalPer1k !== '' ? Number(x.totalPer1k) : NaN
+    if (!x?.sym || !Number.isFinite(tot)) continue
+    // лише монета, що справді серед прикріплених (за адресою, інакше за символом)
+    const addr = String(x.addr || '').toLowerCase()
+    if (!manual.some((m) => (addr && String(m.addr || '').toLowerCase() === addr) || m.sym === x.sym)) continue
+    if (!best || tot < best.tot) best = { sym: x.sym, tot }
+  }
+  if (best) return best.sym
+  if (manual.length === 1) return manual[0].sym
+  const m = /крути\s+(\S+)/.exec(t.fee_auto_note || '')
+  return m && manual.some((x) => x.sym === m[1]) ? m[1] : null
+}
+
+// Тексти клітинки «Вартість за 1K»: велике число + один рядок розкладу. Окремою
+// чистою функцією — щоб усі стани (n/a, до старту, вся мережа, ручна монета) було
+// видно в одному місці й можна було прогнати без рендеру.
+function feeCellText(fee, soon) {
+  if (fee.per1k == null) return { na: true, value: 'n/a', line: fee.chainWide ? 'залежить від монети' : null }
+  const base = `$${fee.per1k.toFixed(2)} комса${fee.pct != null ? ` (${fmt2.format(fee.pct)}%)` : ''}`
+  // Вся мережа без заміру: комса — точна, проковзування — невідоме, тож лише «від».
+  // Стоїть ПЕРЕД гілкою «до старту»: без монети проковзування не зміряється й на старті.
+  if (fee.slipVaries) return { value: `від $${fee.per1k.toFixed(2)}`, line: `${base} + проковз. залежить від монети` }
+  return {
+    value: `${!soon && (fee.approx || fee.slip != null) ? '≈' : ''}$${(fee.per1k + (soon ? 0 : fee.slip || 0)).toFixed(2)}`,
+    line: base + (soon ? ' · проковзування зміряємо на старті' : fee.slip != null ? ` + $${fee.slip.toFixed(2)} проковз.${fee.coin ? ` · ${fee.coin}` : ''}` : ''),
+  }
 }
 
 // Рефбек (% від КОМСИ). Стеля — з політики поллера (tournament_volume.extra.refback):
 // OKX з 15.04.2026 обрізає СУМАРНУ реф-ставку до 20% на токенах активного турніру
-// (саме такі монети на наших картках), тож 50% тут були б брехнею. Де рефбеку нема
-// взагалі (RWA-акції: комса 0.01%; CEX-турніри) — тумблер не показуємо.
+// (саме такі монети на наших картках), тож 50% тут були б брехнею. Де політика каже
+// eligible=false (напр. CEX-турніри) — тумблер не показуємо, лише «рефбек: —» з причиною.
 function useRebate(t, enabled) {
   const pol = t?.vol?.extra?.refback || null
   const cap = pol ? Number(pol.maxPct) || 0 : REFBACK_FALLBACK_CAP
@@ -370,17 +420,23 @@ function ProfitPanel({ t, total, curve, rebatePct, onRank, onFullCalc }) {
                 <span>Нагорода</span>
                 <b className={calc.rewardUsd ? 'pos' : ''}>{calc.rewardLabel ? (calc.rewardUsd ? '+' : '') + calc.rewardLabel : '—'}</b>
               </div>
-              <div className="row"><span>Комса ({fee.label})</span><b className="neg">{calc.cost != null ? money(-calc.cost) : 'n/a'}</b></div>
+              <div className="row"><span>Комса{fee.per1k != null ? ` (${fee.label})` : ''}</span><b className="neg">{calc.cost != null ? money(-calc.cost) : 'n/a'}</b></div>
               {calc.slipCost != null && (
                 <div className="row"><span>Проковзування (≈${fee.slip.toFixed(2)}/1K)</span><b className="neg">{money(-calc.slipCost)}</b></div>
+              )}
+              {/* Турнір на всю мережу без заміру: проковзування НЕ нуль, воно просто
+                  невідоме (від ~$0,2 до $15+/1K залежно від монети). Тому рядок
+                  лишаємо, а чистий прибуток прямо підписуємо «до проковзування». */}
+              {fee.slipVaries && (
+                <div className="row"><span>Проковзування</span><b>залежить від монети</b></div>
               )}
               {rebatePct > 0 && (
                 <div className="row"><span>Рефбек ({rebatePct}%)</span><b className="pos">{calc.rebate ? `+${money(calc.rebate)}` : '—'}</b></div>
               )}
               <div className="row row--total">
-                <span>Чистий прибуток</span>
+                <span>Чистий прибуток{fee.slipVaries && calc.net != null ? ' (до проковзування)' : ''}</span>
                 <b className={calc.net == null ? '' : calc.net >= 0 ? 'pos' : 'neg'}>
-                  {calc.net == null ? (fee.per1k == null ? 'задай /fee' : '—') : (calc.net >= 0 ? '+' : '') + money(calc.net)}
+                  {calc.net == null ? (fee.per1k == null ? 'n/a' : '—') : (calc.net >= 0 ? '+' : '') + money(calc.net)}
                 </b>
               </div>
             </div>
@@ -485,6 +541,7 @@ function TournamentCard({ t, history, snap, now, rankPoints, onCalc }) {
   const accent = isDex ? '#8b5cf6' : '#3B82F6'
   const price = rewardPrice(t)
   const fee = feeModel(t)
+  const feeTxt = feeCellText(fee, soon)
   const [myRank, setMyRank] = useState(null) // ранг з блоку прибутку → підсвітка тіру
   // REF-рефбек лише на DEX і лише коли комсу не перебито вручну через /fee.
   const isDexRef = isDex && t.fee_per_1k == null && fee.per1k != null
@@ -575,20 +632,20 @@ function TournamentCard({ t, history, snap, now, rankPoints, onCalc }) {
               <span className="tl-fee-at" title={t.fee_auto_note || 'Останній авто-замір проковзування'}> · {sparkTime(t.fee_auto_at)}</span>
             )}
           </div>
-          {fee.per1k == null ? (
-            <div className="vv na">n/a</div>
+          {feeTxt.na ? (
+            <>
+              <div className="vv na">n/a</div>
+              {feeTxt.line && <div className="uu">{feeTxt.line}</div>}
+            </>
           ) : (
             <>
               {/* ⚠️ ДО СТАРТУ показуємо ЛИШЕ комсу. Проковзування міряється по
                   живому стакану, а до старту він тонкий (у CP спред 0.62%, глибина
                   ~$1.8K → замір давав $16.79/1k). Це чесний вимір НЕ ТОГО моменту:
                   турнір і існує, щоб зігнати ліквідність. Показувати його як
-                  «вартість» — вводити в оману. */}
-              <div className="vv">{`${!soon && (fee.approx || fee.slip != null) ? '≈' : ''}$${(fee.per1k + (soon ? 0 : fee.slip || 0)).toFixed(2)}`}</div>
-              <div className="uu">
-                ${fee.per1k.toFixed(2)} комса{fee.pct != null ? ` (${fmt2.format(fee.pct)}%)` : ''}
-                {soon ? ' · проковзування зміряємо на старті' : fee.slip != null ? ` + $${fee.slip.toFixed(2)} проковз.` : ''}
-              </div>
+                  «вартість» — вводити в оману. Усі стани — у feeCellText. */}
+              <div className="vv">{feeTxt.value}</div>
+              <div className="uu">{feeTxt.line}</div>
               {isDexRef && <RebateSelects reb={reb} />}
             </>
           )}

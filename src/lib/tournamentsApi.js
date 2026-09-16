@@ -18,7 +18,7 @@ export async function fetchTournaments() {
   let q = supaRoma
     .from('tournaments')
     .select(
-      'id, venue, market, kind, mechanic, external_id, coin_symbol, coin_icon, title, page_url, reward_pool, reward_currency, fee_per_1k, fee_ui_pct, fee_slip_per_1k, fee_auto, fee_auto_lo, fee_auto_hi, fee_auto_note, fee_auto_at, start_at, end_at, status, approved, config, ' +
+      'id, venue, market, kind, mechanic, external_id, coin_symbol, coin_icon, title, page_url, reward_pool, reward_currency, fee_per_1k, fee_ui_pct, fee_slip_per_1k, fee_auto, fee_auto_lo, fee_auto_hi, fee_auto_note, fee_auto_at, fee_tokens, start_at, end_at, status, approved, config, ' +
         'tournament_volume(total_volume, min_rank_volume, participants, token_price_usd, extra, updated_at)'
     )
   q = q.or('approved.eq.true,watch.eq.true')
