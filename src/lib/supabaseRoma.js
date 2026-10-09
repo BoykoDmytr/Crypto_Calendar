@@ -1,14 +1,21 @@
 import { createClient } from '@supabase/supabase-js'
 
-// romasya06 Supabase (jtskeszumqapfjhpyevq) — okx_* live-дані для /live.
-// Окремий клієнт: основний VITE_SUPABASE_URL у продакшні може вказувати на
-// іншу базу (календар), а okx_campaigns/okx_volume живуть саме тут.
-// Publishable-ключ безпечний для фронтенду (RLS: тільки SELECT).
+// База живих даних ботів (турніри OKX, клейми) для /live і /claims.
+//
+// 09.10.2026 переїхала з jtskeszumqapfjhpyevq (орг romasya06) на
+// qaiipwbczkzesolhqhbn: стару організацію Supabase заблокував до 16.10 за
+// перевищення egress (5.68 з 5.5 ГБ). Причиною була ця ж сторінка — щохвилинне
+// повне перезавантаження історії у фоновій вкладці; виправлено тим самим
+// комітом. Стара база лишилась архівом корпусу Binance Square, сайт її не читає.
+//
+// Окремий клієнт: основний VITE_SUPABASE_URL вказує на календарну базу.
+// Publishable-ключ безпечний для фронтенду (RLS: тільки SELECT; промки,
+// налаштування й користувачі ботів анонімові не видні — перевірено 09.10).
 const url =
-  import.meta.env.VITE_ROMA_SUPABASE_URL || 'https://jtskeszumqapfjhpyevq.supabase.co'
+  import.meta.env.VITE_ROMA_SUPABASE_URL || 'https://qaiipwbczkzesolhqhbn.supabase.co'
 const key =
   import.meta.env.VITE_ROMA_SUPABASE_ANON_KEY ||
-  'sb_publishable_tMlzL2lli6sjAb1CnBUcwQ_mmL4Cs9Q'
+  'sb_publishable_yXFfL38gEqzRM8Zpmi-rCQ_xaAdoboM'
 
 export const supaRoma = createClient(url, key, {
   // Читання /live анонімне. Але секція «Креатор-кампанії» в /admin логіниться саме

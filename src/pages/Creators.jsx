@@ -64,6 +64,14 @@ function readableOn(hex) {
 function CampaignCard({ c }) {
   const [stepsOpen, setStepsOpen] = useState(false)
   const left = timeLeft(c.ends_at)
+  // Той самий предикат, що ділить сторінку на «живі / Завершені» (ends_at у
+  // минулому), тож картка в секції «Завершені» завжди має фінальний вигляд.
+  // Колектор зупиняється ~за годину після ends_at, але картка показувала
+  // «+N сьогодні» і «Взяти участь» — читалось як «пости досі збираються».
+  const ended = isDone(c)
+  // «Фінальні» лише тоді, коли останній знімок зроблено ПІСЛЯ кінця: якщо збір
+  // упав раніше (402 бази, збій колектора), цифра не фінальна — так і пишемо.
+  const finalStats = ended && c.stats_synced_at && Date.parse(c.stats_synced_at) >= Date.parse(c.ends_at)
   const meta = exchangeMeta(c.exchange)
   const hasStats = c.posts_observed != null
   const steps = Array.isArray(c.steps) ? c.steps : []
@@ -216,7 +224,9 @@ function CampaignCard({ c }) {
                 <span className={c.posts_last_60_min > 0 ? '' : 'c-muted'}>/год</span>
               </span>
             )}
-            {c.authors_today != null && c.authors_today > 0 && (
+            {/* «сьогодні» на завершеній — застигла цифра з останнього дня збору,
+                що видавала себе за сьогоднішню. */}
+            {!ended && c.authors_today != null && c.authors_today > 0 && (
               <span className="text-emerald-500 whitespace-nowrap" title="Нові автори з 03:00 за Києвом">
                 +{c.authors_today} сьогодні
               </span>
@@ -251,13 +261,21 @@ function CampaignCard({ c }) {
       )}
 
       <div className="flex items-center flex-wrap gap-x-3 gap-y-2 mt-auto pt-1">
-        {c.url && (
+        {/* Завершена — не кличемо «взяти участь» у промку, якої вже немає. */}
+        {ended ? (
+          <span className="text-sm font-medium px-3 py-1.5 rounded-xl bg-gray-500/15 c-faint cursor-default select-none">
+            Завершено
+          </span>
+        ) : c.url && (
           <a href={c.url} target="_blank" rel="noreferrer" className="btn text-sm !py-1.5">
             Взяти участь →
           </a>
         )}
         {c.stats_synced_at && (
-          <span className="text-[11px] c-faint ml-auto">дані: {fmtDate(c.stats_synced_at)}</span>
+          <span className="text-[11px] c-faint ml-auto">
+            {finalStats ? 'фінальні дані на ' : ended ? 'останні дані: ' : 'дані: '}
+            {fmtDate(c.stats_synced_at)}
+          </span>
         )}
       </div>
     </article>

@@ -1,9 +1,9 @@
-import { useEffect, useMemo, useState } from 'react'
-import { fetchTournaments, fetchTournamentHistory, fetchTournamentFeeHistory, fetchParticipantSnapshots, fetchRankPoints, fetchOkxActiveAsTournaments, fetchOkxEndedAsTournaments, fetchOkxHistory, subscribeTournamentVolume } from '../lib/tournamentsApi'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { fetchTournaments, fetchTournamentsByIds, fetchTournamentHistory, fetchTournamentHistories, fetchTournamentFeeHistory, fetchParticipantSnapshots, fetchRankPointRows, groupRankPoints, fetchOkxActiveAsTournaments, fetchOkxEndedAsTournaments, fetchOkxByIdsAsTournaments, fetchOkxHistory, fetchOkxHistories, subscribeTournamentVolume } from '../lib/tournamentsApi'
 import { supaRoma } from '../lib/supabaseRoma'
 import { buildRankCurve, tierForRank, exactTierByVolume } from '../lib/rankCurve'
 import { flashReward } from '../lib/flashMath'
-import { fetchFeeTiers } from '../lib/okxApi'
+import { fetchFeeTiers, subscribeOkxVolume } from '../lib/okxApi'
 import OkxProfitCalculator from './OkxProfitCalculator'
 import FlashEarnCalculator from './FlashEarnCalculator'
 import './TournamentsLive.css'
@@ -750,7 +750,11 @@ function EndedCard({ t, history, feeHist, rankPoints, onCalc }) {
   )
 }
 
-export default function TournamentsLive() {
+// Стеля серії історії у фронта — та сама, що в одного запиту PostgREST (1000 рядків).
+const HIST_CAP = 1000
+
+// onOkxLive(bool) — для пульса «LIVE» у шапці /live (Live.jsx), див. нижче.
+export default function TournamentsLive({ onOkxLive }) {
   const [items, setItems] = useState([])
   const [histById, setHistById] = useState({})
   const [feeHistById, setFeeHistById] = useState({})
@@ -767,36 +771,192 @@ export default function TournamentsLive() {
     setTimeout(() => document.getElementById('tl-fullcalc')?.scrollIntoView({ behavior: 'smooth' }), 60)
   }
 
-  async function load() {
-    const [fresh, okxActive, okxEnded] = await Promise.all([fetchTournaments(), fetchOkxActiveAsTournaments().catch(() => []), fetchOkxEndedAsTournaments().catch(() => [])])
-    const all = [...fresh, ...okxActive, ...okxEnded]
-    setItems(all)
-    const hs = {}
-    await Promise.all(all.map(async (t) => {
-      hs[t.id] = t.okxId != null ? await fetchOkxHistory(t.okxId).catch(() => []) : await fetchTournamentHistory(t.id).catch(() => [])
-    }))
-    setHistById(hs)
-    fetchParticipantSnapshots().then(setPartSnap).catch(() => {})
-    fetchRankPoints().then(setRankPts).catch(() => {})
-    // Історія комси — лише для завершених турнірів нової моделі (для «сер. комса 24г»).
-    const endedNew = all.filter((t) => t.okxId == null && (t.status === 'ended' || (t.end_at && new Date(t.end_at).getTime() <= Date.now())))
-    if (endedNew.length) {
-      const fh = {}
-      await Promise.all(endedNew.map(async (t) => { fh[t.id] = await fetchTournamentFeeHistory(t.id).catch(() => []) }))
-      setFeeHistById((prev) => ({ ...prev, ...fh }))
+  // ЕГРЕС (08.10.2026 ROMA Free вибрала квоту й тиждень віддавала 402): одна відкрита
+  // вкладка /live щохвилини качала 54 запити / ~1,6 МБ, з них ~95% — незмінна історія
+  // ЗАВЕРШЕНИХ турнірів. Тепер усе, що вже не міняється, качаємо раз на маунт і тримаємо
+  // тут, а таймер тягне лише те, що може змінитись, і лише НОВЕ:
+  //  • lists — картки. Завершені рядки (status='ended') — раз; таймер тягне лише
+  //    незавершені. t/o: id → картка (нові турніри / okx_campaigns); t = null — повного
+  //    списку ще нема; oEnded — список завершених OKX уже є. Realtime патчить і їх.
+  //  • hist — id → {at, rows}: рядки історії з БД (за зростанням), at — vol.updated_at на
+  //    момент фетчу. Живі серії після першого фетчу лише ДОКАЧУЄМО (рядки, новіші за
+  //    останній). Завершена, у якої штамп стоїть, — заморожена, не качаємо взагалі; поки
+  //    поллер дознімає фінал (30-хв грейс, досетлінг flash), штамп рухається → докачуємо.
+  //  • fee — id → рядки історії комси завершених (раз).
+  // Без цього кожен тік тягнув би ВСЮ історію живих і списки «всіх турнірів за весь час»:
+  // обидва ростуть лінійно й вічно (таблиці не чистяться) — це відкладало б катастрофу.
+  const lists = useRef({ t: null, o: new Map(), oEnded: false })
+  const cache = useRef({ hist: {}, fee: {} })
+  const rankRows = useRef([]) // точки кривої рангу, найсвіжіші першими
+  const inflight = useRef(null)
+  const lastLoad = useRef(0)
+
+  // Таймер, повернення на вкладку й маунт не качають двічі паралельно — чекають той самий прохід.
+  // Прохід ЗАВЖДИ закінчується: кожен запит має 30-с дедлайн (tournamentsApi), а зверху —
+  // 90-с стеля на весь прохід. Без неї один завислий запит назавжди лишив би inflight
+  // зайнятим, і сторінка більше не оновилась би (у самоплановому циклі кожен await — з дедлайном).
+  function load() {
+    if (!inflight.current) {
+      let timer
+      const cap = new Promise((_, reject) => { timer = setTimeout(() => reject(new Error('[tournaments] прохід довше 90 с')), 90_000) })
+      inflight.current = Promise.race([refresh(), cap]).finally(() => { clearTimeout(timer); inflight.current = null })
     }
+    return inflight.current
+  }
+
+  // Картка, що випала з активних, перечитується за id ОДИН раз: завершилась → далі живе в
+  // кеші зі своїм фінальним рядком; сховали (watch=false / скип) → рядка нема, зникає, як
+  // і раніше. Пачка впала → лишаємо як є, наступний тік спробує знову.
+  async function refreshLists() {
+    const L = lists.current
+    const [tRows, oAct, oEnd] = await Promise.all([
+      fetchTournaments({ activeOnly: L.t != null }),
+      fetchOkxActiveAsTournaments().catch(() => null), // збій → лишаємо попередні картки
+      L.oEnded ? null : fetchOkxEndedAsTournaments().catch(() => null),
+    ])
+    const dropT = []
+    const dropO = []
+    if (L.t == null) L.t = new Map(tRows.map((t) => [t.id, t]))
+    else {
+      const seen = new Set(tRows.map((t) => t.id))
+      for (const t of L.t.values()) if (t.status !== 'ended' && !seen.has(t.id)) dropT.push(t.id)
+      for (const t of tRows) L.t.set(t.id, t)
+    }
+    if (oEnd) { for (const t of oEnd) L.o.set(t.id, t); L.oEnded = true }
+    if (oAct) {
+      const seen = new Set(oAct.map((t) => t.id))
+      for (const t of L.o.values()) if (t.status !== 'ended' && !seen.has(t.id)) dropO.push(t.okxId)
+      for (const t of oAct) L.o.set(t.id, t)
+    }
+    const [rt, ro] = await Promise.all([
+      dropT.length ? fetchTournamentsByIds(dropT) : null,
+      dropO.length ? fetchOkxByIdsAsTournaments(dropO) : null,
+    ])
+    if (rt) { for (const id of rt.checked) L.t.delete(id); for (const t of rt.rows) L.t.set(t.id, t) }
+    if (ro) { for (const id of ro.checked) L.o.delete(`okx-${id}`); for (const t of ro.rows) L.o.set(t.id, t) }
+    // Порядок — як віддавали запити: турніри за end_at ↑, далі активні OKX ↑, завершені OKX ↓.
+    const endMs = (t) => (t.end_at ? Date.parse(t.end_at) : Infinity)
+    const okx = [...L.o.values()]
+    return [
+      ...[...L.t.values()].sort((a, b) => endMs(a) - endMs(b)),
+      ...okx.filter((t) => t.status !== 'ended').sort((a, b) => endMs(a) - endMs(b)),
+      ...okx.filter((t) => t.status === 'ended').sort((a, b) => endMs(b) - endMs(a)),
+    ]
+  }
+
+  async function refresh() {
+    lastLoad.current = Date.now()
+    const all = await refreshLists()
+    setItems(all)
+    // «Завершений» — той самий предикат, що кладе картку в «Завершені» (state), а НЕ
+    // колонка status: її поллер перемикає лише через ~30 хв після end_at.
+    const ts = Date.now()
+    const isEnded = (t) => state(t, ts) === 'ended'
+    const liveNewIds = all.filter((t) => t.okxId == null && !isEnded(t)).map((t) => t.id)
+    if (liveNewIds.length) fetchParticipantSnapshots(liveNewIds).then((s) => setPartSnap((p) => ({ ...p, ...s }))).catch(() => {})
+    loadRankPoints().catch(() => {})
+    const C = cache.current
+    const stamp = (t) => t.vol?.updated_at ?? null
+    const has = (t) => C.hist[t.id]?.rows.length > 0
+    const sk = (t) => (t.okxId != null ? t.okxId : t.id) // ключ серії в таблиці історії
+    const todo = all.filter((t) => !(isEnded(t) && C.hist[t.id] && C.hist[t.id].at === stamp(t)))
+    const at = Object.fromEntries(todo.map((t) => [t.id, stamp(t)])) // штамп ДО фетчу
+    // Збій (rows нема) НЕ морозимо і не чіпаємо — повторимо наступного разу.
+    const save = (t, rows, append) => {
+      if (!rows) return
+      C.hist[t.id] = { at: at[t.id], rows: append ? [...C.hist[t.id].rows, ...rows].slice(-HIST_CAP) : rows }
+    }
+    // Пачкою (in() по 20): append — лише рядки, новіші за останній відомий (since).
+    const batch = (list, append) => Promise.all([
+      [list.filter((t) => t.okxId == null), fetchTournamentHistories],
+      [list.filter((t) => t.okxId != null), fetchOkxHistories],
+    ].map(async ([part, fetcher]) => {
+      if (!part.length) return
+      const since = append ? Object.fromEntries(part.map((t) => { const r = C.hist[t.id].rows; return [sk(t), r[r.length - 1].observed_at] })) : null
+      const got = await fetcher(part.map(sk), since)
+      for (const t of part) save(t, got[sk(t)], append)
+    }))
+    const needFee = all.filter((t) => isEnded(t) && t.okxId == null && !C.fee[t.id])
+    await Promise.all([
+      batch(todo.filter((t) => !isEnded(t) && !has(t)), false), // живі вперше — цілком
+      batch(todo.filter(has), true), // живі й завершені, що ще дописуються, — лише нове
+      // Завершені вперше — поштучно й паралельно (точна стеля 1000 на серію; раз на маунт).
+      ...todo.filter((t) => isEnded(t) && !has(t)).map(async (t) => {
+        save(t, await (t.okxId != null ? fetchOkxHistory(t.okxId) : fetchTournamentHistory(t.id)).catch(() => null), false)
+      }),
+      // Історія комси — лише для завершених турнірів нової моделі (для «сер. комса 24г»).
+      // У середнє йдуть точки до end_at, тож після кінця вона вже не зміниться → раз.
+      ...needFee.map(async (t) => {
+        const rows = await fetchTournamentFeeHistory(t.id).catch(() => null)
+        if (rows) C.fee[t.id] = rows
+      }),
+    ])
+    // Не дістали (збій пачки) — лишаємо попередній графік, а не гасимо його до наступного тіку.
+    setHistById((prev) => Object.fromEntries(all.map((t) => [t.id, C.hist[t.id]?.rows || prev[t.id] || []])))
+    if (needFee.length) setFeeHistById({ ...C.fee })
+  }
+
+  // Точки кривої рангу лише ДОПИСУЮТЬСЯ (зонди, перевірки гаманців) — старі не міняються.
+  // Тож після першого фетчу докачуємо тільки нові (з перекриттям 5 хв на коміти, що
+  // запізнились; дублі відсікаємо), а не всі ~1000 точок (~150 КБ) щоразу.
+  async function loadRankPoints() {
+    const prev = rankRows.current
+    const since = prev.length ? new Date(new Date(prev[0].observed_at).getTime() - 5 * 60_000).toISOString() : null
+    const rows = await fetchRankPointRows(since)
+    const key = (r) => `${r.tournament_id}|${r.rank}|${r.observed_at}`
+    const seen = new Set(prev.map(key))
+    const add = rows.filter((r) => !seen.has(key(r)))
+    if (prev.length && !add.length) return
+    // та сама стеля, що й у свіжого фетчу: 1000 найсвіжіших точок по всіх турнірах
+    const merged = [...add, ...prev].sort((a, b) => new Date(b.observed_at) - new Date(a.observed_at)).slice(0, 1000)
+    rankRows.current = merged
+    setRankPts(groupRankPoints(merged))
   }
 
   useEffect(() => {
     let cancelled = false
     ;(async () => { try { await load(); const ft = await fetchFeeTiers().catch(() => []); if (!cancelled) setFeeTiers(ft) } catch (e) { console.error('[tournaments]', e) } finally { if (!cancelled) setLoading(false) } })()
+    // Realtime патчить і кеш списків (lists): завершені рядки REST більше не перечитує, і
+    // без цього наступний прохід повернув би картці старий знімок.
     const ch = subscribeTournamentVolume((row) => {
+      const L = lists.current
+      const c = L.t?.get(row.tournament_id)
+      if (c) L.t.set(c.id, { ...c, vol: row })
       setItems((prev) => prev.map((t) => (t.id === row.tournament_id ? { ...t, vol: row } : t)))
       setHistById((h) => ({ ...h, [row.tournament_id]: [...(h[row.tournament_id] || []), { total_volume: row.total_volume, min_rank_volume: row.min_rank_volume, observed_at: row.updated_at }].slice(-3000) }))
     })
-    const poll = setInterval(() => load().catch(() => {}), 60_000)
+    // Те саме для OKX-кампаній (okx_campaigns → картки `okx-<id>`): поллер пише okx_volume
+    // ~раз на 45 с (досетлінг завершених flash — і після кінця). Без цього обсяг, «+дельти»,
+    // хвіст графіка, «оновлено N хв тому» і повний калькулятор живої OKX-кампанії
+    // відставали б на весь 5-хв інтервал опиту.
+    const chOkx = subscribeOkxVolume((row) => {
+      const id = `okx-${row.campaign_id}`
+      const patch = (t) => ({
+        ...t,
+        vol: { total_volume: row.total_volume, participants: row.participants, min_rank_volume: null, token_price_usd: row.token_price_usd, updated_at: row.updated_at },
+        _raw: { ...t._raw, okx_volume: row },
+      })
+      const L = lists.current
+      if (L.o.has(id)) L.o.set(id, patch(L.o.get(id)))
+      setItems((prev) => prev.map((t) => (t.id === id ? patch(t) : t)))
+      setCalcFor((c) => (c && c.id === row.campaign_id ? { ...c, okx_volume: row } : c))
+      setHistById((h) => (h[id] ? { ...h, [id]: [...h[id], { total_volume: row.total_volume, observed_at: row.updated_at }].slice(-3000) } : h))
+    })
+    // Опитування — лише ФОЛБЕК і НЕ частіше 5 хв. Живе значення приносить Realtime
+    // (tournament_volume і okx_volume вище), а нове в історії частіше не буває: OKX публікує
+    // обсяг на 5-хв межі, поллер пише історію раз на 5–10 хв — щохвилинний опит 4 рази з 5
+    // качав ті самі байти. Прихована вкладка не качає нічого (як у Stats), а при поверненні
+    // на неї — одне оновлення одразу (якщо останнє було понад хвилину тому). Не повертати 60 с.
+    const poll = setInterval(() => {
+      if (typeof document !== 'undefined' && document.visibilityState !== 'visible') return
+      load().catch(() => {})
+    }, 5 * 60_000)
+    const onVis = () => {
+      if (document.visibilityState === 'visible' && Date.now() - lastLoad.current > 60_000) load().catch(() => {})
+    }
+    document.addEventListener('visibilitychange', onVis)
     const tick = setInterval(() => setNow(Date.now()), 1000)
-    return () => { cancelled = true; supaRoma.removeChannel(ch); clearInterval(poll); clearInterval(tick) }
+    return () => { cancelled = true; supaRoma.removeChannel(ch); supaRoma.removeChannel(chOkx); clearInterval(poll); clearInterval(tick); document.removeEventListener('visibilitychange', onVis) }
   }, [])
 
   const shown = useMemo(() => items.filter((t) => filter === 'all' || t.market === filter), [items, filter])
@@ -805,6 +965,10 @@ export default function TournamentsLive() {
   const active = useMemo(() => shown.filter((t) => state(t, now) !== 'ended').sort(byVenue), [shown, now])
   const ended = useMemo(() => shown.filter((t) => state(t, now) === 'ended').sort(byVenue), [shown, now])
   const counts = useMemo(() => ({ all: items.length, cex: items.filter((t) => t.market === 'cex').length, dex: items.filter((t) => t.market === 'dex').length }), [items])
+  // Пульс «LIVE» у шапці (Live.jsx) горить, поки йде хоч одна OKX-кампанія. Рахуємо з уже
+  // завантаженого тут, щоб шапка не качала okx_campaigns удруге (раніше — окремий select('*')).
+  const okxLive = items.some((t) => t.okxId != null && state(t, now) === 'live')
+  useEffect(() => { onOkxLive?.(okxLive) }, [okxLive, onOkxLive])
 
   return (
     <div className="tl">

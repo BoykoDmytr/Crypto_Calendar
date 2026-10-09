@@ -1,11 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
-import {
-  fetchOkxCampaigns,
-  fetchVolumeHistory,
-  fetchFeeTiers,
-  subscribeOkxVolume,
-} from '../lib/okxApi'
-import { supaRoma } from '../lib/supabaseRoma'
+import { useMemo, useState } from 'react'
 import OkxProfitCalculator from '../components/OkxProfitCalculator'
 import FlashEarnCalculator from '../components/FlashEarnCalculator'
 import Claims from './Claims'
@@ -210,135 +203,13 @@ function Sparkline({ points }) {
 
 export default function Live() {
   const [tab, setTab] = useState('tournaments')
-  const [campaigns, setCampaigns] = useState([])
-  const [feeTiers, setFeeTiers] = useState([])
-  const [history, setHistory] = useState([])
-  const [selectedId, setSelectedId] = useState(null)
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState(null)
-  const [now, setNow] = useState(() => Date.now())
-  const selectedIdRef = useRef(null)
-  selectedIdRef.current = selectedId
-
-  async function loadCampaigns() {
-    const rows = await fetchOkxCampaigns()
-    setCampaigns((prev) => {
-      const prevById = new Map(prev.map((c) => [c.id, c]))
-      return rows.map((c) => {
-        // не відкочуємо свіжіший realtime-знімок старішою REST-відповіддю
-        const old = prevById.get(c.id)?.okx_volume
-        const fresh = c.okx_volume
-        if (old?.updated_at && (!fresh?.updated_at || new Date(old.updated_at) > new Date(fresh.updated_at))) {
-          return { ...c, okx_volume: old }
-        }
-        return c
-      })
-    })
-    setSelectedId((prev) => {
-      if (prev && rows.some((c) => c.id === prev)) return prev
-      const nowTs = Date.now()
-      const live = rows.find((c) => campaignState(c, nowTs) === 'live')
-      return (live || rows[0])?.id ?? null
-    })
-    setError(null) // транзієнтний збій першого завантаження не має блокувати сторінку назавжди
-  }
-
-  async function refreshHistory() {
-    const id = selectedIdRef.current
-    if (!id) return
-    try {
-      setHistory(await fetchVolumeHistory(id))
-    } catch {
-      /* not fatal — realtime/поллінг доженуть */
-    }
-  }
-
-  useEffect(() => {
-    let cancelled = false
-    ;(async () => {
-      setLoading(true)
-      try {
-        await loadCampaigns()
-        if (!cancelled) setFeeTiers(await fetchFeeTiers())
-      } catch (e) {
-        console.error('[live] load failed', e)
-        if (!cancelled) setError(e?.message || String(e))
-      } finally {
-        if (!cancelled) setLoading(false)
-      }
-    })()
-
-    // Realtime: нові знімки обсягу приходять без рефрешу
-    const channel = subscribeOkxVolume((row) => {
-      setCampaigns((prev) =>
-        prev.map((c) => (c.id === row.campaign_id ? { ...c, okx_volume: row } : c)),
-      )
-      if (row.campaign_id === selectedIdRef.current) {
-        // тримаємо глибину ≥24 год (для дельти «за 1 день»); realtime додає точки
-        // частіше за БД-історію → дельти стають точнішими під час живої сесії
-        setHistory((h) =>
-          [...h, {
-            total_volume: row.total_volume,
-            raw_volume: row.raw_volume ?? null,
-            observed_at: row.updated_at,
-          }].slice(-360),
-        )
-      }
-    })
-
-    // фолбек, якщо realtime відвалиться + пере-фетч при поверненні на вкладку
-    // (історію теж, інакше після сну/бекграунду sparkline і «▲ за 5 хв» застигають)
-    const poll = setInterval(() => {
-      loadCampaigns().catch(() => {})
-      refreshHistory()
-    }, 60_000)
-    const onVis = () => {
-      if (!document.hidden) {
-        loadCampaigns().catch(() => {})
-        refreshHistory()
-      }
-    }
-    document.addEventListener('visibilitychange', onVis)
-
-    return () => {
-      cancelled = true
-      supaRoma.removeChannel(channel)
-      clearInterval(poll)
-      document.removeEventListener('visibilitychange', onVis)
-    }
-  }, [])
-
-  // історія для вибраного турніру
-  useEffect(() => {
-    if (!selectedId) return
-    let cancelled = false
-    fetchVolumeHistory(selectedId)
-      .then((h) => {
-        if (!cancelled) setHistory(h)
-      })
-      .catch(() => {})
-    return () => {
-      cancelled = true
-    }
-  }, [selectedId])
-
-  // секундний тік для "оновлено N с тому" / countdown
-  useEffect(() => {
-    const t = setInterval(() => setNow(Date.now()), 1000)
-    return () => clearInterval(t)
-  }, [])
-
-  const selected = useMemo(
-    () => campaigns.find((c) => c.id === selectedId) || null,
-    [campaigns, selectedId],
-  )
-  const others = useMemo(
-    () => campaigns.filter((c) => c.id !== selectedId),
-    [campaigns, selectedId],
-  )
-
-  const anyLive = campaigns.some((c) => campaignState(c, now) === 'live')
-  const liveCount = campaigns.filter((c) => campaignState(c, now) === 'live').length
+  // Пульс «LIVE» біля заголовка: чи йде зараз хоч одна OKX-кампанія. Рахує TournamentsLive
+  // з того, що вже завантажив. ЕГРЕС (09.10.2026): раніше сторінка сама тягнула ще
+  // select('*') усіх okx_campaigns, історію вибраної кампанії (300 рядків) і fee_tiers на
+  // кожен опит і повернення на вкладку — лише щоб засвітити цю крапку: SelectedPanel/MiniRow
+  // нижче ніде не змонтовані, ті дані ніхто не бачив (~46 КБ на прохід). Якщо повертати
+  // панель — повертати й її фетчі, з видимістю вкладки і 5-хв кроком, як у TournamentsLive.
+  const [anyLive, setAnyLive] = useState(false)
 
   return (
     <div className="live">
@@ -379,7 +250,7 @@ export default function Live() {
         </button>
       </div>
 
-      {tab === 'tournaments' && <TournamentsLive />}
+      {tab === 'tournaments' && <TournamentsLive onOkxLive={setAnyLive} />}
 
       {tab === 'claims' && <Claims />}
     </div>
