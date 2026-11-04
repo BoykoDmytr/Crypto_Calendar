@@ -2,7 +2,7 @@ import { toBaseUnits } from './utils/tokenAmount';
 
 export const TG_OWNER_URL = 'https://t.me/romasya06';
 export const TG_DEV_URL   = 'https://t.me/BoychikTheBest';
-export const TG_chanel_URL = 'https://t.me/cryptohornettg';
+export const TG_chanel_URL = 'https://t.me/cryptohornetg';
 
 function parseIntegerEnv(value, fallback) {
   if (value === undefined || value === null || value === '') {

@@ -141,7 +141,7 @@ VITE_AIRDROP_EXPLORER_BASE_URL=https://etherscan.io
 SUPABASE_URL=...
 SUPABASE_SERVICE_ROLE_KEY=...
 TELEGRAM_BOT_TOKEN=...
-TELEGRAM_SOURCE_CHANNEL=@cryptohornettg
+TELEGRAM_SOURCE_CHANNEL=@cryptohornetg
 ADMIN_BOT_CHAT_ID=...
 ```
 
@@ -175,7 +175,7 @@ PR-и вітаються. Будь ласка:
 
 ## Контакти
 
-- Telegram канал: [@cryptohornettg](https://t.me/cryptohornettg)
+- Telegram канал: [@cryptohornetg](https://t.me/cryptohornetg)
 - Owner: [@romasya06](https://t.me/romasya06)
 - Dev: [@BoychikTheBest](https://t.me/BoychikTheBest)
 

@@ -188,7 +188,7 @@ export default function MonthCalendar() {
         )}
       </div>
     {/* ✅ Telegram CTA — перед заголовком «Події на …» */}
-    <TelegramCTA communityHref={import.meta.env.VITE_TG_CHANNEL_URL || 'https://t.me/cryptohornettg'} />
+    <TelegramCTA communityHref={import.meta.env.VITE_TG_CHANNEL_URL || 'https://t.me/cryptohornetg'} />
     </div>
   );
 }
