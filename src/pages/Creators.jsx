@@ -74,7 +74,8 @@ function CampaignCard({ c }) {
   const finalStats = ended && c.stats_synced_at && Date.parse(c.stats_synced_at) >= Date.parse(c.ends_at)
   const meta = exchangeMeta(c.exchange)
   // Акції без постів (депозит/спіни), де біржа сама рахує реєстрації: колектор
-  // promo-radar кладе учасників у unique_authors, а posts_observed лишає порожнім.
+  // promo-radar кладе учасників у unique_authors, а прокрути колеса — у posts_observed
+  // (блок «постів/авторів» для такої картки не показуємо).
   const isParticipants = c.track_source === 'binance-participants'
   const hasStats = !isParticipants && c.posts_observed != null
   const steps = Array.isArray(c.steps) ? c.steps : []
@@ -216,6 +217,23 @@ function CampaignCard({ c }) {
             {!ended && c.authors_today != null && c.authors_today > 0 && (
               <span className="text-emerald-500 whitespace-nowrap" title="Нові учасники з 03:00 за Києвом">
                 +{c.authors_today} сьогодні
+              </span>
+            )}
+            {/* Прокрути колеса: для цього типу картки колектор кладе їх у posts_observed
+                (сума використаних спроб за всіма завданнями — офіційні дані біржі). */}
+            {c.posts_observed != null && (
+              <span
+                className="whitespace-nowrap inline-flex items-center gap-1.5"
+                title="Скільки разів крутили колесо — усі учасники разом, офіційні дані біржі"
+              >
+                <Icon name="ticket" className="c-faint" />
+                <b className="c-strong tabular-nums">{Number(c.posts_observed).toLocaleString('uk-UA')}</b>
+                <span className="c-muted">прокрутів</span>
+              </span>
+            )}
+            {!ended && c.posts_observed != null && c.posts_today != null && c.posts_today > 0 && (
+              <span className="text-emerald-500 whitespace-nowrap" title="Прокрути з 03:00 за Києвом">
+                +{c.posts_today} сьогодні
               </span>
             )}
           </div>
