@@ -73,7 +73,10 @@ function CampaignCard({ c }) {
   // упав раніше (402 бази, збій колектора), цифра не фінальна — так і пишемо.
   const finalStats = ended && c.stats_synced_at && Date.parse(c.stats_synced_at) >= Date.parse(c.ends_at)
   const meta = exchangeMeta(c.exchange)
-  const hasStats = c.posts_observed != null
+  // Акції без постів (депозит/спіни), де біржа сама рахує реєстрації: колектор
+  // promo-radar кладе учасників у unique_authors, а posts_observed лишає порожнім.
+  const isParticipants = c.track_source === 'binance-participants'
+  const hasStats = !isParticipants && c.posts_observed != null
   const steps = Array.isArray(c.steps) ? c.steps : []
   const hashtags = Array.isArray(c.hashtags) ? c.hashtags : []
   const tiers = Array.isArray(c.reward_tiers) ? c.reward_tiers : []
@@ -198,6 +201,26 @@ function CampaignCard({ c }) {
 
       {/* нагорода: головна цифра великим, деталі дрібніше, курс окремим рядком */}
       <RewardBlock reward={c.reward} tiers={tiers} slots={c.slots} accent={meta.color} />
+
+      {isParticipants && c.unique_authors != null && (
+        <div className="rounded-xl px-3 py-2.5 c-panel">
+          <div className="flex flex-wrap gap-x-4 gap-y-1 text-sm">
+            <span
+              className="whitespace-nowrap inline-flex items-center gap-1.5"
+              title="Скільки людей зареєструвалися в акції — офіційний лічильник біржі"
+            >
+              <Icon name="users" className="c-faint" />
+              <b className="c-strong tabular-nums">{Number(c.unique_authors).toLocaleString('uk-UA')}</b>
+              <span className="c-muted">учасників</span>
+            </span>
+            {!ended && c.authors_today != null && c.authors_today > 0 && (
+              <span className="text-emerald-500 whitespace-nowrap" title="Нові учасники з 03:00 за Києвом">
+                +{c.authors_today} сьогодні
+              </span>
+            )}
+          </div>
+        </div>
+      )}
 
       {hasStats && (
         <div className="rounded-xl px-3 py-2.5 c-panel">
