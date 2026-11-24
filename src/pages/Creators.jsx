@@ -61,6 +61,62 @@ function readableOn(hex) {
   return (0.299 * r + 0.587 * g + 0.114 * b) / 255 > 0.6 ? '#0B1020' : '#FFFFFF'
 }
 
+// «1 прокрут / 2 прокрути / 5 прокрутів»
+function spinWord(n) {
+  const v = Math.abs(Number(n)) % 100
+  const d = v % 10
+  if (v > 10 && v < 20) return 'прокрутів'
+  if (d === 1) return 'прокрут'
+  if (d >= 2 && d <= 4) return 'прокрути'
+  return 'прокрутів'
+}
+
+// Що випадає на колесі: одна тонка смужка-розклад і легенда «назва · % · скільки».
+// Частки — від усіх прокрутів усіх учасників (не обіцянка біржі, а факт видачі).
+const WHEEL_PARTS = [
+  { key: 'ticket', label: 'Лише квиток', color: '#94A3B8', hint: 'Випав лише квиток на фінальний розіграш' },
+  { key: 'usdc', label: 'USDC', color: '#10B981', hint: 'Випали USDC (3–1000)' },
+  { key: 'merch', label: 'Мерч', color: '#38BDF8', hint: 'Випав мерч Binance' },
+]
+
+function WheelOdds({ wheel }) {
+  const spins = Number(wheel && wheel.spins) || 0
+  if (!spins) return null
+  const count = (k) => (k === 'merch' ? Number(wheel.merch && wheel.merch.given) || 0 : Number(wheel[k]) || 0)
+  const pct = (n) => Math.round((n / spins) * 100)
+  return (
+    <div className="mt-2.5">
+      <div className="text-[11px] c-muted mb-1.5">Що випадає на колесі</div>
+      <div className="flex h-1.5 rounded-full overflow-hidden c-bar" aria-hidden="true">
+        {WHEEL_PARTS.map((p) => {
+          const n = count(p.key)
+          return n > 0 ? (
+            <div key={p.key} style={{ width: `${(n / spins) * 100}%`, background: p.color }} />
+          ) : null
+        })}
+      </div>
+      <div className="mt-2 grid grid-cols-3 gap-2 text-[12px]">
+        {WHEEL_PARTS.map((p) => {
+          const n = count(p.key)
+          const total = p.key === 'merch' ? Number(wheel.merch && wheel.merch.total) || 0 : 0
+          return (
+            <div key={p.key} className="min-w-0" title={p.hint}>
+              <div className="flex items-center gap-1.5 c-muted whitespace-nowrap">
+                <span className="w-2 h-2 rounded-full shrink-0" style={{ background: p.color }} />
+                {p.label}
+              </div>
+              <div className="mt-0.5 whitespace-nowrap">
+                <b className="c-strong tabular-nums text-sm">{pct(n)}%</b>
+                <span className="c-faint tabular-nums"> · {n.toLocaleString('uk-UA')}{total ? ` з ${total}` : ''}</span>
+              </div>
+            </div>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
 function CampaignCard({ c }) {
   const [stepsOpen, setStepsOpen] = useState(false)
   const left = timeLeft(c.ends_at)
@@ -203,40 +259,27 @@ function CampaignCard({ c }) {
       {/* нагорода: головна цифра великим, деталі дрібніше, курс окремим рядком */}
       <RewardBlock reward={c.reward} tiers={tiers} slots={c.slots} accent={meta.color} />
 
-      {isParticipants && c.unique_authors != null && (
+      {/* Колесо: прокрути + що реально випадає (частки від усіх прокрутів, офіційні
+          дані біржі; колектор promo-radar кладе розклад у track_config.wheel). Кількість
+          зареєстрованих свідомо не показуємо — власник прибрав її 25.11.2026. */}
+      {isParticipants && c.posts_observed != null && (
         <div className="rounded-xl px-3 py-2.5 c-panel">
-          <div className="flex flex-wrap gap-x-4 gap-y-1 text-sm">
+          <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1 text-sm">
             <span
               className="whitespace-nowrap inline-flex items-center gap-1.5"
-              title="Скільки людей зареєструвалися в акції — офіційний лічильник біржі"
+              title="Скільки разів крутили колесо — усі учасники разом, офіційні дані біржі"
             >
-              <Icon name="users" className="c-faint" />
-              <b className="c-strong tabular-nums">{Number(c.unique_authors).toLocaleString('uk-UA')}</b>
-              <span className="c-muted">учасників</span>
+              <Icon name="ticket" className="c-faint" />
+              <b className="c-strong tabular-nums">{Number(c.posts_observed).toLocaleString('uk-UA')}</b>
+              <span className="c-muted">{spinWord(c.posts_observed)}</span>
             </span>
-            {!ended && c.authors_today != null && c.authors_today > 0 && (
-              <span className="text-emerald-500 whitespace-nowrap" title="Нові учасники з 03:00 за Києвом">
-                +{c.authors_today} сьогодні
-              </span>
-            )}
-            {/* Прокрути колеса: для цього типу картки колектор кладе їх у posts_observed
-                (сума використаних спроб за всіма завданнями — офіційні дані біржі). */}
-            {c.posts_observed != null && (
-              <span
-                className="whitespace-nowrap inline-flex items-center gap-1.5"
-                title="Скільки разів крутили колесо — усі учасники разом, офіційні дані біржі"
-              >
-                <Icon name="ticket" className="c-faint" />
-                <b className="c-strong tabular-nums">{Number(c.posts_observed).toLocaleString('uk-UA')}</b>
-                <span className="c-muted">прокрутів</span>
-              </span>
-            )}
-            {!ended && c.posts_observed != null && c.posts_today != null && c.posts_today > 0 && (
+            {!ended && c.posts_today != null && c.posts_today > 0 && (
               <span className="text-emerald-500 whitespace-nowrap" title="Прокрути з 03:00 за Києвом">
                 +{c.posts_today} сьогодні
               </span>
             )}
           </div>
+          <WheelOdds wheel={c.track_config && c.track_config.wheel} />
         </div>
       )}
 
