@@ -72,7 +72,8 @@ function spinWord(n) {
 }
 
 // Що випадає на колесі: одна тонка смужка-розклад і легенда «назва · % · скільки».
-// Частки — від усіх прокрутів усіх учасників (не обіцянка біржі, а факт видачі).
+// Частки — від прокрутів усіх учасників. Квитки й мерч — точна видача з запасу Binance;
+// якщо wheel.est, прокрути й USDC — оцінка (Binance рахує лише нараховані спроби).
 const WHEEL_PARTS = [
   { key: 'ticket', label: 'Лише квиток', color: '#94A3B8', hint: 'Випав лише квиток на фінальний розіграш' },
   { key: 'usdc', label: 'USDC', color: '#10B981', hint: 'Випали USDC (3–1000)' },
@@ -86,7 +87,7 @@ function WheelOdds({ wheel }) {
   const pct = (n) => Math.round((n / spins) * 100)
   return (
     <div className="mt-2.5">
-      <div className="text-[11px] c-muted mb-1.5">Що випадає на колесі</div>
+      <div className="text-[11px] c-muted mb-1.5">Що випадає на колесі{wheel.est ? ' · оцінка' : ''}</div>
       <div className="flex h-1.5 rounded-full overflow-hidden c-bar" aria-hidden="true">
         {WHEEL_PARTS.map((p) => {
           const n = count(p.key)
@@ -107,7 +108,7 @@ function WheelOdds({ wheel }) {
               </div>
               <div className="mt-0.5 whitespace-nowrap">
                 <b className="c-strong tabular-nums text-sm">{pct(n)}%</b>
-                <span className="c-faint tabular-nums"> · {n.toLocaleString('uk-UA')}{total ? ` з ${total}` : ''}</span>
+                <span className="c-faint tabular-nums"> · {wheel.est && p.key === 'usdc' ? '≈' : ''}{n.toLocaleString('uk-UA')}{total ? ` з ${total}` : ''}</span>
               </div>
             </div>
           )
@@ -133,6 +134,8 @@ function CampaignCard({ c }) {
   // promo-radar кладе учасників у unique_authors, а прокрути колеса — у posts_observed
   // (блок «постів/авторів» для такої картки не показуємо).
   const isParticipants = c.track_source === 'binance-participants'
+  const wheel = c.track_config && c.track_config.wheel
+  const wheelEst = !!(wheel && wheel.est)
   const hasStats = !isParticipants && c.posts_observed != null
   const steps = Array.isArray(c.steps) ? c.steps : []
   const hashtags = Array.isArray(c.hashtags) ? c.hashtags : []
@@ -259,18 +262,21 @@ function CampaignCard({ c }) {
       {/* нагорода: головна цифра великим, деталі дрібніше, курс окремим рядком */}
       <RewardBlock reward={c.reward} tiers={tiers} slots={c.slots} accent={meta.color} />
 
-      {/* Колесо: прокрути + що реально випадає (частки від усіх прокрутів, офіційні
-          дані біржі; колектор promo-radar кладе розклад у track_config.wheel). Кількість
-          зареєстрованих свідомо не показуємо — власник прибрав її 25.11.2026. */}
+      {/* Колесо: прокрути + що випадає (колектор promo-radar кладе розклад у
+          track_config.wheel). Binance віддає лише НАРАХОВАНІ спроби, тож з 25.11.2026
+          прокрути й USDC — оцінка (wheel.est: квитки ÷ ймовірність квитка), квитки й
+          мерч — точні. Кількість зареєстрованих свідомо не показуємо (власник, 25.11). */}
       {isParticipants && c.posts_observed != null && (
         <div className="rounded-xl px-3 py-2.5 c-panel">
           <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1 text-sm">
             <span
               className="whitespace-nowrap inline-flex items-center gap-1.5"
-              title="Скільки разів крутили колесо — усі учасники разом, офіційні дані біржі"
+              title={wheelEst
+                ? `Оцінка реальних прокрутів: видані квитки ÷ ${Math.round((Number(wheel.p) || 0.75) * 100)}%. Binance рахує нараховані спроби (${Number(wheel.credited).toLocaleString('uk-UA')}), частину з них ще не прокрутили`
+                : 'Скільки разів крутили колесо — усі учасники разом, офіційні дані біржі'}
             >
               <Icon name="ticket" className="c-faint" />
-              <b className="c-strong tabular-nums">{Number(c.posts_observed).toLocaleString('uk-UA')}</b>
+              <b className="c-strong tabular-nums">{wheelEst ? '≈ ' : ''}{Number(c.posts_observed).toLocaleString('uk-UA')}</b>
               <span className="c-muted">{spinWord(c.posts_observed)}</span>
             </span>
             {!ended && c.posts_today != null && c.posts_today > 0 && (
@@ -279,7 +285,7 @@ function CampaignCard({ c }) {
               </span>
             )}
           </div>
-          <WheelOdds wheel={c.track_config && c.track_config.wheel} />
+          <WheelOdds wheel={wheel} />
         </div>
       )}
 
