@@ -61,59 +61,68 @@ function readableOn(hex) {
   return (0.299 * r + 0.587 * g + 0.114 * b) / 255 > 0.6 ? '#0B1020' : '#FFFFFF'
 }
 
-// «1 прокрут / 2 прокрути / 5 прокрутів»
-function spinWord(n) {
+// «1 нарахована спроба / 2 нараховані спроби / 5 нарахованих спроб»
+function attemptWord(n) {
   const v = Math.abs(Number(n)) % 100
   const d = v % 10
-  if (v > 10 && v < 20) return 'прокрутів'
-  if (d === 1) return 'прокрут'
-  if (d >= 2 && d <= 4) return 'прокрути'
-  return 'прокрутів'
+  if (v > 10 && v < 20) return 'нарахованих спроб'
+  if (d === 1) return 'нарахована спроба'
+  if (d >= 2 && d <= 4) return 'нараховані спроби'
+  return 'нарахованих спроб'
 }
 
-// Що випадає на колесі: одна тонка смужка-розклад і легенда «назва · % · скільки».
-// Частки — від прокрутів усіх учасників. Квитки й мерч — точна видача з запасу Binance;
-// якщо wheel.est, прокрути й USDC — оцінка (Binance рахує лише нараховані спроби).
-const WHEEL_PARTS = [
-  { key: 'ticket', label: 'Лише квиток', color: '#94A3B8', hint: 'Випав лише квиток на фінальний розіграш' },
-  { key: 'usdc', label: 'USDC', color: '#10B981', hint: 'Випали USDC (3–1000)' },
-  { key: 'merch', label: 'Мерч', color: '#38BDF8', hint: 'Випав мерч Binance' },
-]
+// Дві значущі цифри вниз: 6 654 → 6 600, 174 → 170 (сума «від ≈ $…» — нижня межа, тож не вгору).
+const roughly = (x) => {
+  if (!(x >= 100)) return Math.floor(x)
+  const p = Math.pow(10, Math.floor(Math.log10(x)) - 1)
+  return Math.floor(x / p) * p
+}
 
-function WheelOdds({ wheel }) {
-  const spins = Number(wheel && wheel.spins) || 0
-  if (!spins) return null
-  const count = (k) => (k === 'merch' ? Number(wheel.merch && wheel.merch.given) || 0 : Number(wheel[k]) || 0)
-  const pct = (n) => Math.round((n / spins) * 100)
+// Колесо (25.11.2026, власник: «тільки точні цифри, внизу — скільки приблизно USDC»).
+// Точні — видані квитки й мерч із запасу Binance. Скільки випадає USDC, Binance не показує
+// (і рахує лише НАРАХОВАНІ спроби, а не прокручені), тож USDC — один рядок-оцінка внизу:
+// колектор promo-radar рахує прокрути ≈ квитки ÷ p (p ≈ 0.75 з минулого колеса Binance UA з тими ж
+// призами), USDC = прокрути − квитки − мерч. Відсотків свідомо немає: з одним p на всі колеса вони
+// виходили однаковими й виглядали вигаданими.
+function WheelFacts({ wheel }) {
+  if (!wheel) return null
+  const fmt = (v) => (Number(v) || 0).toLocaleString('uk-UA')
+  const merch = wheel.merch || {}
+  const usdc = Number(wheel.usdc) || 0
+  const p = Math.round((Number(wheel.p) || 0.75) * 100)
   return (
-    <div className="mt-2.5">
-      <div className="text-[11px] c-muted mb-1.5">Що випадає на колесі{wheel.est ? ' · оцінка' : ''}</div>
-      <div className="flex h-1.5 rounded-full overflow-hidden c-bar" aria-hidden="true">
-        {WHEEL_PARTS.map((p) => {
-          const n = count(p.key)
-          return n > 0 ? (
-            <div key={p.key} style={{ width: `${(n / spins) * 100}%`, background: p.color }} />
-          ) : null
-        })}
+    <div className="mt-2.5 text-[12px] space-y-1">
+      <div className="flex items-baseline justify-between gap-3" title="Скільки разів на колесі випав квиток на фінальний розіграш — офіційні дані Binance">
+        <span className="c-muted">Видано квитків</span>
+        <span className="tabular-nums whitespace-nowrap">
+          <b className="c-strong">{fmt(wheel.ticket)}</b>
+          {Number(wheel.ticketTotal) > 0 && <span className="c-faint"> з {fmt(wheel.ticketTotal)}</span>}
+        </span>
       </div>
-      <div className="mt-2 grid grid-cols-3 gap-2 text-[12px]">
-        {WHEEL_PARTS.map((p) => {
-          const n = count(p.key)
-          const total = p.key === 'merch' ? Number(wheel.merch && wheel.merch.total) || 0 : 0
-          return (
-            <div key={p.key} className="min-w-0" title={p.hint}>
-              <div className="flex items-center gap-1.5 c-muted whitespace-nowrap">
-                <span className="w-2 h-2 rounded-full shrink-0" style={{ background: p.color }} />
-                {p.label}
-              </div>
-              <div className="mt-0.5 whitespace-nowrap">
-                <b className="c-strong tabular-nums text-sm">{pct(n)}%</b>
-                <span className="c-faint tabular-nums"> · {wheel.est && p.key === 'usdc' ? '≈' : ''}{n.toLocaleString('uk-UA')}{total ? ` з ${total}` : ''}</span>
-              </div>
-            </div>
-          )
-        })}
-      </div>
+      {Number(merch.total) > 0 && (
+        <div className="flex items-baseline justify-between gap-3" title="Скільки мерчу Binance вже випало — офіційні дані Binance">
+          <span className="c-muted">Мерч</span>
+          <span className="tabular-nums whitespace-nowrap">
+            <b className="c-strong">{fmt(merch.given)}</b>
+            <span className="c-faint"> з {fmt(merch.total)}</span>
+          </span>
+        </div>
+      )}
+      {wheel.est && (
+        <>
+          <div className="h-px c-rule !my-2" aria-hidden="true" />
+          <div
+            className="flex items-baseline justify-between gap-3"
+            title={`Binance не показує, скільки випадає USDC. Оцінка: на минулому колесі Binance UA з тими ж призами квиток випадав у ~${p}% спінів, решта — USDC. Сума — щонайменше по 3 USDC за виграш`}
+          >
+            <span className="c-muted">USDC · приблизно</span>
+            <span className="tabular-nums whitespace-nowrap">
+              <b className="c-strong">≈ {fmt(usdc)}</b>
+              <span className="c-faint"> виграшів · від ≈ ${fmt(roughly(usdc * 3))}</span>
+            </span>
+          </div>
+        </>
+      )}
     </div>
   )
 }
@@ -135,7 +144,8 @@ function CampaignCard({ c }) {
   // (блок «постів/авторів» для такої картки не показуємо).
   const isParticipants = c.track_source === 'binance-participants'
   const wheel = c.track_config && c.track_config.wheel
-  const wheelEst = !!(wheel && wheel.est)
+  // Точні нараховані спроби: з колеса, якщо є (не залежить від того, що лежить у posts_observed).
+  const attempts = wheel && wheel.credited != null ? wheel.credited : c.posts_observed
   const hasStats = !isParticipants && c.posts_observed != null
   const steps = Array.isArray(c.steps) ? c.steps : []
   const hashtags = Array.isArray(c.hashtags) ? c.hashtags : []
@@ -262,30 +272,28 @@ function CampaignCard({ c }) {
       {/* нагорода: головна цифра великим, деталі дрібніше, курс окремим рядком */}
       <RewardBlock reward={c.reward} tiers={tiers} slots={c.slots} accent={meta.color} />
 
-      {/* Колесо: прокрути + що випадає (колектор promo-radar кладе розклад у
-          track_config.wheel). Binance віддає лише НАРАХОВАНІ спроби, тож з 25.11.2026
-          прокрути й USDC — оцінка (wheel.est: квитки ÷ ймовірність квитка), квитки й
-          мерч — точні. Кількість зареєстрованих свідомо не показуємо (власник, 25.11). */}
+      {/* Колесо: лише точні цифри Binance — нараховані спроби (усі учасники разом), видані
+          квитки й мерч — і внизу один рядок «USDC · приблизно» (див. WheelFacts). Колектор
+          promo-radar кладе все в posts_observed (= нараховані) і track_config.wheel.
+          Кількість зареєстрованих свідомо не показуємо (власник, 25.11.2026). */}
       {isParticipants && c.posts_observed != null && (
         <div className="rounded-xl px-3 py-2.5 c-panel">
           <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1 text-sm">
             <span
               className="whitespace-nowrap inline-flex items-center gap-1.5"
-              title={wheelEst
-                ? `Оцінка реальних прокрутів: видані квитки ÷ ${Math.round((Number(wheel.p) || 0.75) * 100)}%. Binance рахує нараховані спроби (${Number(wheel.credited).toLocaleString('uk-UA')}), частину з них ще не прокрутили`
-                : 'Скільки разів крутили колесо — усі учасники разом, офіційні дані біржі'}
+              title="Спроби, які Binance нарахував усім учасникам за виконані завдання — офіційні дані. Частину з них ще не прокрутили"
             >
               <Icon name="ticket" className="c-faint" />
-              <b className="c-strong tabular-nums">{wheelEst ? '≈ ' : ''}{Number(c.posts_observed).toLocaleString('uk-UA')}</b>
-              <span className="c-muted">{spinWord(c.posts_observed)}</span>
+              <b className="c-strong tabular-nums">{Number(attempts).toLocaleString('uk-UA')}</b>
+              <span className="c-muted">{attemptWord(attempts)}</span>
             </span>
             {!ended && c.posts_today != null && c.posts_today > 0 && (
-              <span className="text-emerald-500 whitespace-nowrap" title="Прокрути з 03:00 за Києвом">
+              <span className="text-emerald-500 whitespace-nowrap" title="Нараховано за сьогоднішню добу UTC">
                 +{c.posts_today} сьогодні
               </span>
             )}
           </div>
-          <WheelOdds wheel={wheel} />
+          <WheelFacts wheel={wheel} />
         </div>
       )}
 
